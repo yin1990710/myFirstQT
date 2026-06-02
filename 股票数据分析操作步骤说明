@@ -1,0 +1,8 @@
+1.执行update_stock_daily.py更新最近一个交易日的日级别交易数据
+或者命令： launchctl start com.luckboy.updatestockdaily
+2.执行pinzi_analysis_tag_to_db.py给股票交易数据打标签
+3.执行select_win_win_stocks_to_db.py选择股票
+4.执行buy_stock_reports.py生成买入股票的分析报告
+5.执行generate_stock_reports.py生成选出的股票分析报告
+
+

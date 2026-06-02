@@ -1,0 +1,32 @@
+# Virtual environment
+.venv/
+venv/
+.env/
+
+# Logs
+*.log
+logs/
+cron_logs/
+
+# Output directories
+底部放量反转*/
+回测报告/
+同花顺行业分析报告/
+涨跌停*/
+每日选股报告*/
+
+# Database
+*.db
+*.sqlite
+__pycache__/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
