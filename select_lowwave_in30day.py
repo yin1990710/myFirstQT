@@ -20,7 +20,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"低波放量{target_date}"
+    folder_name = f"30天放量低波{target_date}"
     return folder_name
 
 def create_folder():
@@ -37,7 +37,7 @@ def create_folder():
 
     return folder_path
 
-def read_stock_data(days=10):
+def read_stock_data(days=45):
     connection = get_mysql_connection()
     if not connection:
         print("❌ 数据库连接失败")
@@ -53,7 +53,9 @@ def read_stock_data(days=10):
         d.open,
         d.close,
         d.amount,
-        i.total_mv
+        i.stock_name,
+        i.total_mv,
+        i.circ_mv
     FROM stock_daily_t d
     LEFT JOIN stock_info_t i ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
     WHERE d.trade_date >= %s AND d.trade_date <= %s
@@ -85,7 +87,9 @@ def analyze_stocks(data):
             'open': float(record['open'] or 0),
             'close': float(record['close'] or 0),
             'amount': float(record['amount'] or 0),
-            'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0
+            'stock_name': record.get('stock_name', ''),
+            'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0,
+            'circ_mv': float(record['circ_mv'] or 0) if record['circ_mv'] else 0
         })
 
     result = []
@@ -96,86 +100,91 @@ def analyze_stocks(data):
     count_condition4 = 0
     count_condition5 = 0
 
-    five_hundred_million_yuan = 500000000
+    fifty_hundred_million_yuan = 5000000000
 
     for ts_code, records in stock_data.items():
-        if len(records) < 10:
+        if len(records) < 30:
             continue
 
         records.sort(key=lambda x: x['trade_date'])
 
-        last_10_days = records[-10:]
+        last_30_days = records[-30:]
 
-        if len(last_10_days) < 10:
+        if len(last_30_days) < 30:
             continue
 
         count_total += 1
 
-        up_days_amount = []
-        down_days_amount = []
-
-        for r in last_10_days:
+        up_days = []
+        for r in last_30_days:
             if r['open'] < r['close']:
-                up_days_amount.append(r['amount'])
-            elif r['open'] > r['close']:
-                down_days_amount.append(r['amount'])
+                up_days.append(r)
 
-        if len(up_days_amount) < 4:
+        if len(up_days) < 7:
             continue
 
         count_condition1 += 1
 
-        if len(down_days_amount) == 0:
-            continue
+        up_days_with_high_ratio = []
+        for r in up_days:
+            if r['circ_mv'] > 0:
+                ratio = (r['amount'] * 1000) / r['circ_mv']
+                if ratio > 0.1:
+                    up_days_with_high_ratio.append(r)
 
-        avg_up_amount = sum(up_days_amount) / len(up_days_amount)
-        avg_down_amount = sum(down_days_amount) / len(down_days_amount)
-
-        if avg_down_amount == 0:
-            continue
-
-        if avg_up_amount <= avg_down_amount * 1.3:
+        if len(up_days_with_high_ratio) < 2:
             continue
 
         count_condition2 += 1
 
-        if avg_up_amount * 1000 < five_hundred_million_yuan:
+        close_prices = [r['close'] for r in last_30_days]
+        min_close = min(close_prices)
+        max_close = max(close_prices)
+
+        if max_close == 0:
+            continue
+
+        close_ratio = min_close / max_close
+
+        if close_ratio <= 0.8:
             continue
 
         count_condition3 += 1
 
         gain_over_5_count = 0
-        for i in range(1, len(last_10_days)):
-            prev_close = last_10_days[i-1]['close']
-            curr_close = last_10_days[i]['close']
+        for i in range(1, len(last_30_days)):
+            prev_close = last_30_days[i-1]['close']
+            curr_close = last_30_days[i]['close']
             if prev_close > 0:
                 gain = (curr_close - prev_close) / prev_close * 100
                 if gain > 5:
                     gain_over_5_count += 1
+
         if gain_over_5_count < 2:
             continue
 
         count_condition4 += 1
 
-        total_mv = last_10_days[-1].get('total_mv', 0)
-        if total_mv < five_hundred_million_yuan:
+        total_mv = last_30_days[-1].get('total_mv', 0)
+        if total_mv < fifty_hundred_million_yuan:
             continue
 
         count_condition5 += 1
 
         result.append({
             'ts_code': ts_code,
+            'stock_name': last_30_days[-1].get('stock_name', '')
         })
 
     result.sort(key=lambda x: x['ts_code'])
 
     print("\n" + "=" * 60)
     print(f"满足条件统计：")
-    print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件1(至少4天阳线): {count_condition1}")
-    print(f"满足条件1+2(阳线成交额>阴线1.3倍): {count_condition2}")
-    print(f"满足条件1+2+3(阳线平均成交额>5亿): {count_condition3}")
-    print(f"满足条件1+2+3+4(最近10天至少2天涨幅>5%): {count_condition4}")
+    print(f"总股票数(数据完整30天): {count_total}")
+    print(f"满足条件1(至少7天阳线): {count_condition1}")
+    print(f"满足条件1+2(阳线中2天成交额/流动市值>10%): {count_condition2}")
+    print(f"满足条件1+2+3(最低收盘价/最高收盘价>80%): {count_condition3}")
+    print(f"满足条件1+2+3+4(至少2天涨幅>5%): {count_condition4}")
     print(f"满足条件1+2+3+4+5(市值>50亿): {len(result)}")
     print("=" * 60)
 
@@ -183,26 +192,25 @@ def analyze_stocks(data):
 
 def generate_csv_file(stocks, folder_path):
     target_date = get_target_date()
-    csv_filename = f"低波放量{target_date}.csv"
+    csv_filename = f"30天放量低波{target_date}.csv"
     csv_path = os.path.join(folder_path, csv_filename)
 
-    ts_codes = [stock['ts_code'] for stock in stocks]
-    ts_codes_str = ','.join(ts_codes)
-
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write(ts_codes_str)
+    with open(csv_path, 'w', encoding='utf-8-sig') as f:
+        f.write("股票代码,股票名称\n")
+        for stock in stocks:
+            f.write(f"{stock['ts_code']},{stock['stock_name']}\n")
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
 
 def main():
     print("=" * 80)
-    print("低波放量选股策略")
+    print("30天放量低波选股策略")
     print("=" * 80)
 
     folder_path = create_folder()
 
-    data = read_stock_data(days=10)
+    data = read_stock_data(days=45)
 
     if not data:
         print("❌ 没有获取到数据，退出程序")
@@ -221,7 +229,7 @@ def main():
         print("=" * 80)
 
         for stock in selected_stocks:
-            print(f"• {stock['ts_code']}")
+            print(f"• {stock['ts_code']} - {stock['stock_name']}")
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")

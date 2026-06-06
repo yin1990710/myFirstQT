@@ -30,8 +30,8 @@ def read_data(days=5):
         print("❌ 数据库连接失败")
         return None
 
-    target_date = datetime.now().strftime('%Y%m%d')
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+    target_date = get_target_date()
+    start_date = (datetime.now() - timedelta(days=days + 5)).strftime('%Y%m%d')
 
     query_sql = """
     SELECT

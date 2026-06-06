@@ -96,24 +96,10 @@ def analyze_stocks(data):
         if pre_close <= 0:
             continue
 
-        gain = (close_price - open_price) / pre_close * 100
-
-        is_main_board = False
-        is_gem_or_kcb = False
-
-        if ts_code.endswith('.SH'):
-            if ts_code.startswith('60'):
-                is_main_board = True
-            elif ts_code.startswith('688'):
-                is_gem_or_kcb = True
-        elif ts_code.endswith('.SZ'):
-            if ts_code.startswith('00'):
-                is_main_board = True
-            elif ts_code.startswith('30'):
-                is_gem_or_kcb = True
+        gain = (close_price - pre_close) / pre_close * 100
 
         qualified = False
-        if gain > 9 or gain < -9.95:
+        if gain > 8 or gain < -8:
             qualified = True
 
         if qualified:
@@ -170,7 +156,7 @@ def main():
             print(f"• {stock['ts_code']} {stock['name']}: {stock['gain']:.2f}%")
     else:
         print("\n" + "=" * 80)
-        print("⚠️ 没有满足条件的涨停股票")
+        print("⚠️ 没有满足条件的涨跌停股票")
         print("=" * 80)
 
 if __name__ == "__main__":
