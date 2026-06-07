@@ -125,24 +125,6 @@ else
     exit 1
 fi
 
-# 步骤12: 执行 stock_overall_report_v2.py
-log "[步骤12/15] 开始执行 stock_overall_report_v2.py..."
-if ${VENV_PYTHON} stock_overall_report_v2.py >> "${LOG_DIR}/stock_overall_report_v2_${DATE}.log" 2>&1; then
-    log "[步骤12/15] ✅ stock_overall_report_v2.py 执行成功"
-else
-    log "[步骤12/15] ❌ stock_overall_report_v2.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤13: 执行 industry_exchange_report.py
-log "[步骤13/15] 开始执行 industry_exchange_report.py..."
-if ${VENV_PYTHON} industry_exchange_report.py >> "${LOG_DIR}/industry_exchange_report_${DATE}.log" 2>&1; then
-    log "[步骤13/15] ✅ industry_exchange_report.py 执行成功"
-else
-    log "[步骤13/15] ❌ industry_exchange_report.py 执行失败，停止任务"
-    exit 1
-fi
-
 # 步骤14: 执行 select_limitup_daily.py
 log "[步骤14/15] 开始执行 select_limitup_daily.py..."
 if ${VENV_PYTHON} select_limitup_daily.py >> "${LOG_DIR}/select_limitup_daily_${DATE}.log" 2>&1; then
@@ -162,11 +144,29 @@ else
 fi
 
 # 步骤16: 执行 select_wave_theory.py (波浪理论选股)
-log "[步骤16/16] 开始执行 select_wave_theory.py..."
-if ${VENV_PYTHON} select_wave_theory.py >> "${LOG_DIR}/select_wave_theory_${DATE}.log" 2>&1; then
-    log "[步骤16/16] ✅ select_wave_theory.py 执行成功"
+log "[步骤16/16] 开始执行 select_boomvol.py..."
+if ${VENV_PYTHON} select_boomvol.py >> "${LOG_DIR}/select_boomvol_${DATE}.log" 2>&1; then
+    log "[步骤16/16] ✅ select_boomvol.py 执行成功"
 else
-    log "[步骤16/16] ❌ select_wave_theory.py 执行失败，停止任务"
+    log "[步骤16/16] ❌ select_boomvol.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤12: 执行 stock_overall_report_v2.py
+log "[步骤12/15] 开始执行 stock_overall_report_v2.py..."
+if ${VENV_PYTHON} stock_overall_report_v2.py >> "${LOG_DIR}/stock_overall_report_v2_${DATE}.log" 2>&1; then
+    log "[步骤12/15] ✅ stock_overall_report_v2.py 执行成功"
+else
+    log "[步骤12/15] ❌ stock_overall_report_v2.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤13: 执行 industry_exchange_report.py
+log "[步骤13/15] 开始执行 industry_exchange_report.py..."
+if ${VENV_PYTHON} industry_exchange_report.py >> "${LOG_DIR}/industry_exchange_report_${DATE}.log" 2>&1; then
+    log "[步骤13/15] ✅ industry_exchange_report.py 执行成功"
+else
+    log "[步骤13/15] ❌ industry_exchange_report.py 执行失败，停止任务"
     exit 1
 fi
 

@@ -19,9 +19,10 @@ from datetime import datetime, timedelta
 from mysql_connection import get_mysql_connection, close_connection
 
 
-def get_date_120_days_ago() -> str:
-    date_120_days_ago = datetime.now() - timedelta(days=150)
-    return date_120_days_ago.strftime('%Y%m%d')
+def get_date_170_days_ago() -> str:
+    """获取170个自然日之前的日期，确保能取出120个交易日"""
+    date_170_days_ago = datetime.now() - timedelta(days=170)
+    return date_170_days_ago.strftime('%Y%m%d')
 
 
 def get_trade_date() -> str:
@@ -35,7 +36,7 @@ def get_trade_date() -> str:
 
 
 def get_stock_data(conn) -> pd.DataFrame:
-    date_120_days_ago = get_date_120_days_ago()
+    date_170_days_ago = get_date_170_days_ago()
     try:
         cursor = conn.cursor()
         sql = """
@@ -54,7 +55,7 @@ def get_stock_data(conn) -> pd.DataFrame:
             WHERE d.trade_date >= %s
             ORDER BY d.ts_code, d.trade_date
         """
-        cursor.execute(sql, (date_120_days_ago,))
+        cursor.execute(sql, (date_170_days_ago,))
         rows = cursor.fetchall()
         columns = [desc[0] for desc in cursor.description]
 
@@ -77,13 +78,17 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
     for ts_code, group in grouped:
         group = group.sort_values('trade_date').reset_index(drop=True)
 
+        # 取最近120个交易日
+        if len(group) > 120:
+            group = group.tail(120).reset_index(drop=True)
+
         group['close'] = pd.to_numeric(group['close'], errors='coerce')
         group['open'] = pd.to_numeric(group['open'], errors='coerce')
         group['high'] = pd.to_numeric(group['high'], errors='coerce')
         group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
         group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
 
-        if len(group) < 2:
+        if len(group) < 120:
             continue
 
         latest = group.iloc[-1]
@@ -107,11 +112,6 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
             continue
 
         if latest['amount'] < 500000:
-            continue
-
-        min_close_120 = group.tail(120)['close'].min()
-        max_close_120 = group.tail(120)['close'].max()
-        if min_close_120 / max_close_120 <= 0.75:
             continue
 
         break_ratio = (latest['close'] - max_high_119) / max_high_119 * 100
