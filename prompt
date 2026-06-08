@@ -64,14 +64,17 @@ update_stock_index_daily.py 更新指数日数据
 update_stock_index_future_daily.py 更新指数期货日数据
 update_rzrq_daily.py 更新融资融券数据
 update_stock_daily.py更新股票日数据
+update_stock_info.py 更新股票信息
 
 待第一批全部任务执行完毕后执按顺序以下任务：
 pinzi_analysis_tag_to_db.py 品字分析标记
 select_newhigh_in_120d.py 选近120日区间突破股票
 select_turn_bottom.py 选底部反转股票 
-select_lowwave_in10day.py选低波放量股票
+select_lowwave_in10day.py选10日低波放量股票
+select_lowwave_in30day.py选30日低波放量股票
+select_boomvol.py 选突然放巨量大涨股票
 select_daydayup_in5day.py选步步高股票
-select_industry_in5day.py选近5日行业资金流入前10
+select_industry_in5day.py选近5日行业资金流入前10的股票
 stock_overall_report.py 生成大盘趋势报告
 industry_exchange_report.py 生成行业趋势报告
 
@@ -103,6 +106,13 @@ industry_exchange_report.py 生成行业趋势报告
 4. 最近10个交易日至少有2个交易日涨幅（当天收盘价-前一日收盘价）/前一日收盘价））超过5% 
 5. 股票总市值在50亿以上
 
+-----------------------------
+突然放巨量大涨策略
+生成一个名为select_boomvol.py的文件，主要功能是：
+1. 依赖mysql_connection.py连接数据库。
+2. 读取stock_daily_t表近30个交易日（trade_date）的数据和stock_info_t表用ts_code关联。
+3. 选出近3个交易日中有一个交易日的交易额(amount)是其他交易日平均交易额的2.5倍以上，且这一日的成交额(amount)*1000大于5亿，且这一日的涨幅（当日收盘价close-前一日收盘价close）/前一日收盘价close）大于6%
+4. 将选出的股票代码和名称保存在一个名为爆量上涨加当日日期后缀（若当前时间为0-15点则取前一天日期的csv的文件中，将csv文件放在一个名为爆量上涨加当日日期后缀（若当前时间为0-15点则取前一天日期）的文件夹中，如果文件夹已经存在则删除新建。
 
 
 ------------------------------

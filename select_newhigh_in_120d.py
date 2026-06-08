@@ -108,7 +108,7 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
         previous_close = group.iloc[-2]['close']
         gain = (latest['close'] - previous_close) / previous_close * 100
 
-        if gain <= 8:
+        if gain <= 5:
             continue
 
         if latest['amount'] < 500000:
