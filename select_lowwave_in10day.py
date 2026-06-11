@@ -90,6 +90,7 @@ def analyze_stocks(data):
 
     result = []
     count_total = 0
+    count_condition0 = 0  # 新增：振幅条件
     count_condition1 = 0
     count_condition2 = 0
     count_condition3 = 0
@@ -110,6 +111,19 @@ def analyze_stocks(data):
             continue
 
         count_total += 1
+
+        # 检查最近10日振幅 (新增条件)
+        max_close = max([r['close'] for r in last_10_days])
+        min_close = min([r['close'] for r in last_10_days])
+        if min_close > 0:
+            amplitude = (max_close - min_close) / min_close * 100
+        else:
+            amplitude = 0
+
+        if amplitude <= 0 or amplitude >= 15:
+            continue
+
+        count_condition0 += 1  # 振幅条件满足
 
         up_days_amount = []
         down_days_amount = []
@@ -172,11 +186,12 @@ def analyze_stocks(data):
     print("\n" + "=" * 60)
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件1(至少4天阳线): {count_condition1}")
-    print(f"满足条件1+2(阳线成交额>阴线1.3倍): {count_condition2}")
-    print(f"满足条件1+2+3(阳线平均成交额>5亿): {count_condition3}")
-    print(f"满足条件1+2+3+4(最近10天至少2天涨幅>5%): {count_condition4}")
-    print(f"满足条件1+2+3+4+5(市值>50亿): {len(result)}")
+    print(f"满足条件0(最近10日振幅0%-15%): {count_condition0}")
+    print(f"满足条件0+1(至少4天阳线): {count_condition1}")
+    print(f"满足条件0+1+2(阳线成交额>阴线1.3倍): {count_condition2}")
+    print(f"满足条件0+1+2+3(阳线平均成交额>5亿): {count_condition3}")
+    print(f"满足条件0+1+2+3+4(最近10天至少2天涨幅>5%): {count_condition4}")
+    print(f"满足条件0+1+2+3+4+5(市值>50亿): {len(result)}")
     print("=" * 60)
 
     return result
