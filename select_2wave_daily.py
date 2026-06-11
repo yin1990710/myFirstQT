@@ -61,7 +61,8 @@ def read_stock_data(days=120):
         d.amount,
         d.pct_chg,
         i.stock_name,
-        i.total_mv
+        i.total_mv,
+        i.circ_mv
     FROM stock_daily_t d
     LEFT JOIN stock_info_t i ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
     WHERE d.trade_date >= %s AND d.trade_date <= %s
@@ -88,6 +89,33 @@ def calculate_ma(close_prices, period=30):
     return sum(close_prices[-period:]) / period
 
 
+def find_turning_points(records):
+    """识别波峰和波谷"""
+    turning_points = []
+    if len(records) < 5:
+        return turning_points
+    
+    close_prices = [r['close'] for r in records]
+    
+    for i in range(2, len(records) - 2):
+        prev_prev = close_prices[i-2]
+        prev = close_prices[i-1]
+        curr = close_prices[i]
+        next_ = close_prices[i+1]
+        next_next = close_prices[i+2]
+        
+        # 判断波谷：当前价格低于前后两天
+        if curr < prev and curr < next_ and curr <= prev_prev and curr <= next_next:
+            turning_points.append({
+                'index': i,
+                'date': records[i]['trade_date'],
+                'type': 'trough',
+                'price': curr
+            })
+    
+    return turning_points
+
+
 def analyze_stocks(data):
     stock_data = {}
 
@@ -103,7 +131,8 @@ def analyze_stocks(data):
             'low': float(record['low'] or 0),
             'amount': float(record['amount'] or 0),
             'name': record['stock_name'] or '',
-            'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0
+            'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0,
+            'circ_mv': float(record['circ_mv'] or 0) if record['circ_mv'] else 0
         })
 
     result = []
@@ -112,43 +141,69 @@ def analyze_stocks(data):
     count_condition2 = 0
     count_condition3 = 0
     count_condition4 = 0
+    count_trough = 0
 
     for ts_code, records in stock_data.items():
-        if len(records) < 60:
+        if len(records) < 45:
             continue
 
         records.sort(key=lambda x: x['trade_date'])
+
+        # 获取最新记录用于过滤
+        latest = records[-1]
+        
+        # 过滤条件1：去除ST股（股票名称包含ST）
+        stock_name = latest['name']
+        if 'ST' in stock_name:
+            continue
+        
+        # 过滤条件2：去除流通市值小于50亿的股票（circ_mv单位为元）
+        circ_mv = latest['circ_mv']
+        if circ_mv < 5000000000:  # 50亿 = 5000000000元
+            continue
 
         count_total += 1
 
         close_prices = [r['close'] for r in records]
         amount_list = [r['amount'] for r in records]
 
-        recent_60_days = records[-60:]
-        close_60 = [r['close'] for r in recent_60_days]
-        amount_60 = [r['amount'] for r in recent_60_days]
+        recent_40_days = records[-40:] if len(records) >= 40 else records
+        close_40 = [r['close'] for r in recent_40_days]
+        amount_40 = [r['amount'] for r in recent_40_days]
 
-        min_price = min(close_60)
-        max_price = max(close_60)
-        max_index = close_60.index(max_price)
+        min_price = min(close_40)
+        max_price = max(close_40)
+        max_index = close_40.index(max_price)
 
-        first_wave = recent_60_days[:max_index + 1]
-        adjustment = recent_60_days[max_index + 1:]
+        first_wave = recent_40_days[:max_index + 1]
+        adjustment = recent_40_days[max_index + 1:]
 
-        if len(first_wave) < 10:
+        if len(first_wave) < 8:
             continue
 
         first_wave_amount = [r['amount'] for r in first_wave]
-        first_wave_avg_amount = sum(first_wave_amount) / len(first_wave_amount)
+        
+        # 计算整个上涨期的平均成交额
+        first_wave_avg_amount_all = sum(first_wave_amount) / len(first_wave_amount)
+        
+        # 只计算放量上涨阶段（成交额超过整个上涨期平均的1.5倍）
+        boom_threshold = first_wave_avg_amount_all * 1.5
+        boom_days = [a for a in first_wave_amount if a > boom_threshold]
+        
+        if boom_days:
+            first_wave_avg_amount = sum(boom_days) / len(boom_days)
+        else:
+            first_wave_avg_amount = first_wave_avg_amount_all
 
         first_wave_gain = (first_wave[-1]['close'] - first_wave[0]['close']) / first_wave[0]['close'] * 100
 
-        if first_wave_gain < 20:
+        # 放宽条件：第一波涨幅>15%
+        if first_wave_gain < 15:
             continue
 
         count_condition1 += 1
 
-        if len(adjustment) < 3:
+        if len(adjustment) < 2:
             continue
 
         adjustment_low = min([r['low'] for r in adjustment])
@@ -165,7 +220,8 @@ def analyze_stocks(data):
 
         below_ma30 = False
         for i in range(len(adjustment)):
-            if adjustment[i]['close'] < adjustment_ma30[i] * 0.95:
+            # 放宽条件：允许10%的误差
+            if adjustment[i]['close'] < adjustment_ma30[i] * 0.90:
                 below_ma30 = True
                 break
 
@@ -176,7 +232,8 @@ def analyze_stocks(data):
 
         adjustment_avg_amount = sum([r['amount'] for r in adjustment]) / len(adjustment)
 
-        if adjustment_avg_amount > first_wave_avg_amount * 0.85:
+        # 量能萎缩：调整期间成交量萎缩至放量上涨阶段的60%以下
+        if adjustment_avg_amount > first_wave_avg_amount * 0.60:
             continue
 
         count_condition3 += 1
@@ -186,15 +243,32 @@ def analyze_stocks(data):
 
         today_gain = (latest['close'] - prev['close']) / prev['close'] * 100
 
-        if today_gain < 2:
+        # 检查近3个交易日是否出现波谷
+        has_recent_trough = False
+        recent_records = records[-15:]
+        turning_points = find_turning_points(recent_records)
+        
+        for tp in turning_points:
+            # 波谷出现在近3个交易日内
+            if tp['index'] >= len(recent_records) - 3:
+                has_recent_trough = True
+                break
+
+        # 放宽条件：今日涨幅>1.5% 或者 近3个交易日出现波谷
+        if today_gain < 1.5 and not has_recent_trough:
             continue
 
-        count_condition4 += 1
+        if has_recent_trough:
+            count_trough += 1
+        else:
+            count_condition4 += 1
 
-        if latest['total_mv'] < 300000000:
+        # 放宽条件：市值>20亿
+        if latest['total_mv'] < 200000000:
             continue
 
-        if latest['amount'] < 300000:
+        # 放宽条件：成交额>2亿
+        if latest['amount'] < 200000:
             continue
 
         result.append({
@@ -204,7 +278,8 @@ def analyze_stocks(data):
             'total_mv': latest['total_mv'],
             'first_wave_gain': first_wave_gain,
             'today_gain': today_gain,
-            'amount_ratio': adjustment_avg_amount / first_wave_avg_amount if first_wave_avg_amount > 0 else 0
+            'amount_ratio': adjustment_avg_amount / first_wave_avg_amount if first_wave_avg_amount > 0 else 0,
+            'has_trough': has_recent_trough
         })
 
     result.sort(key=lambda x: x['first_wave_gain'], reverse=True)
@@ -212,10 +287,12 @@ def analyze_stocks(data):
     print("\n" + "=" * 60)
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件1(第一波涨幅>30%): {count_condition1}")
+    print(f"满足条件1(第一波涨幅>15%): {count_condition1}")
     print(f"满足条件1+2(调整未破30日均线): {count_condition2}")
     print(f"满足条件1+2+3(调整期间成交量萎缩): {count_condition3}")
-    print(f"满足条件1+2+3+4(今日启动涨幅>3%): {len(result)}")
+    print(f"满足条件1+2+3+4(今日涨幅>1.5%): {count_condition4}")
+    print(f"满足条件1+2+3+T(近3日出现波谷): {count_trough}")
+    print(f"最终选出: {len(result)}")
     print("=" * 60)
 
     return result
@@ -227,11 +304,12 @@ def generate_csv_file(stocks, folder_path):
     csv_path = os.path.join(folder_path, csv_filename)
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称,收盘价,第一波涨幅(%),今日涨幅(%),调整量/上涨量,市值(亿)\n")
+        f.write("股票代码,股票名称,收盘价,第一波涨幅(%),今日涨幅(%),调整量/上涨量,市值(亿),是否波谷\n")
         for stock in stocks:
+            trough_flag = "是" if stock.get('has_trough', False) else "否"
             f.write(f"{stock['ts_code']},{stock['name']},{stock['close']:.2f},")
             f.write(f"{stock['first_wave_gain']:.2f},{stock['today_gain']:.2f},")
-            f.write(f"{stock['amount_ratio']:.2f},{stock['total_mv']/10000:.2f}\n")
+            f.write(f"{stock['amount_ratio']:.2f},{stock['total_mv']/10000:.2f},{trough_flag}\n")
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -242,10 +320,12 @@ def main():
     print("🌊 二浪启动选股策略")
     print("=" * 80)
     print("\n📊 选股逻辑：")
-    print("  1. 第一波上涨：涨幅超过20%")
-    print("  2. 调整阶段：未跌破30日均线（允许5%的误差）")
-    print("  3. 量能特征：调整期间成交量较上涨阶段萎缩85%以下")
-    print("  4. 启动信号：今日涨幅超过2%，成交额超过3亿，市值超过30亿")
+    print("  1. 基础过滤：非ST股，流通市值>50亿")
+    print("  2. 第一波上涨：涨幅超过15%")
+    print("  3. 调整阶段：未跌破30日均线（允许10%的误差）")
+    print("  4. 量能特征：调整期间成交量较放量上涨阶段萎缩60%以下")
+    print("  5. 启动信号：今日涨幅超过1.5% OR 近3个交易日出现波谷")
+    print("  6. 流动性：成交额超过2亿")
     print("=" * 80)
 
     folder_path = create_folder()
@@ -270,7 +350,8 @@ def main():
 
         print("\n🔥 精选股票：")
         for i, stock in enumerate(selected_stocks[:20], 1):
-            print(f"{i}. {stock['ts_code']} {stock['name']} - 第一波涨{stock['first_wave_gain']:.1f}% 今日涨{stock['today_gain']:.1f}% 市值{stock['total_mv']/10000:.1f}亿")
+            trough_mark = " 📉" if stock.get('has_trough', False) else ""
+            print(f"{i}. {stock['ts_code']} {stock['name']}{trough_mark} - 第一波涨{stock['first_wave_gain']:.1f}% 今日涨{stock['today_gain']:.1f}% 市值{stock['total_mv']/10000:.1f}亿")
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")
