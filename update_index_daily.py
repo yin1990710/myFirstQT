@@ -24,10 +24,6 @@ INDEX_CODES = [
     '399001.SZ',  # 深证成指
     '399006.SZ',   # 创业板指
     '000985.CSI', #中证全指
-    #申万行业指数
-    '801750.SI' , #电力设备
-    '801050.SI‌ ' #半导体
-    
 ]
 
 def get_index_daily(ts_code, start_date=None, end_date=None, limit=100):

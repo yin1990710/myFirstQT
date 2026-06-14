@@ -177,6 +177,74 @@ def plot_basis(index_df, future_df, ax, title, index_code, future_code_prefix):
     ax.set_ylabel('期现差')
 
 
+def get_index_stats(conn):
+    """获取上证指数和中证全指的近30日统计数据"""
+    indices = {
+        '000001.SH': '上证指数',
+        '000985.CSI': '中证全指'
+    }
+    
+    results = []
+    
+    for ts_code, name in indices.items():
+        query = """
+        SELECT trade_date, close 
+        FROM stock_index_daily_t 
+        WHERE ts_code = %s 
+        ORDER BY trade_date DESC 
+        LIMIT 30
+        """
+        cursor = conn.cursor()
+        cursor.execute(query, (ts_code,))
+        data = cursor.fetchall()
+        cursor.close()
+        
+        if len(data) >= 1:
+            latest_close = float(data[0]['close'])
+            avg_close = sum(float(row['close']) for row in data) / len(data)
+            deviation = (latest_close - avg_close) / latest_close * 100
+            
+            results.append({
+                'name': name,
+                'ts_code': ts_code,
+                'latest_close': latest_close,
+                'avg_close': avg_close,
+                'deviation': deviation
+            })
+    
+    return results
+
+
+def plot_index_stats_table(ax, stats_data):
+    """绘制指数收盘价统计表格（放在报告最顶部）"""
+    results = []
+    for stat in stats_data:
+        results.append([
+            stat['name'],
+            f'{stat["latest_close"]:.2f}',
+            f'{stat["avg_close"]:.2f}',
+            f'{stat["deviation"]:.2f}%'
+        ])
+    
+    columns = ['指数名称', '最近一日收盘价', '近30日平均收盘价', '偏离度']
+    ax.axis('off')
+    
+    table = ax.table(
+        cellText=results,
+        colLabels=columns,
+        cellLoc='center',
+        loc='center',
+        bbox=[0, 0, 1, 1]
+    )
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+    table.scale(1.5, 2)
+    
+    # 设置标题
+    ax.text(0.5, 1.15, '指数收盘价统计', fontsize=16, fontweight='bold', ha='center', transform=ax.transAxes)
+
+
 def plot_index_table(ax, index_df):
     """绘制股指最大震幅表格"""
     # 指数列表
@@ -350,6 +418,11 @@ def main():
         return
     print("✅ 数据库连接成功")
     
+    # 获取指数统计数据（上证指数和中证全指近30日数据）
+    print("\n📊 获取指数统计数据...")
+    index_stats = get_index_stats(conn)
+    print(f"✅ 获取指数统计数据: {len(index_stats)} 条")
+    
     # 读取股指和期货代码
     print("\n📋 读取股指和期货代码...")
     index_codes, future_codes = read_index_codes()
@@ -372,26 +445,29 @@ def main():
     # 关闭数据库连接
     close_connection(conn)
     
-    # 创建图表（8个子图）
+    # 创建图表（9个子图，新增指数统计表格在最顶部）
     print("\n📈 生成图表...")
-    fig, axes = plt.subplots(8, 1, figsize=(14, 35))
+    fig, axes = plt.subplots(9, 1, figsize=(14, 38))
     fig.suptitle(f'大盘趋势报告 V2 - {get_target_date()}', fontsize=16, fontweight='bold', y=0.995)
     
+    # 新增：指数收盘价统计表格（放在最顶部）
+    plot_index_stats_table(axes[0], index_stats)
+    
     # 第一部分：期现差走势（3个图表）
-    plot_basis(index_df, future_df, axes[0], '沪深300期现差走势', '000300.SH', 'IF')
-    plot_basis(index_df, future_df, axes[1], '中证500期现差走势', '000905.SH', 'IC')
-    plot_basis(index_df, future_df, axes[2], '中证1000期现差走势', '000852.SH', 'IM')
+    plot_basis(index_df, future_df, axes[1], '沪深300期现差走势', '000300.SH', 'IF')
+    plot_basis(index_df, future_df, axes[2], '中证500期现差走势', '000905.SH', 'IC')
+    plot_basis(index_df, future_df, axes[3], '中证1000期现差走势', '000852.SH', 'IM')
     
     # 第二部分：股指涨跌幅表格
-    plot_index_table(axes[3], index_df)
+    plot_index_table(axes[4], index_df)
     
     # 第三部分：融资融券走势（3个图表）
-    plot_rzrq_amount(rzrq_df, axes[4])
-    plot_rq_amount(rzrq_df, axes[5])
-    plot_rq_volume(rzrq_df, axes[6])
+    plot_rzrq_amount(rzrq_df, axes[5])
+    plot_rq_amount(rzrq_df, axes[6])
+    plot_rq_volume(rzrq_df, axes[7])
     
     # 第四部分：涨跌超8%股票数量走势
-    plot_stock_extreme_moves(stock_df, axes[7])
+    plot_stock_extreme_moves(stock_df, axes[8])
     
     plt.tight_layout(rect=[0, 0, 1, 0.99])
     
