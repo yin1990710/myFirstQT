@@ -267,8 +267,8 @@ def analyze_stocks(data):
         if latest['total_mv'] < 200000000:
             continue
 
-        # 放宽条件：成交额>2亿
-        if latest['amount'] < 200000:
+        # 必须条件：成交额>5亿 (amount*1000 > 500000000)
+        if latest['amount'] * 1000 <= 500000000:
             continue
 
         result.append({
@@ -325,7 +325,7 @@ def main():
     print("  3. 调整阶段：未跌破30日均线（允许10%的误差）")
     print("  4. 量能特征：调整期间成交量较放量上涨阶段萎缩60%以下")
     print("  5. 启动信号：今日涨幅超过1.5% OR 近3个交易日出现波谷")
-    print("  6. 流动性：成交额超过2亿")
+    print("  6. 流动性：成交额超过5亿（必须条件）")
     print("=" * 80)
 
     folder_path = create_folder()
