@@ -6,7 +6,7 @@
 数据源：
 1. akshare: 获取总市值、流通市值、上市公司数、总成交金额
 2. 乐咕乐股(legulegu.com): 获取平均市盈率
-输出为CSV文件
+输出为CSV文件，并写入数据库表 szse_market_summary_t
 """
 
 import os
@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 import re
+from mysql_connection import get_mysql_connection, close_connection
 
 
 def get_trade_date() -> str:
@@ -95,6 +96,66 @@ def parse_board_data(df, board_name, pe_ratio=None):
     return data
 
 
+def create_table_if_not_exists(conn):
+    """创建深交所市场总貌数据表（如果表不存在）"""
+    cursor = conn.cursor()
+    
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS szse_market_summary_t (
+        trade_date VARCHAR(8) NOT NULL COMMENT '交易日期',
+        board_type VARCHAR(20) NOT NULL COMMENT '板块类型（主板A股、创业板A股等）',
+        total_mv DECIMAL(15,2) COMMENT '总市值（亿元）',
+        float_mv DECIMAL(15,2) COMMENT '流通市值（亿元）',
+        company_count INT COMMENT '上市公司数',
+        total_amount DECIMAL(15,2) COMMENT '总成交金额（亿元）',
+        avg_pe_ratio DECIMAL(10,2) COMMENT '平均市盈率',
+        update_time DATETIME COMMENT '更新时间',
+        PRIMARY KEY (trade_date, board_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='深交所市场总貌数据表'
+    """
+    
+    cursor.execute(create_table_sql)
+    conn.commit()
+    cursor.close()
+    print("   ✅ 数据表 szse_market_summary_t 已准备就绪")
+
+
+def insert_data_to_db(conn, trade_date, board_type, data):
+    """将数据插入或更新到数据库"""
+    cursor = conn.cursor()
+    
+    # 使用 REPLACE INTO 或 INSERT ... ON DUPLICATE KEY UPDATE
+    insert_sql = """
+    INSERT INTO szse_market_summary_t 
+    (trade_date, board_type, total_mv, float_mv, company_count, total_amount, avg_pe_ratio, update_time)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE
+    total_mv = VALUES(total_mv),
+    float_mv = VALUES(float_mv),
+    company_count = VALUES(company_count),
+    total_amount = VALUES(total_amount),
+    avg_pe_ratio = VALUES(avg_pe_ratio),
+    update_time = VALUES(update_time)
+    """
+    
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    cursor.execute(insert_sql, (
+        trade_date,
+        board_type,
+        data.get('总市值（亿元）'),
+        data.get('流通市值（亿元）'),
+        data.get('上市公司数'),
+        data.get('总成交金额（亿元）'),
+        data.get('平均市盈率'),
+        now
+    ))
+    
+    conn.commit()
+    cursor.close()
+    print(f"   ✅ {board_type} 数据已写入数据库")
+
+
 def main():
     print("=" * 60)
     print("📊 深交所首页数据爬虫")
@@ -131,7 +192,22 @@ def main():
         for k, v in gem_board.items():
             print(f"   {k}: {v}")
 
-    # 保存为CSV
+    # 步骤3: 写入数据库
+    print("\n📊 步骤3: 写入数据库...")
+    conn = get_mysql_connection()
+    if conn:
+        create_table_if_not_exists(conn)
+        
+        if main_board:
+            insert_data_to_db(conn, trade_date, '主板A股', main_board)
+        if gem_board:
+            insert_data_to_db(conn, trade_date, '创业板A股', gem_board)
+        
+        close_connection(conn)
+    else:
+        print("   ❌ 数据库连接失败，跳过数据库写入")
+
+    # 步骤4: 保存为CSV
     folder_name = f"深交所首页数据{trade_date}"
     output_dir = os.path.join(os.getcwd(), folder_name)
 
