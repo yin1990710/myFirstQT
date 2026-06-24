@@ -3,14 +3,18 @@
 
 """
 爬取深交所首页主板和创业板的数据
-数据源：https://www.szse.cn/index/index.html
-使用akshare库获取数据，输出为CSV文件
+数据源：
+1. akshare: 获取总市值、流通市值、上市公司数、总成交金额
+2. 乐咕乐股(legulegu.com): 获取平均市盈率
+输出为CSV文件
 """
 
 import os
 import shutil
 import pandas as pd
+import requests
 from datetime import datetime, timedelta
+import re
 
 
 def get_trade_date() -> str:
@@ -33,19 +37,62 @@ def get_szse_data():
     return df
 
 
-def parse_board_data(df, board_name):
+def get_pe_ratio_from_legulegu(board_type='创业板'):
+    """从乐咕乐股获取平均市盈率数据"""
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+    
+    # 乐咕乐股的市盈率页面
+    pe_urls = {
+        '创业板': 'https://legulegu.com/stockdata/cybPE',
+        '深证主板': 'https://legulegu.com/stockdata/shenzhenPE',
+        '上证主板': 'https://legulegu.com/stockdata/shanghaiPE',
+        '科创板': 'https://legulegu.com/stockdata/ke-chuang-ban-pe',
+    }
+    
+    url = pe_urls.get(board_type)
+    if not url:
+        return None
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            # 解析页面获取平均市盈率
+            # HTML格式: <span class="metric-label">平均市盈率</span> <span class="metric-value">54.14</span>
+            pattern = r'<span class="metric-label[^>]*>平均市盈率</span>\s*<span class="metric-value">([\d.]+)</span>'
+            match = re.search(pattern, response.text)
+            if match:
+                pe_ratio = float(match.group(1))
+                return pe_ratio
+    except Exception as e:
+        print(f"   ❌ 获取{board_type}市盈率失败: {e}")
+    
+    return None
+
+
+def parse_board_data(df, board_name, pe_ratio=None):
     """从总貌数据中提取指定板块的数据"""
     row = df[df['证券类别'] == board_name]
     if row.empty:
         return None
 
     row = row.iloc[0]
-    return {
+    data = {
         '总市值（亿元）': round(row['总市值'] / 1e8, 2) if pd.notna(row['总市值']) else None,
         '流通市值（亿元）': round(row['流通市值'] / 1e8, 2) if pd.notna(row['流通市值']) else None,
         '上市公司数': int(row['数量']) if pd.notna(row['数量']) else None,
         '总成交金额（亿元）': round(row['成交金额'] / 1e8, 2) if pd.notna(row['成交金额']) else None,
     }
+    
+    # 添加平均市盈率
+    if pe_ratio:
+        data['平均市盈率'] = pe_ratio
+    
+    return data
 
 
 def main():
@@ -54,19 +101,28 @@ def main():
     print("=" * 60)
 
     trade_date = get_trade_date()
-    print(f"\n 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\n⏰ 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"📅 交易日期: {trade_date}")
 
-    print("\n 正在获取深交所市场总貌数据...")
+    print("\n📊 步骤1: 获取深交所市场总貌数据...")
     df = get_szse_data()
-    print(f"✅ 获取到 {len(df)} 条记录")
+    print(f"   ✅ 获取到 {len(df)} 条记录")
+
+    print("\n📊 步骤2: 获取平均市盈率数据...")
+    gem_pe = get_pe_ratio_from_legulegu('创业板')
+    main_pe = get_pe_ratio_from_legulegu('深证主板')
+    
+    if gem_pe:
+        print(f"   ✅ 创业板平均市盈率: {gem_pe}")
+    if main_pe:
+        print(f"   ✅ 深证主板平均市盈率: {main_pe}")
 
     # 提取主板和创业板数据
-    main_board = parse_board_data(df, '主板A股')
-    gem_board = parse_board_data(df, '创业板A股')
+    main_board = parse_board_data(df, '主板A股', main_pe)
+    gem_board = parse_board_data(df, '创业板A股', gem_pe)
 
     if main_board:
-        print("\n 主板数据:")
+        print("\n📊 主板数据:")
         for k, v in main_board.items():
             print(f"   {k}: {v}")
 
