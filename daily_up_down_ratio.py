@@ -64,7 +64,6 @@ def generate_html(data):
         else:
             ratios.append(round(down / up, 4))
 
-    max_up_down = max(max(up_counts), max(down_counts))
     max_ratio = max(r for r in ratios if r is not None) if ratios else 1
 
     html_content = f"""<!DOCTYPE html>
@@ -72,7 +71,7 @@ def generate_html(data):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2026年以来每日涨跌股票数走势图</title>
+    <title>2026年以来每日下跌/上涨比值走势图</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {{ font-family: 'Microsoft YaHei', sans-serif; margin: 20px; background: #f5f5f5; }}
@@ -91,7 +90,7 @@ def generate_html(data):
 </head>
 <body>
     <div class="container">
-        <h1>2026年以来每日涨跌股票数走势图</h1>
+        <h1>2026年以来每日下跌/上涨比值走势图</h1>
         <h2>数据源: stock_daily_t | 更新时间: {data[-1]['trade_date'] if data else ''}</h2>
         
         <div class="chart-container">
@@ -123,32 +122,12 @@ def generate_html(data):
                 labels: {json.dumps(dates)},
                 datasets: [
                     {{
-                        label: '上涨股票数',
-                        data: {json.dumps(up_counts)},
-                        borderColor: '#ef5350',
-                        backgroundColor: 'rgba(239, 83, 80, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        yAxisID: 'y'
-                    }},
-                    {{
-                        label: '下跌股票数',
-                        data: {json.dumps(down_counts)},
-                        borderColor: '#26a69a',
-                        backgroundColor: 'rgba(38, 166, 154, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        yAxisID: 'y'
-                    }},
-                    {{
                         label: '下跌/上涨比值',
                         data: {json.dumps(ratios)},
                         borderColor: '#7e57c2',
-                        backgroundColor: 'rgba(126, 87, 194, 0.05)',
+                        backgroundColor: 'rgba(126, 87, 194, 0.1)',
                         fill: true,
-                        tension: 0.4,
-                        yAxisID: 'y1',
-                        pointRadius: 0
+                        tension: 0.4
                     }}
                 ]
             }},
@@ -174,11 +153,7 @@ def generate_html(data):
                                     label += ': ';
                                 }}
                                 if (context.parsed.y !== null) {{
-                                    if (context.datasetIndex === 2) {{
-                                        label += context.parsed.y.toFixed(2);
-                                    }} else {{
-                                        label += context.parsed.y.toLocaleString();
-                                    }}
+                                    label += context.parsed.y.toFixed(2);
                                 }}
                                 return label;
                             }}
@@ -204,26 +179,11 @@ def generate_html(data):
                         position: 'left',
                         title: {{
                             display: true,
-                            text: '股票数',
-                            font: {{ size: 14 }}
-                        }},
-                        min: 0,
-                        max: {max_up_down * 1.1}
-                    }},
-                    y1: {{
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        title: {{
-                            display: true,
                             text: '下跌/上涨比值',
                             font: {{ size: 14 }}
                         }},
                         min: 0,
-                        max: {max_ratio * 1.2},
-                        grid: {{
-                            drawOnChartArea: false
-                        }}
+                        max: {max_ratio * 1.2}
                     }}
                 }},
                 animation: {{
