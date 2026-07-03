@@ -20,9 +20,9 @@ from mysql_connection import get_mysql_connection, close_connection
 
 
 def get_date_170_days_ago() -> str:
-    """获取170个自然日之前的日期，确保能取出120个交易日"""
-    date_170_days_ago = datetime.now() - timedelta(days=170)
-    return date_170_days_ago.strftime('%Y%m%d')
+    """获取200个自然日之前的日期，确保能取出120个交易日"""
+    date_200_days_ago = datetime.now() - timedelta(days=200)
+    return date_200_days_ago.strftime('%Y%m%d')
 
 
 def get_trade_date() -> str:
