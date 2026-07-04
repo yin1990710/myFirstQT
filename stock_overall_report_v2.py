@@ -245,8 +245,7 @@ def plot_index_stats_table(ax, stats_data, future_delta=None):
             '三大指数期现差边际变化均值',
             f'{future_delta["delta"]:.2f}',
             '-',
-            '-',
-            f'{future_delta["trade_date"]}'
+            '-'
         ])
     
     for stat in stats_data:
@@ -254,11 +253,10 @@ def plot_index_stats_table(ax, stats_data, future_delta=None):
             stat['name'],
             f'{stat["latest_close"]:.2f}',
             f'{stat["avg_close"]:.2f}',
-            f'{stat["deviation"]:.2f}%',
-            '-'
+            f'{stat["deviation"]:.2f}%'
         ])
     
-    columns = ['指标名称', '数值', '近30日平均收盘价', '偏离度', '日期']
+    columns = ['指标名称', '数值', '近30日平均收盘价', '偏离度']
     ax.axis('off')
     
     table = ax.table(
