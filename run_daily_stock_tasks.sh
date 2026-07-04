@@ -181,11 +181,20 @@ else
 fi
 
 # 步骤17: 执行 industry_exchange_report.py
-log "[步骤17/17] 开始执行 industry_exchange_report.py..."
+log "[步骤17/18] 开始执行 industry_exchange_report.py..."
 if ${VENV_PYTHON} industry_exchange_report.py >> "${LOG_DIR}/industry_exchange_report_${DATE}.log" 2>&1; then
-    log "[步骤17/17] ✅ industry_exchange_report.py 执行成功"
+    log "[步骤17/18] ✅ industry_exchange_report.py 执行成功"
 else
-    log "[步骤17/17] ❌ industry_exchange_report.py 执行失败，停止任务"
+    log "[步骤17/18] ❌ industry_exchange_report.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤18: 执行 analyze_index_change.py
+log "[步骤18/18] 开始执行 analyze_index_change.py..."
+if ${VENV_PYTHON} analyze_index_change.py >> "${LOG_DIR}/analyze_index_change_${DATE}.log" 2>&1; then
+    log "[步骤18/18] ✅ analyze_index_change.py 执行成功"
+else
+    log "[步骤18/18] ❌ analyze_index_change.py 执行失败，停止任务"
     exit 1
 fi
 
