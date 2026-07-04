@@ -215,18 +215,50 @@ def get_index_stats(conn):
     return results
 
 
-def plot_index_stats_table(ax, stats_data):
+def get_future_delta(conn):
+    """获取最近一个交易日的三大指数期现差边际变化均值"""
+    query = """
+    SELECT trade_date, idx_fu_avg_diff_delta
+    FROM stock_index_future_delta_t
+    ORDER BY trade_date DESC
+    LIMIT 1
+    """
+    cursor = conn.cursor()
+    cursor.execute(query)
+    data = cursor.fetchall()
+    cursor.close()
+    
+    if data:
+        return {
+            'trade_date': data[0]['trade_date'],
+            'delta': float(data[0]['idx_fu_avg_diff_delta']) if data[0]['idx_fu_avg_diff_delta'] else 0
+        }
+    return None
+
+
+def plot_index_stats_table(ax, stats_data, future_delta=None):
     """绘制指数收盘价统计表格（放在报告最顶部）"""
     results = []
+    
+    if future_delta:
+        results.append([
+            '三大指数期现差边际变化均值',
+            f'{future_delta["delta"]:.2f}',
+            '-',
+            '-',
+            f'{future_delta["trade_date"]}'
+        ])
+    
     for stat in stats_data:
         results.append([
             stat['name'],
             f'{stat["latest_close"]:.2f}',
             f'{stat["avg_close"]:.2f}',
-            f'{stat["deviation"]:.2f}%'
+            f'{stat["deviation"]:.2f}%',
+            '-'
         ])
     
-    columns = ['指数名称', '最近一日收盘价', '近30日平均收盘价', '偏离度']
+    columns = ['指标名称', '数值', '近30日平均收盘价', '偏离度', '日期']
     ax.axis('off')
     
     table = ax.table(
@@ -242,7 +274,7 @@ def plot_index_stats_table(ax, stats_data):
     table.scale(1.5, 2)
     
     # 设置标题
-    ax.text(0.5, 1.15, '指数收盘价统计', fontsize=16, fontweight='bold', ha='center', transform=ax.transAxes)
+    ax.text(0.5, 1.15, '指数统计', fontsize=16, fontweight='bold', ha='center', transform=ax.transAxes)
 
 
 def plot_index_table(ax, index_df):
@@ -423,6 +455,14 @@ def main():
     index_stats = get_index_stats(conn)
     print(f"✅ 获取指数统计数据: {len(index_stats)} 条")
     
+    # 获取三大指数期现差边际变化均值
+    print("\n📊 获取期现差边际变化数据...")
+    future_delta = get_future_delta(conn)
+    if future_delta:
+        print(f"✅ 获取期现差边际变化数据: {future_delta['delta']} ({future_delta['trade_date']})")
+    else:
+        print("⚠️ 未获取到期现差边际变化数据")
+    
     # 读取股指和期货代码
     print("\n📋 读取股指和期货代码...")
     index_codes, future_codes = read_index_codes()
@@ -450,8 +490,8 @@ def main():
     fig, axes = plt.subplots(9, 1, figsize=(14, 38))
     fig.suptitle(f'大盘趋势报告 V2 - {get_target_date()}', fontsize=16, fontweight='bold', y=0.995)
     
-    # 新增：指数收盘价统计表格（放在最顶部）
-    plot_index_stats_table(axes[0], index_stats)
+    # 新增：指数统计表格（放在最顶部，包含期现差边际变化均值）
+    plot_index_stats_table(axes[0], index_stats, future_delta)
     
     # 第一部分：期现差走势（3个图表）
     plot_basis(index_df, future_df, axes[1], '沪深300期现差走势', '000300.SH', 'IF')
