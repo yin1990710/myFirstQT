@@ -101,7 +101,13 @@ def get_labels(data):
     return str([row['trade_date'] for row in data])
 
 def get_values(data):
-    return str([float(row['diff']) if row['diff'] is not None else None for row in data])
+    vals = []
+    for row in data:
+        if row['diff'] is None:
+            vals.append('null')
+        else:
+            vals.append(str(float(row['diff'])))
+    return '[' + ', '.join(vals) + ']'
 
 def get_avg_diff(data, days):
     valid = [float(row['diff']) for row in data[-days:] if row['diff'] is not None]
