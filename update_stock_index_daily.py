@@ -4,6 +4,7 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -76,6 +77,7 @@ def fetch_index_data(codes):
         try:
             df = pro.index_daily(ts_code=code)
             if df is not None and not df.empty:
+                df = df.fillna(0)
                 all_data.append(df)
                 print(f"✅ 获取 {code} 数据成功，共 {len(df)} 条")
             else:
@@ -84,8 +86,15 @@ def fetch_index_data(codes):
             print(f"❌ 获取 {code} 数据失败: {e}")
     
     if all_data:
-        return pd.concat(all_data, ignore_index=True)
+        result = pd.concat(all_data, ignore_index=True)
+        result = result.fillna(0)
+        return result
     return None
+
+def safe_value(v):
+    if pd.isna(v) or (isinstance(v, float) and np.isnan(v)):
+        return None
+    return v
 
 def insert_data(connection, df):
     insert_sql = """
@@ -108,17 +117,17 @@ def insert_data(connection, df):
         with connection.cursor() as cursor:
             for _, row in df.iterrows():
                 cursor.execute(insert_sql, (
-                    row['ts_code'],
-                    row['trade_date'],
-                    row['close'],
-                    row['open'],
-                    row['high'],
-                    row['low'],
-                    row['pre_close'],
-                    row['change'],
-                    row['pct_chg'],
-                    row['vol'],
-                    row['amount']
+                    safe_value(row['ts_code']),
+                    safe_value(row['trade_date']),
+                    safe_value(row['close']),
+                    safe_value(row['open']),
+                    safe_value(row['high']),
+                    safe_value(row['low']),
+                    safe_value(row['pre_close']),
+                    safe_value(row['change']),
+                    safe_value(row['pct_chg']),
+                    safe_value(row['vol']),
+                    safe_value(row['amount'])
                 ))
         connection.commit()
         print(f"✅ 成功插入 {len(df)} 条数据")
