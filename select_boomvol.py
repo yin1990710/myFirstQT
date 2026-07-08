@@ -106,7 +106,10 @@ def has_boom_volume(records):
     pct_chg_list = []
     for i in range(len(records)-1, len(records)-4, -1):
         if i >= 1:
-            pct_chg = (records[i]['close'] - records[i-1]['close']) / records[i-1]['close'] * 100
+            prev_close = records[i-1]['close']
+            if prev_close == 0 or prev_close is None:
+                continue
+            pct_chg = (records[i]['close'] - prev_close) / prev_close * 100
             pct_chg_list.insert(0, pct_chg)
     
     if len(pct_chg_list) < 3:
