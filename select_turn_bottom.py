@@ -10,7 +10,7 @@
 4. 最近10个交易日：
    - 至少4个阳线（close>open）
    - 阳线成交额均>5亿（amount>500000千元）
-   - 阳线平均成交额 >= 阴线平均成交额 × 1.5
+   - 阳线平均成交额 >= 阴线平均成交额 × 2
 """
 
 import os
@@ -125,7 +125,7 @@ def analyze_turn_bottom_stocks(df: pd.DataFrame) -> list:
         if avg_down_amount == 0:
             continue
         
-        if avg_up_amount < avg_down_amount * 1.5:
+        if avg_up_amount < avg_down_amount * 1.8:
             continue
 
         stock_name = group.iloc[-1].get('stock_name', '')

@@ -151,11 +151,11 @@ def analyze_stocks(data):
         avg_up_amount = sum(up_days_amount) / len(up_days_amount)
         avg_down_amount = sum(down_days_amount) / len(down_days_amount)
 
-        if avg_down_amount == 0 or avg_up_amount <= avg_down_amount * 2:
+        if avg_down_amount == 0 or avg_up_amount <= avg_down_amount * 1.5:
             continue
 
         ma_diff_pct = (ma5 - ma30) / ma30 * 100
-        if ma_diff_pct >= 20:
+        if ma_diff_pct >= 10:
             continue
 
         result.append({

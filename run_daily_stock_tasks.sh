@@ -117,11 +117,11 @@ else
 fi
 
 # 步骤11: 执行 select_lowwave_in30day.py
-log "[步骤11/17] 开始执行 select_lowwave_in30day.py..."
-if ${VENV_PYTHON} select_lowwave_in30day.py >> "${LOG_DIR}/select_lowwave_in30day_${DATE}.log" 2>&1; then
-    log "[步骤11/17] ✅ select_lowwave_in30day.py 执行成功"
+log "[步骤11/17] 开始执行 select_lowwave.py..."
+if ${VENV_PYTHON} select_lowwave.py >> "${LOG_DIR}/select_lowwave_${DATE}.log" 2>&1; then
+    log "[步骤11/17] ✅ select_lowwave.py 执行成功"
 else
-    log "[步骤11/17] ❌ select_lowwave_in30day.py 执行失败，停止任务"
+    log "[步骤11/17] ❌ select_lowwave.py 执行失败，停止任务"
     exit 1
 fi
 
