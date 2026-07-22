@@ -105,11 +105,13 @@ def analyze_stocks(data):
         records = info['records']
         records.sort(key=lambda x: x['trade_date'])
 
-        if len(records) < 30:
+        if len(records) < 35:
             continue
 
+        last_35_days = records[-35:]
         last_30_days = records[-30:]
         last_10_days = records[-10:]
+        last_5_days = records[-5:]
 
         total_turnover = 0
         for r in last_10_days:
@@ -120,10 +122,19 @@ def analyze_stocks(data):
         if total_turnover <= 50:
             continue
 
-        ma10 = sum(r['close'] for r in last_10_days) / len(last_10_days)
+        ma5 = sum(r['close'] for r in last_5_days) / len(last_5_days)
         ma30 = sum(r['close'] for r in last_30_days) / len(last_30_days)
 
-        if ma30 <= 0 or ma10 <= ma30:
+        if ma30 <= 0 or ma5 <= ma30:
+            continue
+
+        prev_ma5 = sum(r['close'] for r in last_35_days[-10:-5]) / 5
+        prev_ma30 = sum(r['close'] for r in last_35_days[-35:-5]) / 30
+
+        if prev_ma5 <= 0 or prev_ma30 <= 0:
+            continue
+
+        if ma5 <= prev_ma5 or ma30 <= prev_ma30:
             continue
 
         up_days_amount = []
@@ -143,7 +154,7 @@ def analyze_stocks(data):
         if avg_down_amount == 0 or avg_up_amount <= avg_down_amount * 2:
             continue
 
-        ma_diff_pct = (ma10 - ma30) / ma30 * 100
+        ma_diff_pct = (ma5 - ma30) / ma30 * 100
         if ma_diff_pct >= 20:
             continue
 
@@ -151,7 +162,7 @@ def analyze_stocks(data):
             'ts_code': ts_code,
             'stock_name': info['stock_name'],
             'total_turnover': round(total_turnover, 2),
-            'ma10': round(ma10, 2),
+            'ma5': round(ma5, 2),
             'ma30': round(ma30, 2),
             'ma_diff_pct': round(ma_diff_pct, 2)
         })
@@ -166,10 +177,10 @@ def generate_csv_file(stocks, folder_path):
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '10日累计换手率(%)', 'MA10', 'MA30', 'MA10-MA30差值(%)'])
+        writer.writerow(['股票代码', '股票名称', '10日累计换手率(%)', 'MA5', 'MA30', 'MA5-MA30差值(%)'])
         for stock in stocks:
             writer.writerow([stock['ts_code'], stock['stock_name'], stock['total_turnover'],
-                            stock['ma10'], stock['ma30'], stock['ma_diff_pct']])
+                            stock['ma5'], stock['ma30'], stock['ma_diff_pct']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -202,8 +213,8 @@ def main():
         for stock in selected_stocks[:10]:
             print(f"• {stock['ts_code']} - {stock['stock_name']}")
             print(f"  ├─ 10日累计换手率: {stock['total_turnover']}%")
-            print(f"  ├─ MA10: {stock['ma10']}, MA30: {stock['ma30']}")
-            print(f"  └─ MA10-MA30差值: {stock['ma_diff_pct']}%")
+            print(f"  ├─ MA5: {stock['ma5']}, MA30: {stock['ma30']}")
+            print(f"  └─ MA5-MA30差值: {stock['ma_diff_pct']}%")
         
         if len(selected_stocks) > 10:
             print(f"  ... 还有 {len(selected_stocks) - 10} 只股票")
