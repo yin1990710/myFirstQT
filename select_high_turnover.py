@@ -52,6 +52,7 @@ def read_stock_data(days=10):
         d.ts_code,
         d.trade_date,
         d.amount,
+        d.close,
         i.stock_name,
         i.total_mv
     FROM stock_daily_t d
@@ -85,7 +86,8 @@ def analyze_stocks(data):
             }
         stock_data[ts_code]['records'].append({
             'trade_date': record['trade_date'],
-            'amount': float(record['amount'] or 0)
+            'amount': float(record['amount'] or 0),
+            'close': float(record['close'] or 0)
         })
 
     result = []
@@ -107,12 +109,20 @@ def analyze_stocks(data):
                 turnover_rate = (r['amount'] * 1000) / info['total_mv'] * 100
                 total_turnover += turnover_rate
 
-        if total_turnover > 100:
-            result.append({
-                'ts_code': ts_code,
-                'stock_name': info['stock_name'],
-                'total_turnover': round(total_turnover, 2)
-            })
+        if total_turnover <= 80:
+            continue
+
+        first_close = last_10_days[0]['close']
+        last_close = last_10_days[-1]['close']
+        if first_close <= 0 or last_close <= first_close:
+            continue
+
+        result.append({
+            'ts_code': ts_code,
+            'stock_name': info['stock_name'],
+            'total_turnover': round(total_turnover, 2),
+            'price_change': round((last_close - first_close) / first_close * 100, 2)
+        })
 
     result.sort(key=lambda x: x['total_turnover'], reverse=True)
 
@@ -124,9 +134,9 @@ def generate_csv_file(stocks, folder_path):
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '10日累计换手率(%)'])
+        writer.writerow(['股票代码', '股票名称', '10日累计换手率(%)', '10日涨幅(%)'])
         for stock in stocks:
-            writer.writerow([stock['ts_code'], stock['stock_name'], stock['total_turnover']])
+            writer.writerow([stock['ts_code'], stock['stock_name'], stock['total_turnover'], stock['price_change']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -157,7 +167,7 @@ def main():
         print("=" * 80)
 
         for stock in selected_stocks[:10]:
-            print(f"• {stock['ts_code']} - {stock['stock_name']} - 10日累计换手率: {stock['total_turnover']}%")
+            print(f"• {stock['ts_code']} - {stock['stock_name']} - 10日累计换手率: {stock['total_turnover']}% - 10日涨幅: {stock['price_change']}%")
         
         if len(selected_stocks) > 10:
             print(f"  ... 还有 {len(selected_stocks) - 10} 只股票")
