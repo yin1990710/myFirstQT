@@ -474,7 +474,7 @@ def main():
     future_df = get_future_data(conn, days=90)
     print(f"✅ 获取股指期货数据: {len(future_df)} 条")
     
-    rzrq_df = get_rzrq_data(conn, days=90)
+    rzrq_df = get_rzrq_data(conn, days=400)
     print(f"✅ 获取融资融券数据: {len(rzrq_df)} 条")
     
     stock_df = get_stock_daily_data(conn, days=30)
