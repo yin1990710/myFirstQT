@@ -99,71 +99,43 @@ def analyze_stocks(data):
     result = []
 
     for ts_code, info in stock_data.items():
-        if info['total_mv'] <= 10000000000:
+        if info['total_mv'] <= 8000000000:
             continue
 
         records = info['records']
         records.sort(key=lambda x: x['trade_date'])
 
-        if len(records) < 35:
+        if len(records) < 36:
             continue
 
-        last_35_days = records[-35:]
-        last_30_days = records[-30:]
-        last_10_days = records[-10:]
-        last_5_days = records[-5:]
+        last_36_days = records[-36:]
+        last_31_days = records[-31:]
+        last_6_days = records[-6:]
 
-        total_turnover = 0
-        for r in last_10_days:
-            if info['total_mv'] > 0:
-                turnover_rate = (r['amount'] * 1000) / info['total_mv'] * 100
-                total_turnover += turnover_rate
+        current_ma5 = sum(r['close'] for r in last_6_days[:5]) / 5
+        current_ma30 = sum(r['close'] for r in last_31_days[:30]) / 30
 
-        if total_turnover <= 50:
+        prev_ma5 = sum(r['close'] for r in last_36_days[1:6]) / 5
+        prev_ma30 = sum(r['close'] for r in last_36_days[1:31]) / 30
+
+        if current_ma30 <= 0 or prev_ma30 <= 0:
             continue
 
-        ma5 = sum(r['close'] for r in last_5_days) / len(last_5_days)
-        ma30 = sum(r['close'] for r in last_30_days) / len(last_30_days)
-
-        if ma30 <= 0 or ma5 <= ma30:
+        if prev_ma5 >= prev_ma30:
             continue
 
-        prev_ma5 = sum(r['close'] for r in last_35_days[-10:-5]) / 5
-        prev_ma30 = sum(r['close'] for r in last_35_days[-35:-5]) / 30
-
-        if prev_ma5 <= 0 or prev_ma30 <= 0:
+        if current_ma5 <= current_ma30:
             continue
 
-        if ma5 <= prev_ma5 or ma30 <= prev_ma30:
-            continue
-
-        up_days_amount = []
-        down_days_amount = []
-        for r in last_10_days:
-            if r['open'] < r['close']:
-                up_days_amount.append(r['amount'])
-            elif r['open'] > r['close']:
-                down_days_amount.append(r['amount'])
-
-        if len(up_days_amount) == 0 or len(down_days_amount) == 0:
-            continue
-
-        avg_up_amount = sum(up_days_amount) / len(up_days_amount)
-        avg_down_amount = sum(down_days_amount) / len(down_days_amount)
-
-        if avg_down_amount == 0 or avg_up_amount <= avg_down_amount * 1.5:
-            continue
-
-        ma_diff_pct = (ma5 - ma30) / ma30 * 100
-        if ma_diff_pct >= 10:
-            continue
+        ma_diff_pct = (current_ma5 - current_ma30) / current_ma30 * 100
 
         result.append({
             'ts_code': ts_code,
             'stock_name': info['stock_name'],
-            'total_turnover': round(total_turnover, 2),
-            'ma5': round(ma5, 2),
-            'ma30': round(ma30, 2),
+            'prev_ma5': round(prev_ma5, 2),
+            'prev_ma30': round(prev_ma30, 2),
+            'current_ma5': round(current_ma5, 2),
+            'current_ma30': round(current_ma30, 2),
             'ma_diff_pct': round(ma_diff_pct, 2)
         })
 
@@ -177,10 +149,10 @@ def generate_csv_file(stocks, folder_path):
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '10日累计换手率(%)', 'MA5', 'MA30', 'MA5-MA30差值(%)'])
+        writer.writerow(['股票代码', '股票名称', '前一日MA5', '前一日MA30', '当日MA5', '当日MA30', 'MA5-MA30差值(%)'])
         for stock in stocks:
-            writer.writerow([stock['ts_code'], stock['stock_name'], stock['total_turnover'],
-                            stock['ma5'], stock['ma30'], stock['ma_diff_pct']])
+            writer.writerow([stock['ts_code'], stock['stock_name'], stock['prev_ma5'], stock['prev_ma30'],
+                            stock['current_ma5'], stock['current_ma30'], stock['ma_diff_pct']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -192,7 +164,7 @@ def main():
 
     folder_path = create_folder()
 
-    data = read_stock_data(days=30)
+    data = read_stock_data(days=50)
 
     if not data:
         print("❌ 没有获取到数据，退出程序")
@@ -212,8 +184,8 @@ def main():
 
         for stock in selected_stocks[:10]:
             print(f"• {stock['ts_code']} - {stock['stock_name']}")
-            print(f"  ├─ 10日累计换手率: {stock['total_turnover']}%")
-            print(f"  ├─ MA5: {stock['ma5']}, MA30: {stock['ma30']}")
+            print(f"  ├─ 前一日: MA5={stock['prev_ma5']}, MA30={stock['prev_ma30']}")
+            print(f"  ├─ 当日: MA5={stock['current_ma5']}, MA30={stock['current_ma30']}")
             print(f"  └─ MA5-MA30差值: {stock['ma_diff_pct']}%")
         
         if len(selected_stocks) > 10:
