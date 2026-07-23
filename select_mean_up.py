@@ -145,7 +145,7 @@ def analyze_stocks(data):
         if current_amount <= 500000000:
             continue
 
-        if prev_amount > 0 and current_amount <= prev_amount * 2:
+        if prev_amount > 0 and current_amount <= prev_amount * 1.5:
             continue
 
         close_diff_pct = (current_close - current_ma30) / current_ma30 * 100
