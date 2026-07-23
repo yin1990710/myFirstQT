@@ -105,30 +105,42 @@ def analyze_stocks(data):
         records = info['records']
         records.sort(key=lambda x: x['trade_date'])
 
-        if len(records) < 36:
+        if len(records) < 39:
             continue
 
-        last_36_days = records[-36:]
-        last_31_days = records[-31:]
-        last_6_days = records[-6:]
+        ma30_list = []
 
-        current_ma5 = sum(r['close'] for r in last_6_days[:5]) / 5
-        current_ma30 = sum(r['close'] for r in last_31_days[:30]) / 30
+        for i in range(len(records) - 29, len(records)):
+            ma30 = sum(r['close'] for r in records[i-29:i+1]) / 30
+            ma30_list.append(ma30)
 
-        prev_ma5 = sum(r['close'] for r in last_36_days[1:6]) / 5
-        prev_ma30 = sum(r['close'] for r in last_36_days[1:31]) / 30
-
-        if current_ma30 <= 0 or prev_ma30 <= 0:
+        if len(ma30_list) < 10:
             continue
 
-        if prev_ma5 >= prev_ma30:
+        recent_ma30 = ma30_list[-10:]
+
+        is_ma30_increasing = True
+        for i in range(1, len(recent_ma30)):
+            if recent_ma30[i] <= recent_ma30[i-1]:
+                is_ma30_increasing = False
+                break
+
+        if not is_ma30_increasing:
             continue
 
-        if current_ma5 <= current_ma30:
+        prev_close = records[-2]['close']
+        current_close = records[-1]['close']
+        prev_ma30 = recent_ma30[-2]
+        current_ma30 = recent_ma30[-1]
+
+        if prev_close >= prev_ma30:
             continue
 
-        current_amount = last_6_days[0]['amount'] * 1000
-        prev_amount = last_36_days[1]['amount'] * 1000
+        if current_close <= current_ma30:
+            continue
+
+        current_amount = records[-1]['amount'] * 1000
+        prev_amount = records[-2]['amount'] * 1000
 
         if current_amount <= 500000000:
             continue
@@ -136,21 +148,21 @@ def analyze_stocks(data):
         if prev_amount > 0 and current_amount <= prev_amount * 2:
             continue
 
-        ma_diff_pct = (current_ma5 - current_ma30) / current_ma30 * 100
+        close_diff_pct = (current_close - current_ma30) / current_ma30 * 100
 
         result.append({
             'ts_code': ts_code,
             'stock_name': info['stock_name'],
-            'prev_ma5': round(prev_ma5, 2),
+            'prev_close': round(prev_close, 2),
             'prev_ma30': round(prev_ma30, 2),
-            'current_ma5': round(current_ma5, 2),
+            'current_close': round(current_close, 2),
             'current_ma30': round(current_ma30, 2),
-            'ma_diff_pct': round(ma_diff_pct, 2),
+            'close_diff_pct': round(close_diff_pct, 2),
             'current_amount': round(current_amount / 100000000, 2),
             'prev_amount': round(prev_amount / 100000000, 2)
         })
 
-    result.sort(key=lambda x: x['ma_diff_pct'], reverse=True)
+    result.sort(key=lambda x: x['close_diff_pct'], reverse=True)
 
     return result
 
@@ -160,10 +172,10 @@ def generate_csv_file(stocks, folder_path):
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '前一日MA5', '前一日MA30', '当日MA5', '当日MA30', 'MA5-MA30差值(%)', '当日成交额(亿)', '前一日成交额(亿)'])
+        writer.writerow(['股票代码', '股票名称', '前一日收盘价', '前一日MA30', '当日收盘价', '当日MA30', '收盘价-MA30差值(%)', '当日成交额(亿)', '前一日成交额(亿)'])
         for stock in stocks:
-            writer.writerow([stock['ts_code'], stock['stock_name'], stock['prev_ma5'], stock['prev_ma30'],
-                            stock['current_ma5'], stock['current_ma30'], stock['ma_diff_pct'],
+            writer.writerow([stock['ts_code'], stock['stock_name'], stock['prev_close'], stock['prev_ma30'],
+                            stock['current_close'], stock['current_ma30'], stock['close_diff_pct'],
                             stock['current_amount'], stock['prev_amount']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
@@ -196,9 +208,9 @@ def main():
 
         for stock in selected_stocks[:10]:
             print(f"• {stock['ts_code']} - {stock['stock_name']}")
-            print(f"  ├─ 前一日: MA5={stock['prev_ma5']}, MA30={stock['prev_ma30']}")
-            print(f"  ├─ 当日: MA5={stock['current_ma5']}, MA30={stock['current_ma30']}")
-            print(f"  ├─ MA5-MA30差值: {stock['ma_diff_pct']}%")
+            print(f"  ├─ 前一日: 收盘价={stock['prev_close']}, MA30={stock['prev_ma30']}")
+            print(f"  ├─ 当日: 收盘价={stock['current_close']}, MA30={stock['current_ma30']}")
+            print(f"  ├─ 收盘价-MA30差值: {stock['close_diff_pct']}%")
             print(f"  └─ 成交额: 当日{stock['current_amount']}亿, 前一日{stock['prev_amount']}亿")
         
         if len(selected_stocks) > 10:
