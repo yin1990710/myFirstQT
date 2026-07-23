@@ -38,7 +38,7 @@ def create_folder():
 
     return folder_path
 
-def read_stock_data(days=30):
+def read_stock_data(days=50):
     connection = get_mysql_connection()
     if not connection:
         print("❌ 数据库连接失败")
@@ -99,7 +99,7 @@ def analyze_stocks(data):
     result = []
 
     for ts_code, info in stock_data.items():
-        if info['total_mv'] <= 8000000000:
+        if info['total_mv'] <= 10000000000:
             continue
 
         records = info['records']
@@ -127,6 +127,15 @@ def analyze_stocks(data):
         if current_ma5 <= current_ma30:
             continue
 
+        current_amount = last_6_days[0]['amount'] * 1000
+        prev_amount = last_36_days[1]['amount'] * 1000
+
+        if current_amount <= 500000000:
+            continue
+
+        if prev_amount > 0 and current_amount <= prev_amount * 2:
+            continue
+
         ma_diff_pct = (current_ma5 - current_ma30) / current_ma30 * 100
 
         result.append({
@@ -136,7 +145,9 @@ def analyze_stocks(data):
             'prev_ma30': round(prev_ma30, 2),
             'current_ma5': round(current_ma5, 2),
             'current_ma30': round(current_ma30, 2),
-            'ma_diff_pct': round(ma_diff_pct, 2)
+            'ma_diff_pct': round(ma_diff_pct, 2),
+            'current_amount': round(current_amount / 100000000, 2),
+            'prev_amount': round(prev_amount / 100000000, 2)
         })
 
     result.sort(key=lambda x: x['ma_diff_pct'], reverse=True)
@@ -149,10 +160,11 @@ def generate_csv_file(stocks, folder_path):
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '前一日MA5', '前一日MA30', '当日MA5', '当日MA30', 'MA5-MA30差值(%)'])
+        writer.writerow(['股票代码', '股票名称', '前一日MA5', '前一日MA30', '当日MA5', '当日MA30', 'MA5-MA30差值(%)', '当日成交额(亿)', '前一日成交额(亿)'])
         for stock in stocks:
             writer.writerow([stock['ts_code'], stock['stock_name'], stock['prev_ma5'], stock['prev_ma30'],
-                            stock['current_ma5'], stock['current_ma30'], stock['ma_diff_pct']])
+                            stock['current_ma5'], stock['current_ma30'], stock['ma_diff_pct'],
+                            stock['current_amount'], stock['prev_amount']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -186,7 +198,8 @@ def main():
             print(f"• {stock['ts_code']} - {stock['stock_name']}")
             print(f"  ├─ 前一日: MA5={stock['prev_ma5']}, MA30={stock['prev_ma30']}")
             print(f"  ├─ 当日: MA5={stock['current_ma5']}, MA30={stock['current_ma30']}")
-            print(f"  └─ MA5-MA30差值: {stock['ma_diff_pct']}%")
+            print(f"  ├─ MA5-MA30差值: {stock['ma_diff_pct']}%")
+            print(f"  └─ 成交额: 当日{stock['current_amount']}亿, 前一日{stock['prev_amount']}亿")
         
         if len(selected_stocks) > 10:
             print(f"  ... 还有 {len(selected_stocks) - 10} 只股票")
