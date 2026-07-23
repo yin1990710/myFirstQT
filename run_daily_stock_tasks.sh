@@ -107,32 +107,15 @@ else
     exit 1
 fi
 
-# 步骤10: 执行 select_lowwave_in10day.py
-log "[步骤10/17] 开始执行 select_lowwave_in10day.py..."
-if ${VENV_PYTHON} select_lowwave_in10day.py >> "${LOG_DIR}/select_lowwave_in10day_${DATE}.log" 2>&1; then
-    log "[步骤10/17] ✅ select_lowwave_in10day.py 执行成功"
-else
-    log "[步骤10/17] ❌ select_lowwave_in10day.py 执行失败，停止任务"
-    exit 1
-fi
-
 # 步骤11: 执行 select_lowwave_in30day.py
-log "[步骤11/17] 开始执行 select_lowwave.py..."
-if ${VENV_PYTHON} select_lowwave.py >> "${LOG_DIR}/select_lowwave_${DATE}.log" 2>&1; then
-    log "[步骤11/17] ✅ select_lowwave.py 执行成功"
+log "[步骤11/17] 开始执行 select_lowwave_10d.py..."
+if ${VENV_PYTHON} select_lowwave_10d.py >> "${LOG_DIR}/select_lowwave_10d${DATE}.log" 2>&1; then
+    log "[步骤11/17] ✅ select_lowwave_10d.py 执行成功"
 else
-    log "[步骤11/17] ❌ select_lowwave.py 执行失败，停止任务"
+    log "[步骤11/17] ❌ select_lowwave_10d.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤12: 执行 select_daydayup_in5day.py
-log "[步骤12/17] 开始执行 select_daydayup_in5day.py..."
-if ${VENV_PYTHON} select_daydayup_in5day.py >> "${LOG_DIR}/select_daydayup_in5day_${DATE}.log" 2>&1; then
-    log "[步骤12/17] ✅ select_daydayup_in5day.py 执行成功"
-else
-    log "[步骤12/17] ❌ select_daydayup_in5day.py 执行失败，停止任务"
-    exit 1
-fi
 
 # 步骤13: 执行 select_industry_in5day.py
 log "[步骤13/17] 开始执行 select_industry_in5day.py..."
@@ -144,11 +127,11 @@ else
 fi
 
 # 步骤14: 执行 select_limitup_daily.py
-log "[步骤14/17] 开始执行 select_limitup_daily.py..."
-if ${VENV_PYTHON} select_limitup_daily.py >> "${LOG_DIR}/select_limitup_daily_${DATE}.log" 2>&1; then
-    log "[步骤14/17] ✅ select_limitup_daily.py 执行成功"
+log "[步骤14/17] 开始执行 select_limitup_1d.py..."
+if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d${DATE}.log" 2>&1; then
+    log "[步骤14/17] ✅ select_limitup_1d.py 执行成功"
 else
-    log "[步骤14/17] ❌ select_limitup_daily.py 执行失败，停止任务"
+    log "[步骤14/17] ❌ select_limitup_1d.py 执行失败，停止任务"
     exit 1
 fi
 
@@ -197,7 +180,24 @@ else
     log "[步骤18/18] ❌ analyze_index_change.py 执行失败，停止任务"
     exit 1
 fi
+# 步骤18: 执行 select_break_ma30.py
+log "[步骤18/18] 开始执行 select_break_ma30.py..."
+if ${VENV_PYTHON} select_break_ma30.py>> "${LOG_DIR}/select_break_ma30.${DATE}.log" 2>&1; then
+    log "[步骤18/18] ✅ select_break_ma30.py 执行成功"
+else
+    log "[步骤18/18] ❌ select_break_ma30.py 执行失败，停止任务"
+    exit 1
+fi
 
+
+# 步骤18: 执行 select_high_exchange_10d.py
+log "[步骤18/18] 开始执行 select_high_exchange_10d.py..."
+if ${VENV_PYTHON} select_high_exchange_10d.py>> "${LOG_DIR}/select_high_exchange_10d.${DATE}.log" 2>&1; then
+    log "[步骤18/18] ✅ select_high_exchange_10d.py 执行成功"
+else
+    log "[步骤18/18] ❌ select_high_exchange_10d.py 执行失败，停止任务"
+    exit 1
+fi
 log "=========================================="
 log "🎉 所有任务执行完成！"
 log "=========================================="

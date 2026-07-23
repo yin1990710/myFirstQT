@@ -4,6 +4,7 @@
 import os
 import sys
 import shutil
+import csv
 from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +21,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"低波放量{target_date}"
+    folder_name = f"低幅震荡{target_date}"
     return folder_name
 
 def create_folder():
@@ -44,7 +45,7 @@ def read_stock_data(days=10):
         return []
 
     target_date = get_target_date()
-    start_date = (datetime.now() - timedelta(days=days + 5)).strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=days + 15)).strftime('%Y%m%d')
 
     query_sql = """
     SELECT
@@ -52,8 +53,10 @@ def read_stock_data(days=10):
         d.trade_date,
         d.open,
         d.close,
+        d.high,
+        d.low,
         d.amount,
-        i.total_mv
+        i.stock_name
     FROM stock_daily_t d
     LEFT JOIN stock_info_t i ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
     WHERE d.trade_date >= %s AND d.trade_date <= %s
@@ -64,7 +67,6 @@ def read_stock_data(days=10):
         with connection.cursor() as cursor:
             cursor.execute(query_sql, (start_date, target_date))
             results = cursor.fetchall()
-        connection.commit()
         print(f"✅ 成功读取 {len(results)} 条数据 ({start_date} ~ {target_date})")
         return results
     except Exception as e:
@@ -84,60 +86,45 @@ def analyze_stocks(data):
             'trade_date': record['trade_date'],
             'open': float(record['open'] or 0),
             'close': float(record['close'] or 0),
+            'high': float(record['high'] or 0),
+            'low': float(record['low'] or 0),
             'amount': float(record['amount'] or 0),
-            'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0
+            'stock_name': record['stock_name'] or ''
         })
 
     result = []
-    count_total = 0
-    count_condition0 = 0  # 新增：振幅条件
-    count_condition1 = 0
-    count_condition2 = 0
-    count_condition3 = 0
-    count_condition4 = 0
-    count_condition5 = 0
-
-    five_hundred_million_yuan = 500000000
 
     for ts_code, records in stock_data.items():
         if len(records) < 10:
             continue
 
         records.sort(key=lambda x: x['trade_date'])
-
         last_10_days = records[-10:]
 
         if len(last_10_days) < 10:
             continue
 
-        count_total += 1
-
-        # 检查最近10日振幅 (新增条件)
-        max_close = max([r['close'] for r in last_10_days])
-        min_close = min([r['close'] for r in last_10_days])
-        if min_close > 0:
-            amplitude = (max_close - min_close) / min_close * 100
-        else:
-            amplitude = 0
-
-        if amplitude <= 0 or amplitude >= 15:
-            continue
-
-        count_condition0 += 1  # 振幅条件满足
-
         up_days_amount = []
         down_days_amount = []
+        all_high = []
+        all_low = []
 
         for r in last_10_days:
             if r['open'] < r['close']:
+                if r['amount'] * 1000 <= 500000000:
+                    up_days_amount = None
+                    break
                 up_days_amount.append(r['amount'])
             elif r['open'] > r['close']:
                 down_days_amount.append(r['amount'])
+            all_high.append(r['high'])
+            all_low.append(r['low'])
+
+        if up_days_amount is None:
+            continue
 
         if len(up_days_amount) < 4:
             continue
-
-        count_condition1 += 1
 
         if len(down_days_amount) == 0:
             continue
@@ -148,71 +135,45 @@ def analyze_stocks(data):
         if avg_down_amount == 0:
             continue
 
-        if avg_up_amount <= avg_down_amount * 1.3:
+        if avg_up_amount <= avg_down_amount * 1.5:
             continue
 
-        count_condition2 += 1
+        max_high = max(all_high)
+        min_low = min(all_low)
 
-        if avg_up_amount * 1000 < five_hundred_million_yuan:
+        if min_low <= 0:
             continue
 
-        count_condition3 += 1
+        high_low_pct = (max_high - min_low) / min_low * 100
 
-        gain_over_5_count = 0
-        for i in range(1, len(last_10_days)):
-            prev_close = last_10_days[i-1]['close']
-            curr_close = last_10_days[i]['close']
-            if prev_close > 0:
-                gain = (curr_close - prev_close) / prev_close * 100
-                if gain > 5:
-                    gain_over_5_count += 1
-        if gain_over_5_count < 2:
+        if high_low_pct >= 15:
             continue
-
-        count_condition4 += 1
-
-        total_mv = last_10_days[-1].get('total_mv', 0)
-        if total_mv < five_hundred_million_yuan:
-            continue
-
-        count_condition5 += 1
 
         result.append({
             'ts_code': ts_code,
+            'stock_name': last_10_days[-1]['stock_name']
         })
 
     result.sort(key=lambda x: x['ts_code'])
 
-    print("\n" + "=" * 60)
-    print(f"满足条件统计：")
-    print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件0(最近10日振幅0%-15%): {count_condition0}")
-    print(f"满足条件0+1(至少4天阳线): {count_condition1}")
-    print(f"满足条件0+1+2(阳线成交额>阴线1.3倍): {count_condition2}")
-    print(f"满足条件0+1+2+3(阳线平均成交额>5亿): {count_condition3}")
-    print(f"满足条件0+1+2+3+4(最近10天至少2天涨幅>5%): {count_condition4}")
-    print(f"满足条件0+1+2+3+4+5(市值>50亿): {len(result)}")
-    print("=" * 60)
-
     return result
 
 def generate_csv_file(stocks, folder_path):
-    target_date = get_target_date()
-    csv_filename = f"低波放量{target_date}.csv"
+    csv_filename = "lowwave_10d.csv"
     csv_path = os.path.join(folder_path, csv_filename)
 
-    ts_codes = [stock['ts_code'] for stock in stocks]
-    ts_codes_str = ','.join(ts_codes)
-
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write(ts_codes_str)
+        writer = csv.writer(f)
+        writer.writerow(['股票代码', '股票名称'])
+        for stock in stocks:
+            writer.writerow([stock['ts_code'], stock['stock_name']])
 
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
 
 def main():
     print("=" * 80)
-    print("低波放量选股策略")
+    print("低幅波动选股策略")
     print("=" * 80)
 
     folder_path = create_folder()
@@ -236,7 +197,7 @@ def main():
         print("=" * 80)
 
         for stock in selected_stocks:
-            print(f"• {stock['ts_code']}")
+            print(f"• {stock['ts_code']} - {stock['stock_name']}")
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")
