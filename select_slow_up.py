@@ -21,7 +21,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"稳步上升{target_date}"
+    folder_name = f"慢牛选股{target_date}"
     return folder_name
 
 def create_folder():
@@ -99,10 +99,10 @@ def analyze_stocks(data):
     for ts_code, info in stock_data.items():
         records = info['records']
         
-        if len(records) < 80:
+        if len(records) < 40:
             continue
 
-        records = records[:80]
+        records = records[:40]
         records.sort(key=lambda x: x['trade_date'])
 
         latest_record = records[-1]
@@ -198,7 +198,7 @@ def generate_csv_file(stocks, folder_path):
 
 def main():
     print("=" * 80)
-    print("稳步上升选股策略")
+    print("慢牛选股策略")
     print("=" * 80)
 
     folder_path = create_folder()
