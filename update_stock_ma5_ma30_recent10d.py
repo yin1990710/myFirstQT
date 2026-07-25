@@ -51,15 +51,15 @@ def calculate_ma_and_update(data, connection):
     try:
         with connection.cursor() as cursor:
             for ts_code, records in stock_data.items():
-                if len(records) < 39:
+                if len(records) < 129:
                     continue
 
-                records = records[:50]
+                records = records[:130]
                 records.sort(key=lambda x: x['trade_date'])
 
                 closes = [r['close'] for r in records]
 
-                for i in range(max(0, len(closes) - 10), len(closes)):
+                for i in range(max(0, len(closes) - 100), len(closes)):
                     if i >= 4:
                         ma5 = sum(closes[i-4:i+1]) / 5
                     else:
@@ -88,7 +88,7 @@ def calculate_ma_and_update(data, connection):
 
 def main():
     print("=" * 80)
-    print("更新股票最近10个交易日的MA5和MA30")
+    print("更新股票最近100个交易日的MA5和MA30")
     print("=" * 80)
 
     data, connection = read_stock_data()
