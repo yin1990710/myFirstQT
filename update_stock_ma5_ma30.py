@@ -15,11 +15,17 @@ def read_stock_data():
 
     query_sql = """
     SELECT
-        ts_code,
-        trade_date,
-        close
-    FROM stock_daily_t
-    ORDER BY ts_code, trade_date DESC
+        d.ts_code,
+        d.trade_date,
+        d.close
+    FROM stock_daily_t d
+    INNER JOIN (
+        SELECT DISTINCT trade_date
+        FROM stock_daily_t
+        ORDER BY trade_date DESC
+        LIMIT 50
+    ) t ON d.trade_date = t.trade_date
+    ORDER BY d.ts_code, d.trade_date DESC
     """
 
     try:
