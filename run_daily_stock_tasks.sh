@@ -78,16 +78,25 @@ else
     exit 1
 fi
 
+# 步骤6: 执行 update_stock_daily.py
+log "[步骤6/17] 开始执行 update_stock_ma5_ma30.py..."
+if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30${DATE}.log" 2>&1; then
+    log "[步骤6/17] ✅ update_stock_ma5_ma30.py 执行成功"
+else
+    log "[步骤6/17] ❌ update_stock_ma5_ma30.py 执行失败，停止任务"
+    exit 1
+fi
+
 log "========== 第一批任务完成，开始第二批任务 =========="
 
 # 步骤7: 执行 pinzi_analysis_tag_to_db.py
-log "[步骤7/17] 开始执行 pinzi_analysis_tag_to_db.py..."
-if ${VENV_PYTHON} pinzi_analysis_tag_to_db.py >> "${LOG_DIR}/pinzi_analysis_tag_${DATE}.log" 2>&1; then
-    log "[步骤7/17] ✅ pinzi_analysis_tag_to_db.py 执行成功"
-else
-    log "[步骤7/17] ❌ pinzi_analysis_tag_to_db.py 执行失败，停止任务"
-    exit 1
-fi
+# log "[步骤7/17] 开始执行 pinzi_analysis_tag_to_db.py..."
+# if ${VENV_PYTHON} pinzi_analysis_tag_to_db.py >> "${LOG_DIR}/pinzi_analysis_tag_${DATE}.log" 2>&1; then
+#     log "[步骤7/17] ✅ pinzi_analysis_tag_to_db.py 执行成功"
+# else
+#     log "[步骤7/17] ❌ pinzi_analysis_tag_to_db.py 执行失败，停止任务"
+#     exit 1
+# fi
 
 # 步骤8: 执行 select_newhigh_in_120d.py
 log "[步骤8/17] 开始执行 select_newhigh_in_120d.py..."
@@ -107,7 +116,7 @@ else
     exit 1
 fi
 
-# 步骤11: 执行 select_lowwave_in30day.py
+# 步骤11: 执行 select_lowwave_10d.py
 log "[步骤11/17] 开始执行 select_lowwave_10d.py..."
 if ${VENV_PYTHON} select_lowwave_10d.py >> "${LOG_DIR}/select_lowwave_10d${DATE}.log" 2>&1; then
     log "[步骤11/17] ✅ select_lowwave_10d.py 执行成功"
@@ -126,7 +135,7 @@ else
     exit 1
 fi
 
-# 步骤14: 执行 select_limitup_daily.py
+# 步骤14: 执行 select_limitup_1d.py
 log "[步骤14/17] 开始执行 select_limitup_1d.py..."
 if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d${DATE}.log" 2>&1; then
     log "[步骤14/17] ✅ select_limitup_1d.py 执行成功"
@@ -144,7 +153,7 @@ else
     exit 1
 fi
 
-# 步骤15: 执行 select_boomvol.py (爆量上涨选股)
+# 步骤15: 执行 select_2wave_daily.py (2波上涨选股)
 log "[步骤15/17] 开始执行 select_2wave_daily.py..."
 if ${VENV_PYTHON} select_2wave_daily.py >> "${LOG_DIR}/select_2wave_daily_${DATE}.log" 2>&1; then
     log "[步骤15/17] ✅ select_2wave_daily.py 执行成功"
@@ -154,7 +163,7 @@ else
 fi
 
 
-# 步骤16: 执行 stock_overall_report_v2.py
+# 步骤16: 执行 stock_overall_report.py
 log "[步骤16/17] 开始执行 stock_overall_report.py..."
 if ${VENV_PYTHON} stock_overall_report.py >> "${LOG_DIR}/stock_overall_report_${DATE}.log" 2>&1; then
     log "[步骤16/17] ✅ stock_overall_report.py 执行成功"
