@@ -48,6 +48,7 @@ def read_stock_data():
     SELECT
         d.ts_code,
         d.trade_date,
+        d.open,
         d.close,
         d.pre_close,
         d.amount,
@@ -84,6 +85,7 @@ def analyze_stocks(data):
             }
         stock_data[ts_code]['records'].append({
             'trade_date': record['trade_date'],
+            'open': float(record['open'] or 0),
             'close': float(record['close'] or 0),
             'pre_close': float(record['pre_close'] or 0),
             'amount': float(record['amount'] or 0),
@@ -126,6 +128,9 @@ def analyze_stocks(data):
         if latest_record['ma5'] is None or latest_record['ma30'] is None:
             continue
 
+        if latest_record['close'] <= latest_record['open']:
+            continue
+            
         if latest_record['close'] <= latest_record['ma5'] or latest_record['close'] <= latest_record['ma30']:
             continue
 
