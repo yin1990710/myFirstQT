@@ -51,7 +51,7 @@ def analyze_and_update(data, connection):
     try:
         with connection.cursor() as cursor:
             for ts_code, records in stock_data.items():
-                if len(records) < 100:
+                if len(records) < 11:
                     continue
 
                 records = records[:100]
@@ -60,24 +60,18 @@ def analyze_and_update(data, connection):
                 ma5_values = [r['ma5'] for r in records]
 
                 for i in range(len(records)):
-                    if i < 10 or i >= len(records) - 10:
+                    if i < 5 or i >= len(records) - 5:
                         continue
 
-                    has_valid_ma5 = True
-                    for j in range(i - 10, i + 11):
-                        if ma5_values[j] is None or ma5_values[j] <= 0:
-                            has_valid_ma5 = False
-                            break
-                    
-                    if not has_valid_ma5:
-                        continue
-
-                    ma5_before10 = ma5_values[i - 10]
+                    ma5_before5 = ma5_values[i - 5]
                     ma5_current = ma5_values[i]
-                    ma5_after10 = ma5_values[i + 10]
+                    ma5_after5 = ma5_values[i + 5]
 
-                    a1 = (ma5_current - ma5_before10) / 10
-                    b1 = (ma5_after10 - ma5_current) / 10
+                    if ma5_before5 is None or ma5_before5 <= 0 or ma5_after5 is None or ma5_after5 <= 0:
+                        continue
+
+                    a1 = (ma5_current - ma5_before5) / 5
+                    b1 = (ma5_after5 - ma5_current) / 5
 
                     if a1 > 0 and b1 < 0:
                         tag = '波峰'
