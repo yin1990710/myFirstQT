@@ -78,7 +78,7 @@ else
     exit 1
 fi
 
-# 步骤6: 执行 update_stock_daily.py
+# 步骤6: 执行 update_stock_ma5_ma30.py
 log "[步骤6/17] 开始执行 update_stock_ma5_ma30.py..."
 if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30${DATE}.log" 2>&1; then
     log "[步骤6/17] ✅ update_stock_ma5_ma30.py 执行成功"
@@ -87,16 +87,17 @@ else
     exit 1
 fi
 
+# 步骤6: 执行 update_stock_ma5_ma30.py
+log "[步骤6/17] 开始执行 update_stock_turning_point_tag.py..."
+if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag${DATE}.log" 2>&1; then
+    log "[步骤6/17] ✅ update_stock_turning_point_tag.py 执行成功"
+else
+    log "[步骤6/17] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
+    exit 1
+fi
+
 log "========== 第一批任务完成，开始第二批任务 =========="
 
-# 步骤7: 执行 pinzi_analysis_tag_to_db.py
-# log "[步骤7/17] 开始执行 pinzi_analysis_tag_to_db.py..."
-# if ${VENV_PYTHON} pinzi_analysis_tag_to_db.py >> "${LOG_DIR}/pinzi_analysis_tag_${DATE}.log" 2>&1; then
-#     log "[步骤7/17] ✅ pinzi_analysis_tag_to_db.py 执行成功"
-# else
-#     log "[步骤7/17] ❌ pinzi_analysis_tag_to_db.py 执行失败，停止任务"
-#     exit 1
-# fi
 
 # 步骤8: 执行 select_newhigh_in_120d.py
 log "[步骤8/17] 开始执行 select_newhigh_in_120d.py..."
@@ -125,15 +126,6 @@ else
     exit 1
 fi
 
-
-# 步骤13: 执行 select_industry_in5day.py
-log "[步骤13/17] 开始执行 select_industry_in5day.py..."
-if ${VENV_PYTHON} select_industry_in5day.py >> "${LOG_DIR}/select_industry_in5day_${DATE}.log" 2>&1; then
-    log "[步骤13/17] ✅ select_industry_in5day.py 执行成功"
-else
-    log "[步骤13/17] ❌ select_industry_in5day.py 执行失败，停止任务"
-    exit 1
-fi
 
 # 步骤14: 执行 select_limitup_1d.py
 log "[步骤14/17] 开始执行 select_limitup_1d.py..."
@@ -199,14 +191,6 @@ else
 fi
 
 
-# 步骤18: 执行 select_high_exchange_10d.py
-log "[步骤18/18] 开始执行 select_high_exchange_10d.py..."
-if ${VENV_PYTHON} select_high_exchange_10d.py>> "${LOG_DIR}/select_high_exchange_10d.${DATE}.log" 2>&1; then
-    log "[步骤18/18] ✅ select_high_exchange_10d.py 执行成功"
-else
-    log "[步骤18/18] ❌ select_high_exchange_10d.py 执行失败，停止任务"
-    exit 1
-fi
 log "=========================================="
 log "🎉 所有任务执行完成！"
 log "=========================================="

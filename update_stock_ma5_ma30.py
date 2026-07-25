@@ -23,7 +23,7 @@ def read_stock_data():
         SELECT DISTINCT trade_date
         FROM stock_daily_t
         ORDER BY trade_date DESC
-        LIMIT 50
+        LIMIT 30
     ) t ON d.trade_date = t.trade_date
     ORDER BY d.ts_code, d.trade_date DESC
     """
