@@ -124,15 +124,20 @@ def main():
         date_str = pd.to_datetime(recent_dates[i]).strftime('%Y-%m-%d')
         print(f"  {date_str}: MA5={recent_ma5[i]:.4f}, MA30={recent_ma30[i]:.4f}")
 
-    a1_start = (9, recent_ma5[9])
-    a1_end = (5, recent_ma5[5])
-    a2_start = (9, recent_ma30[9])
-    a2_end = (5, recent_ma30[5])
+    day1_idx = 9
+    day5_idx = 5
+    day6_idx = 4
+    day10_idx = 0
 
-    b1_start = (4, recent_ma5[4])
-    b1_end = (0, recent_ma5[0])
-    b2_start = (4, recent_ma30[4])
-    b2_end = (0, recent_ma30[0])
+    a1_start = (day10_idx, recent_ma5[day10_idx])
+    a1_end = (day6_idx, recent_ma5[day6_idx])
+    a2_start = (day10_idx, recent_ma30[day10_idx])
+    a2_end = (day6_idx, recent_ma30[day6_idx])
+
+    b1_start = (day5_idx, recent_ma5[day5_idx])
+    b1_end = (day1_idx, recent_ma5[day1_idx])
+    b2_start = (day5_idx, recent_ma30[day5_idx])
+    b2_end = (day1_idx, recent_ma30[day1_idx])
 
     x1 = calculate_angle(a1_start, a1_end, a2_start, a2_end)
     x2 = calculate_angle(b1_start, b1_end, b2_start, b2_end)
