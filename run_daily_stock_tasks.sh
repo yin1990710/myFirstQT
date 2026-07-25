@@ -155,11 +155,11 @@ fi
 
 
 # 步骤16: 执行 stock_overall_report_v2.py
-log "[步骤16/17] 开始执行 stock_overall_report_v2.py..."
-if ${VENV_PYTHON} stock_overall_report_v2.py >> "${LOG_DIR}/stock_overall_report_v2_${DATE}.log" 2>&1; then
-    log "[步骤16/17] ✅ stock_overall_report_v2.py 执行成功"
+log "[步骤16/17] 开始执行 stock_overall_report.py..."
+if ${VENV_PYTHON} stock_overall_report.py >> "${LOG_DIR}/stock_overall_report_${DATE}.log" 2>&1; then
+    log "[步骤16/17] ✅ stock_overall_report.py 执行成功"
 else
-    log "[步骤16/17] ❌ stock_overall_report_v2.py 执行失败，停止任务"
+    log "[步骤16/17] ❌ stock_overall_report.py 执行失败，停止任务"
     exit 1
 fi
 

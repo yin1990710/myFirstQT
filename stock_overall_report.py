@@ -486,7 +486,7 @@ def main():
     # 创建图表（9个子图，新增指数统计表格在最顶部）
     print("\n📈 生成图表...")
     fig, axes = plt.subplots(9, 1, figsize=(14, 38))
-    fig.suptitle(f'大盘趋势报告 V2 - {get_target_date()}', fontsize=16, fontweight='bold', y=0.995)
+    fig.suptitle(f'大盘趋势报告 - {get_target_date()}', fontsize=16, fontweight='bold', y=0.995)
     
     # 新增：指数统计表格（放在最顶部，包含期现差边际变化均值）
     plot_index_stats_table(axes[0], index_stats, future_delta)
@@ -511,7 +511,7 @@ def main():
     
     # 保存图表
     target_date = get_target_date()
-    output_filename = f"大盘趋势报告v2{target_date}.png"
+    output_filename = f"大盘趋势报告{target_date}.png"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_path = os.path.join(script_dir, output_filename)
     
