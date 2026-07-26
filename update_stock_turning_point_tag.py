@@ -80,34 +80,6 @@ def fix_consecutive_tags(tags, closes):
 
     return tags
 
-def fix_peak_valley_majority(tags):
-    """二次修正：根据前后3个交易日的多数标记修正波峰波谷"""
-    n = len(tags)
-    for i in range(n):
-        if tags[i] not in ('波峰', '波谷'):
-            continue
-
-        forward_tags = []
-        for j in range(1, 4):
-            if i - j >= 0 and tags[i - j] in ('上升', '下降'):
-                forward_tags.append(tags[i - j])
-
-        backward_tags = []
-        for j in range(1, 4):
-            if i + j < n and tags[i + j] in ('上升', '下降'):
-                backward_tags.append(tags[i + j])
-
-        if len(forward_tags) == 0 or len(backward_tags) == 0:
-            continue
-
-        forward_majority = max(set(forward_tags), key=forward_tags.count)
-        backward_majority = max(set(backward_tags), key=backward_tags.count)
-
-        if forward_majority == backward_majority:
-            tags[i] = forward_majority
-
-    return tags
-
 def analyze_and_update(data, connection):
     stock_data = {}
 
@@ -162,8 +134,6 @@ def analyze_and_update(data, connection):
 
                 tags = fix_consecutive_tags(tags, close_values)
 
-                tags = fix_peak_valley_majority(tags)
-
                 for i in range(len(records)):
                     if tags[i] is None:
                         continue
@@ -186,7 +156,7 @@ def analyze_and_update(data, connection):
 
 def main():
     print("=" * 80)
-    print("更新股票turning_point字段（波峰/波谷/上升/下降）含连续标记修正和二次修正")
+    print("更新股票turning_point字段（波峰/波谷/上升/下降）含连续标记修正")
     print("=" * 80)
 
     data, connection = read_stock_data()
