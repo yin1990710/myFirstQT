@@ -23,9 +23,9 @@ def read_stock_data():
         SELECT DISTINCT trade_date
         FROM stock_daily_t
         ORDER BY trade_date DESC
-        LIMIT 10
+        LIMIT 12
     ) t ON d.trade_date = t.trade_date
-    ORDER BY d.ts_code, d.trade_date ASC
+    ORDER BY d.ts_code, d.trade_date DESC
     """
 
     try:
@@ -39,7 +39,7 @@ def read_stock_data():
         close_connection(connection)
         return None, None
 
-def fill_wave_middle(data, connection):
+def replace_peak_valley(data, connection):
     stock_data = {}
 
     for record in data:
@@ -57,21 +57,18 @@ def fill_wave_middle(data, connection):
     try:
         with connection.cursor() as cursor:
             for ts_code, records in stock_data.items():
-                for i in range(len(records)):
-                    if records[i]['turning_point'] != '波中':
+                if len(records) < 12:
+                    continue
+
+                for i in range(4):
+                    if records[i]['turning_point'] not in ('波峰', '波谷'):
                         continue
 
                     fill_tag = None
-                    for j in range(i - 1, -1, -1):
-                        if records[j]['turning_point'] is not None and records[j]['turning_point'] != '波中':
+                    for j in range(4, 12):
+                        if records[j]['turning_point'] in ('上升', '下降'):
                             fill_tag = records[j]['turning_point']
                             break
-
-                    if fill_tag is None:
-                        for j in range(i + 1, len(records)):
-                            if records[j]['turning_point'] is not None and records[j]['turning_point'] != '波中':
-                                fill_tag = records[j]['turning_point']
-                                break
 
                     if fill_tag is None:
                         fill_tag = '下降'
@@ -94,7 +91,7 @@ def fill_wave_middle(data, connection):
 
 def main():
     print("=" * 80)
-    print("填充波中标记：向前遍历替换为遇到的第一个其他标记")
+    print("替换波峰波谷为前向上升/下降标记")
     print("=" * 80)
 
     data, connection = read_stock_data()
@@ -102,7 +99,7 @@ def main():
     if data is None or connection is None:
         return
 
-    fill_wave_middle(data, connection)
+    replace_peak_valley(data, connection)
 
     close_connection(connection)
 
