@@ -55,24 +55,12 @@ def fix_consecutive_tags(tags, closes):
                         if closes[k] < closes[best_idx]:
                             best_idx = k
 
-                replacement_tag = None
-                for k in range(j + 1, n):
-                    if tags[k] != tags[i]:
-                        replacement_tag = tags[k]
-                        break
-
-                if replacement_tag is None:
-                    for k in range(i - 1, -1, -1):
-                        if tags[k] != tags[i]:
-                            replacement_tag = tags[k]
-                            break
-
-                if replacement_tag is None:
-                    replacement_tag = '下降' if tags[i] == '波峰' else '上升'
-
                 for k in range(i, j + 1):
                     if k != best_idx:
-                        tags[k] = replacement_tag
+                        if k < best_idx:
+                            tags[k] = '上升'
+                        else:
+                            tags[k] = '下降'
 
             i = j + 1
         else:
