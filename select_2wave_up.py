@@ -3,6 +3,7 @@
 
 import os
 import sys
+import csv
 import shutil
 from datetime import datetime, timedelta
 
@@ -316,9 +317,10 @@ def generate_csv_file(stocks, folder_path):
     csv_path = os.path.join(folder_path, csv_filename)
     
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称\n")
+        writer = csv.writer(f)
+        writer.writerow(['股票代码', '股票名称'])
         for stock in stocks:
-            f.write(f"{stock['ts_code']},{stock['name']}\n")
+            writer.writerow([stock['ts_code'], stock['name']])
     
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
