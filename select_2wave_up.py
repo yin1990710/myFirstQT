@@ -22,7 +22,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"2浪启动{target_date}"
+    folder_name = f"2浪趋势{target_date}"
     return folder_name
 
 
@@ -84,12 +84,14 @@ def find_T_date(records):
     
     for i in range(len(recent_30)):
         if recent_30[i]['turning_point'] == '波峰':
-            return {
-                'index': len(records) - len(recent_30) + i,
-                'date': recent_30[i]['trade_date'],
-                'close': recent_30[i]['close'],
-                'amount': recent_30[i]['amount']
-            }
+            amount = float(recent_30[i]['amount']) if recent_30[i]['amount'] else 0
+            if amount > 1000000:
+                return {
+                    'index': len(records) - len(recent_30) + i,
+                    'date': recent_30[i]['trade_date'],
+                    'close': recent_30[i]['close'],
+                    'amount': recent_30[i]['amount']
+                }
     
     return None
 
@@ -310,18 +312,13 @@ def analyze_stocks(data):
 
 
 def generate_csv_file(stocks, folder_path):
-    csv_filename = "2浪启动.csv"
+    csv_filename = "2浪趋势.csv"
     csv_path = os.path.join(folder_path, csv_filename)
     
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称,市值(亿),T日,价格跌幅(%),成交量缩量(%),T日收盘价,T日成交量\n")
+        f.write("股票代码,股票名称\n")
         for stock in stocks:
-            mv_billion = stock['total_mv'] / 100000000
-            price_drop_pct = (1 - stock['price_ratio']) * 100
-            volume_shrink_pct = (1 - stock['volume_ratio']) * 100
-            f.write(f"{stock['ts_code']},{stock['name']},{mv_billion:.2f},")
-            f.write(f"{stock['T_date']},{price_drop_pct:.2f}%,{volume_shrink_pct:.2f}%,")
-            f.write(f"{stock['T_close']:.2f},{stock['T_amount']:.0f}\n")
+            f.write(f"{stock['ts_code']},{stock['name']}\n")
     
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -329,11 +326,11 @@ def generate_csv_file(stocks, folder_path):
 
 def main():
     print("=" * 80)
-    print("🌊 2浪启动选股策略")
+    print("🌊 2浪趋势选股策略")
     print("=" * 80)
     print("\n📊 选股逻辑：")
     print("  a. 总市值 > 100亿")
-    print("  b. 最近30个交易日内出现波峰(T日)")
+    print("  b. 最近30个交易日内出现波峰(T日)，且T日成交量>1000000")
     print("  c. T日后出现至少10个交易日的下降")
     print("  d. T日至最近日，最低/最高收盘价 < 80%")
     print("  e. 最近3日平均成交量/T-1至T+1平均成交量 < 60%")
@@ -355,7 +352,7 @@ def main():
         print("\n" + "=" * 80)
         print("🎉 选股完成！")
         print(f"📁 文件夹路径: {folder_path}")
-        print(f"📄 CSV路径: {folder_path}/2浪启动.csv")
+        print(f"📄 CSV路径: {folder_path}/2浪趋势.csv")
         print("=" * 80)
         
         print("\n🔥 精选股票：")
