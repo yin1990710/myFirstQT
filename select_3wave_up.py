@@ -54,6 +54,8 @@ def read_stock_data():
     SELECT
         d.ts_code,
         d.trade_date,
+        d.close,
+        d.amount,
         d.ma5,
         d.turning_point,
         i.stock_name,
@@ -78,7 +80,6 @@ def read_stock_data():
 
 
 def find_3wave_pattern(records):
-    """查找3浪模式：波峰-波谷-波峰 或 波谷-波峰-波谷"""
     n = len(records)
     if n < 30:
         return None
@@ -147,8 +148,22 @@ def find_3wave_pattern(records):
     return None
 
 
+def check_close_above_ma5(records):
+    if len(records) < 2:
+        return False
+
+    recent = records[-2:]
+    for r in recent:
+        close = float(r['close']) if r['close'] else None
+        ma5 = float(r['ma5']) if r['ma5'] else None
+        if close is None or ma5 is None:
+            return False
+        if close <= ma5:
+            return False
+    return True
+
+
 def check_ma5_increasing(records):
-    """检查最近2个交易日的ma5是否单调递增"""
     if len(records) < 2:
         return False
 
@@ -162,6 +177,28 @@ def check_ma5_increasing(records):
     return ma5_2 > ma5_1
 
 
+def check_gain_and_volume(records):
+    if len(records) < 3:
+        return False
+
+    recent = records[-3:]
+    for i in range(1, len(recent)):
+        prev_close = float(recent[i - 1]['close']) if recent[i - 1]['close'] else None
+        curr_close = float(recent[i]['close']) if recent[i]['close'] else None
+        amount = float(recent[i]['amount']) if recent[i]['amount'] else None
+
+        if prev_close is None or curr_close is None or amount is None:
+            continue
+        if prev_close <= 0:
+            continue
+
+        gain = (curr_close - prev_close) / prev_close * 100
+        if gain > 5 and amount > 500000:
+            return True
+
+    return False
+
+
 def analyze_stocks(data):
     stock_data = {}
 
@@ -171,6 +208,8 @@ def analyze_stocks(data):
             stock_data[ts_code] = []
         stock_data[ts_code].append({
             'trade_date': record['trade_date'],
+            'close': record['close'],
+            'amount': record['amount'],
             'ma5': record['ma5'],
             'turning_point': record['turning_point'],
             'name': record['stock_name'] or '',
@@ -181,7 +220,9 @@ def analyze_stocks(data):
     count_total = 0
     count_mv = 0
     count_pattern = 0
-    count_ma5 = 0
+    count_close_ma5 = 0
+    count_ma5_inc = 0
+    count_gain_vol = 0
 
     for ts_code, records in stock_data.items():
         if len(records) < 100:
@@ -208,10 +249,20 @@ def analyze_stocks(data):
 
         count_pattern += 1
 
+        if not check_close_above_ma5(records):
+            continue
+
+        count_close_ma5 += 1
+
         if not check_ma5_increasing(records):
             continue
 
-        count_ma5 += 1
+        count_ma5_inc += 1
+
+        if not check_gain_and_volume(records):
+            continue
+
+        count_gain_vol += 1
 
         result.append({
             'ts_code': ts_code,
@@ -235,7 +286,9 @@ def analyze_stocks(data):
     print(f"总股票数(数据完整): {count_total}")
     print(f"满足条件a(市值>100亿): {count_mv}")
     print(f"满足条件a+b(3浪模式): {count_pattern}")
-    print(f"满足条件a+b+c(ma5递增): {count_ma5}")
+    print(f"满足条件a+b+c(close>ma5): {count_close_ma5}")
+    print(f"满足条件a+b+c+d(ma5递增): {count_ma5_inc}")
+    print(f"满足条件a+b+c+d+e(涨幅>5%且成交量>500000): {count_gain_vol}")
     print(f"最终选出: {len(result)}")
     print("=" * 60)
 
@@ -269,7 +322,9 @@ def main():
     print("  b. 最近100个交易日内出现3浪模式：")
     print("     - 波峰→波谷→波峰（间隔≥10日，近期波峰>远期波峰）")
     print("     - 波谷→波峰→波谷（间隔≥10日，近期波谷>远期波谷）")
-    print("  c. 最近2个交易日MA5单调递增")
+    print("  c. 最近2个交易日收盘价close > MA5")
+    print("  d. 最近2个交易日MA5单调递增")
+    print("  e. 最近2个交易日至少有一天涨幅>5%且成交量amount>500000")
     print("=" * 80)
 
     folder_path = create_folder()
