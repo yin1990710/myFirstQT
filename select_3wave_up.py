@@ -283,7 +283,7 @@ def analyze_stocks(data):
     print("\n" + "=" * 60)
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件a(市值>100亿): {count_mv}")
+    print(f"满足条件a(市值>80亿): {count_mv}")
     print(f"满足条件a+b(3浪模式): {count_pattern}")
     print(f"满足条件a+b+c(close>ma5): {count_close_ma5}")
     print(f"满足条件a+b+c+d(ma5递增): {count_ma5_inc}")
