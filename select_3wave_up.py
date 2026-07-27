@@ -88,12 +88,14 @@ def find_3wave_pattern(records):
     for i in range(n):
         tp = records[i]['turning_point']
         ma5 = float(records[i]['ma5']) if records[i]['ma5'] else None
-        if tp in ('波峰', '波谷') and ma5 is not None:
+        close = float(records[i]['close']) if records[i]['close'] else None
+        if tp in ('波峰', '波谷') and ma5 is not None and close is not None:
             turning_points.append({
                 'index': i,
                 'date': records[i]['trade_date'],
                 'type': tp,
-                'ma5': ma5
+                'ma5': ma5,
+                'close': close
             })
 
     if len(turning_points) < 3:
@@ -112,15 +114,15 @@ def find_3wave_pattern(records):
             assert dist1 > 0, f"dist1 should be positive, got {dist1}"
             assert dist2 > 0, f"dist2 should be positive, got {dist2}"
             if dist1 >= 10 and dist2 >= 10:
-                if recent_tp['ma5'] > far_tp['ma5']:
+                if recent_tp['close'] > far_tp['close']:
                     return {
                         'pattern': '波峰-波谷-波峰',
                         'recent_peak_date': recent_tp['date'],
-                        'recent_peak_ma5': recent_tp['ma5'],
+                        'recent_peak_close': recent_tp['close'],
                         'trough_date': middle_tp['date'],
-                        'trough_ma5': middle_tp['ma5'],
+                        'trough_close': middle_tp['close'],
                         'far_peak_date': far_tp['date'],
-                        'far_peak_ma5': far_tp['ma5'],
+                        'far_peak_close': far_tp['close'],
                         'dist1': dist1,
                         'dist2': dist2
                     }
@@ -131,15 +133,15 @@ def find_3wave_pattern(records):
             assert dist1 > 0, f"dist1 should be positive, got {dist1}"
             assert dist2 > 0, f"dist2 should be positive, got {dist2}"
             if dist1 >= 10 and dist2 >= 10:
-                if recent_tp['ma5'] > far_tp['ma5']:
+                if recent_tp['close'] > far_tp['close']:
                     return {
                         'pattern': '波谷-波峰-波谷',
                         'recent_trough_date': recent_tp['date'],
-                        'recent_trough_ma5': recent_tp['ma5'],
+                        'recent_trough_close': recent_tp['close'],
                         'peak_date': middle_tp['date'],
-                        'peak_ma5': middle_tp['ma5'],
+                        'peak_close': middle_tp['close'],
                         'far_trough_date': far_tp['date'],
-                        'far_trough_ma5': far_tp['ma5'],
+                        'far_trough_close': far_tp['close'],
                         'dist1': dist1,
                         'dist2': dist2
                     }
@@ -269,11 +271,11 @@ def analyze_stocks(data):
             'total_mv': total_mv,
             'pattern': pattern_info['pattern'],
             'recent_point_date': pattern_info.get('recent_peak_date', pattern_info.get('recent_trough_date', '')),
-            'recent_point_ma5': pattern_info.get('recent_peak_ma5', pattern_info.get('recent_trough_ma5', 0)),
+            'recent_point_close': pattern_info.get('recent_peak_close', pattern_info.get('recent_trough_close', 0)),
             'middle_point_date': pattern_info.get('trough_date', pattern_info.get('peak_date', '')),
-            'middle_point_ma5': pattern_info.get('trough_ma5', pattern_info.get('peak_ma5', 0)),
+            'middle_point_close': pattern_info.get('trough_close', pattern_info.get('peak_close', 0)),
             'far_point_date': pattern_info.get('far_peak_date', pattern_info.get('far_trough_date', '')),
-            'far_point_ma5': pattern_info.get('far_peak_ma5', pattern_info.get('far_trough_ma5', 0)),
+            'far_point_close': pattern_info.get('far_peak_close', pattern_info.get('far_trough_close', 0)),
             'dist1': pattern_info['dist1'],
             'dist2': pattern_info['dist2']
         })
@@ -299,13 +301,13 @@ def generate_csv_file(stocks, folder_path):
     csv_path = os.path.join(folder_path, csv_filename)
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称,市值(亿),3浪模式,近期点日期,近期点MA5,中间点日期,中间点MA5,远期点日期,远期点MA5,间隔1,间隔2\n")
+        f.write("股票代码,股票名称,市值(亿),3浪模式,近期点日期,近期点收盘价,中间点日期,中间点收盘价,远期点日期,远期点收盘价,间隔1,间隔2\n")
         for stock in stocks:
             mv_billion = stock['total_mv'] / 100000000
             f.write(f"{stock['ts_code']},{stock['name']},{mv_billion:.2f},")
-            f.write(f"{stock['pattern']},{stock['recent_point_date']},{stock['recent_point_ma5']:.2f},")
-            f.write(f"{stock['middle_point_date']},{stock['middle_point_ma5']:.2f},")
-            f.write(f"{stock['far_point_date']},{stock['far_point_ma5']:.2f},")
+            f.write(f"{stock['pattern']},{stock['recent_point_date']},{stock['recent_point_close']:.2f},")
+            f.write(f"{stock['middle_point_date']},{stock['middle_point_close']:.2f},")
+            f.write(f"{stock['far_point_date']},{stock['far_point_close']:.2f},")
             f.write(f"{stock['dist1']},{stock['dist2']}\n")
 
     print(f"✅ CSV文件已生成: {csv_path}")
