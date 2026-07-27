@@ -134,41 +134,38 @@ def check_price_drop(records, T_index):
 def check_volume_shrink(records, T_index):
     n = len(records)
     
-    if n < 3:
+    decline_amounts = []
+    for i in range(T_index + 1, n):
+        if records[i]['turning_point'] == '下降':
+            amount = records[i]['amount']
+            if amount is not None and amount > 0:
+                decline_amounts.append(float(amount))
+    
+    if len(decline_amounts) < 1:
         return False
+    avg_decline = sum(decline_amounts) / len(decline_amounts)
     
-    recent_3 = records[-3:]
-    recent_amounts = []
-    for r in recent_3:
-        amount = r['amount']
-        if amount is not None and amount > 0:
-            recent_amounts.append(float(amount))
-    
-    if len(recent_amounts) < 3:
-        return False
-    avg_recent = sum(recent_amounts) / len(recent_amounts)
-    
-    T_minus_1 = T_index - 1
+    T_minus_3 = T_index - 3
     T_plus_1 = T_index + 1
     
-    if T_minus_1 < 0 or T_plus_1 >= n:
+    if T_minus_3 < 0 or T_plus_1 >= n:
         return False
     
-    T_range = records[T_minus_1:T_plus_1 + 1]
+    T_range = records[T_minus_3:T_plus_1 + 1]
     T_amounts = []
     for r in T_range:
         amount = r['amount']
         if amount is not None and amount > 0:
             T_amounts.append(float(amount))
     
-    if len(T_amounts) < 3:
+    if len(T_amounts) < 5:
         return False
     avg_T = sum(T_amounts) / len(T_amounts)
     
     if avg_T == 0:
         return False
     
-    ratio = avg_recent / avg_T
+    ratio = avg_decline / avg_T
     return ratio < 0.6
 
 
@@ -223,6 +220,9 @@ def analyze_stocks(data):
         stock_name = latest['name']
         
         if 'ST' in stock_name:
+            continue
+        
+        if not (ts_code.endswith('.SZ') or ts_code.endswith('.SH')):
             continue
         
         total_mv = latest['total_mv']
@@ -318,9 +318,9 @@ def generate_csv_file(stocks, folder_path):
     
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称'])
+        writer.writerow(['股票代码'])
         for stock in stocks:
-            writer.writerow([stock['ts_code'], stock['name']])
+            writer.writerow([stock['ts_code']])
     
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
@@ -335,8 +335,9 @@ def main():
     print("  b. 最近30个交易日内出现波峰(T日)，且T日成交量>1000000")
     print("  c. T日后出现至少10个交易日的下降")
     print("  d. T日至最近日，最低/最高收盘价 < 80%")
-    print("  e. 最近3日平均成交量/T-1至T+1平均成交量 < 60%")
-    print("  f. 最近2个交易日收盘价 > MA5")
+    print("  e. T日开始的下降交易日平均成交量/T-3至T+1平均成交量 < 60%")
+    print("  f. 去除非A股股票")
+    print("  g. 最近2个交易日收盘价 > MA5")
     print("=" * 80)
     
     folder_path = create_folder()
