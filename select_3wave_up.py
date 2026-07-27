@@ -108,6 +108,10 @@ def find_3wave_pattern(records):
         middle_tp = turning_points_reverse[i + 1]
         far_tp = turning_points_reverse[i + 2]
 
+        days_from_recent = n - 1 - recent_tp['index']
+        if days_from_recent > 10:
+            continue
+
         if recent_tp['type'] == '波峰' and middle_tp['type'] == '波谷' and far_tp['type'] == '波峰':
             dist1 = recent_tp['index'] - middle_tp['index']
             dist2 = middle_tp['index'] - far_tp['index']
@@ -124,7 +128,8 @@ def find_3wave_pattern(records):
                         'far_peak_date': far_tp['date'],
                         'far_peak_close': far_tp['close'],
                         'dist1': dist1,
-                        'dist2': dist2
+                        'dist2': dist2,
+                        'days_from_recent': days_from_recent
                     }
 
         elif recent_tp['type'] == '波谷' and middle_tp['type'] == '波峰' and far_tp['type'] == '波谷':
@@ -143,7 +148,8 @@ def find_3wave_pattern(records):
                         'far_trough_date': far_tp['date'],
                         'far_trough_close': far_tp['close'],
                         'dist1': dist1,
-                        'dist2': dist2
+                        'dist2': dist2,
+                        'days_from_recent': days_from_recent
                     }
 
     return None
