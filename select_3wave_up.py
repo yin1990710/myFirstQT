@@ -84,66 +84,65 @@ def find_3wave_pattern(records):
     if n < 30:
         return None
 
-    ma5_list = [float(r['ma5']) if r['ma5'] else None for r in records]
-    tp_list = [r['turning_point'] for r in records]
-
-    peaks = []
-    troughs = []
-
+    turning_points = []
     for i in range(n):
-        tp = tp_list[i]
-        if tp == '波峰' and ma5_list[i] is not None:
-            peaks.append({'index': i, 'ma5': ma5_list[i], 'date': records[i]['trade_date']})
-        elif tp == '波谷' and ma5_list[i] is not None:
-            troughs.append({'index': i, 'ma5': ma5_list[i], 'date': records[i]['trade_date']})
+        tp = records[i]['turning_point']
+        ma5 = float(records[i]['ma5']) if records[i]['ma5'] else None
+        if tp in ('波峰', '波谷') and ma5 is not None:
+            turning_points.append({
+                'index': i,
+                'date': records[i]['trade_date'],
+                'type': tp,
+                'ma5': ma5
+            })
 
-    for i in range(len(peaks) - 1):
-        for j in range(len(troughs)):
-            for k in range(i + 1, len(peaks)):
-                peak1 = peaks[i]
-                trough = troughs[j]
-                peak2 = peaks[k]
+    if len(turning_points) < 3:
+        return None
 
-                if peak1['index'] < trough['index'] < peak2['index']:
-                    dist1 = trough['index'] - peak1['index']
-                    dist2 = peak2['index'] - trough['index']
-                    if dist1 >= 10 and dist2 >= 10:
-                        if peak2['ma5'] > peak1['ma5']:
-                            return {
-                                'pattern': '波峰-波谷-波峰',
-                                'peak1_date': peak1['date'],
-                                'peak1_ma5': peak1['ma5'],
-                                'trough_date': trough['date'],
-                                'trough_ma5': trough['ma5'],
-                                'peak2_date': peak2['date'],
-                                'peak2_ma5': peak2['ma5'],
-                                'dist1': dist1,
-                                'dist2': dist2
-                            }
+    turning_points_reverse = list(reversed(turning_points))
 
-    for i in range(len(troughs) - 1):
-        for j in range(len(peaks)):
-            for k in range(i + 1, len(troughs)):
-                trough1 = troughs[i]
-                peak = peaks[j]
-                trough2 = troughs[k]
+    for i in range(len(turning_points_reverse) - 2):
+        recent_tp = turning_points_reverse[i]
+        middle_tp = turning_points_reverse[i + 1]
+        far_tp = turning_points_reverse[i + 2]
 
-                if trough1['index'] < peak['index'] < trough2['index']:
-                    dist1 = peak['index'] - trough1['index']
-                    dist2 = trough2['index'] - peak['index']
-                    if dist1 >= 10 and dist2 >= 10:
-                        if trough2['ma5'] > trough1['ma5']:
-                            return {
-                                'pattern': '波谷-波峰-波谷',
-                                'trough1_date': trough1['date'],
-                                'trough1_ma5': trough1['ma5'],
-                                'peak_date': peak['date'],
-                                'peak_ma5': peak['ma5'],
-                                'trough2_date': trough2['date'],
-                                'trough2_ma5': trough2['ma5'],
-                                'dist1': dist1,
-                                'dist2': dist2
-                            }
+        if recent_tp['type'] == '波峰' and middle_tp['type'] == '波谷' and far_tp['type'] == '波峰':
+            dist1 = recent_tp['index'] - middle_tp['index']
+            dist2 = middle_tp['index'] - far_tp['index']
+            assert dist1 > 0, f"dist1 should be positive, got {dist1}"
+            assert dist2 > 0, f"dist2 should be positive, got {dist2}"
+            if dist1 >= 10 and dist2 >= 10:
+                if recent_tp['ma5'] > far_tp['ma5']:
+                    return {
+                        'pattern': '波峰-波谷-波峰',
+                        'recent_peak_date': recent_tp['date'],
+                        'recent_peak_ma5': recent_tp['ma5'],
+                        'trough_date': middle_tp['date'],
+                        'trough_ma5': middle_tp['ma5'],
+                        'far_peak_date': far_tp['date'],
+                        'far_peak_ma5': far_tp['ma5'],
+                        'dist1': dist1,
+                        'dist2': dist2
+                    }
+
+        elif recent_tp['type'] == '波谷' and middle_tp['type'] == '波峰' and far_tp['type'] == '波谷':
+            dist1 = recent_tp['index'] - middle_tp['index']
+            dist2 = middle_tp['index'] - far_tp['index']
+            assert dist1 > 0, f"dist1 should be positive, got {dist1}"
+            assert dist2 > 0, f"dist2 should be positive, got {dist2}"
+            if dist1 >= 10 and dist2 >= 10:
+                if recent_tp['ma5'] > far_tp['ma5']:
+                    return {
+                        'pattern': '波谷-波峰-波谷',
+                        'recent_trough_date': recent_tp['date'],
+                        'recent_trough_ma5': recent_tp['ma5'],
+                        'peak_date': middle_tp['date'],
+                        'peak_ma5': middle_tp['ma5'],
+                        'far_trough_date': far_tp['date'],
+                        'far_trough_ma5': far_tp['ma5'],
+                        'dist1': dist1,
+                        'dist2': dist2
+                    }
 
     return None
 
@@ -269,12 +268,12 @@ def analyze_stocks(data):
             'name': stock_name,
             'total_mv': total_mv,
             'pattern': pattern_info['pattern'],
-            'peak1_date': pattern_info.get('peak1_date', ''),
-            'peak1_ma5': pattern_info.get('peak1_ma5', 0),
-            'trough_date': pattern_info.get('trough_date', pattern_info.get('peak_date', '')),
-            'trough_ma5': pattern_info.get('trough_ma5', pattern_info.get('peak_ma5', 0)),
-            'peak2_date': pattern_info.get('peak2_date', pattern_info.get('trough2_date', '')),
-            'peak2_ma5': pattern_info.get('peak2_ma5', pattern_info.get('trough2_ma5', 0)),
+            'recent_point_date': pattern_info.get('recent_peak_date', pattern_info.get('recent_trough_date', '')),
+            'recent_point_ma5': pattern_info.get('recent_peak_ma5', pattern_info.get('recent_trough_ma5', 0)),
+            'middle_point_date': pattern_info.get('trough_date', pattern_info.get('peak_date', '')),
+            'middle_point_ma5': pattern_info.get('trough_ma5', pattern_info.get('peak_ma5', 0)),
+            'far_point_date': pattern_info.get('far_peak_date', pattern_info.get('far_trough_date', '')),
+            'far_point_ma5': pattern_info.get('far_peak_ma5', pattern_info.get('far_trough_ma5', 0)),
             'dist1': pattern_info['dist1'],
             'dist2': pattern_info['dist2']
         })
@@ -300,13 +299,13 @@ def generate_csv_file(stocks, folder_path):
     csv_path = os.path.join(folder_path, csv_filename)
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称,市值(亿),3浪模式,第一点日期,第一点MA5,第二点日期,第二点MA5,第三点日期,第三点MA5,间隔1,间隔2\n")
+        f.write("股票代码,股票名称,市值(亿),3浪模式,近期点日期,近期点MA5,中间点日期,中间点MA5,远期点日期,远期点MA5,间隔1,间隔2\n")
         for stock in stocks:
             mv_billion = stock['total_mv'] / 100000000
             f.write(f"{stock['ts_code']},{stock['name']},{mv_billion:.2f},")
-            f.write(f"{stock['pattern']},{stock['peak1_date']},{stock['peak1_ma5']:.2f},")
-            f.write(f"{stock['trough_date']},{stock['trough_ma5']:.2f},")
-            f.write(f"{stock['peak2_date']},{stock['peak2_ma5']:.2f},")
+            f.write(f"{stock['pattern']},{stock['recent_point_date']},{stock['recent_point_ma5']:.2f},")
+            f.write(f"{stock['middle_point_date']},{stock['middle_point_ma5']:.2f},")
+            f.write(f"{stock['far_point_date']},{stock['far_point_ma5']:.2f},")
             f.write(f"{stock['dist1']},{stock['dist2']}\n")
 
     print(f"✅ CSV文件已生成: {csv_path}")
