@@ -131,42 +131,50 @@ def check_price_drop(records, T_index):
     return ratio < 0.8
 
 
-def check_volume_shrink(records, T_index):
+def check_turning_point_ratio(records, T_index):
     n = len(records)
     
-    decline_amounts = []
-    for i in range(T_index + 1, n):
-        if records[i]['turning_point'] == '下降':
+    n1 = 0
+    avg1_amounts = []
+    i = T_index - 1
+    while i >= 0:
+        if records[i]['turning_point'] == '上升':
+            n1 += 1
             amount = records[i]['amount']
             if amount is not None and amount > 0:
-                decline_amounts.append(float(amount))
+                avg1_amounts.append(float(amount))
+            i -= 1
+        else:
+            break
     
-    if len(decline_amounts) < 1:
-        return False
-    avg_decline = sum(decline_amounts) / len(decline_amounts)
+    if n1 == 0:
+        return False, 0, 0, 0, 0
+    avg1 = sum(avg1_amounts) / len(avg1_amounts) if avg1_amounts else 0
     
-    T_minus_3 = T_index - 3
-    T_plus_1 = T_index + 1
+    n2 = 0
+    avg2_amounts = []
+    i = T_index + 1
+    while i < n:
+        if records[i]['turning_point'] == '下降':
+            n2 += 1
+            amount = records[i]['amount']
+            if amount is not None and amount > 0:
+                avg2_amounts.append(float(amount))
+            i += 1
+        else:
+            break
     
-    if T_minus_3 < 0 or T_plus_1 >= n:
-        return False
+    if n2 == 0:
+        return False, n1, n2, avg1, 0
+    avg2 = sum(avg2_amounts) / len(avg2_amounts) if avg2_amounts else 0
     
-    T_range = records[T_minus_3:T_plus_1 + 1]
-    T_amounts = []
-    for r in T_range:
-        amount = r['amount']
-        if amount is not None and amount > 0:
-            T_amounts.append(float(amount))
+    if avg2 == 0:
+        return False, n1, n2, avg1, avg2
     
-    if len(T_amounts) < 5:
-        return False
-    avg_T = sum(T_amounts) / len(T_amounts)
+    n_ratio = n1 / n2
+    avg_ratio = avg1 / avg2
     
-    if avg_T == 0:
-        return False
-    
-    ratio = avg_decline / avg_T
-    return ratio < 0.6
+    return (n_ratio > 1 and avg_ratio > 1.5), n1, n2, avg1, avg2
 
 
 def check_close_above_ma5(records):
@@ -204,11 +212,11 @@ def analyze_stocks(data):
     result = []
     count_total = 0
     count_mv = 0
+    count_close_ma5 = 0
     count_T = 0
     count_decline = 0
     count_price = 0
-    count_volume = 0
-    count_close_ma5 = 0
+    count_ratio = 0
     
     for ts_code, records in stock_data.items():
         if len(records) < 100:
@@ -232,6 +240,11 @@ def analyze_stocks(data):
         count_total += 1
         count_mv += 1
         
+        if not check_close_above_ma5(records):
+            continue
+        
+        count_close_ma5 += 1
+        
         T_date = find_T_date(records)
         if not T_date:
             continue
@@ -248,29 +261,11 @@ def analyze_stocks(data):
         
         count_price += 1
         
-        if not check_volume_shrink(records, T_date['index']):
+        ratio_result, n1, n2, avg1, avg2 = check_turning_point_ratio(records, T_date['index'])
+        if not ratio_result:
             continue
         
-        count_volume += 1
-        
-        if not check_close_above_ma5(records):
-            continue
-        
-        count_close_ma5 += 1
-        
-        T_range = records[max(0, T_date['index'] - 1):T_date['index'] + 2]
-        T_amounts = []
-        for r in T_range:
-            if r['amount'] is not None and r['amount'] > 0:
-                T_amounts.append(float(r['amount']))
-        avg_T_amount = sum(T_amounts) / len(T_amounts) if T_amounts else 0
-        
-        recent_3 = records[-3:]
-        recent_amounts = []
-        for r in recent_3:
-            if r['amount'] is not None and r['amount'] > 0:
-                recent_amounts.append(float(r['amount']))
-        avg_recent_amount = sum(recent_amounts) / len(recent_amounts) if recent_amounts else 0
+        count_ratio += 1
         
         prices = []
         for i in range(T_date['index'], len(records)):
@@ -280,7 +275,8 @@ def analyze_stocks(data):
         max_price = max(prices) if prices else 0
         price_ratio = min_price / max_price if max_price > 0 else 0
         
-        volume_ratio = avg_recent_amount / avg_T_amount if avg_T_amount > 0 else 0
+        n_ratio = n1 / n2 if n2 > 0 else 0
+        avg_ratio = avg1 / avg2 if avg2 > 0 else 0
         
         result.append({
             'ts_code': ts_code,
@@ -290,9 +286,12 @@ def analyze_stocks(data):
             'T_close': T_date['close'],
             'T_amount': T_date['amount'],
             'price_ratio': price_ratio,
-            'volume_ratio': volume_ratio,
-            'avg_T_amount': avg_T_amount,
-            'avg_recent_amount': avg_recent_amount
+            'n1': n1,
+            'n2': n2,
+            'n_ratio': n_ratio,
+            'avg1': avg1,
+            'avg2': avg2,
+            'avg_ratio': avg_ratio
         })
     
     result.sort(key=lambda x: x['total_mv'], reverse=True)
@@ -301,11 +300,11 @@ def analyze_stocks(data):
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
     print(f"满足条件a(市值>100亿): {count_mv}")
-    print(f"满足条件a+b(最近30日出现波峰): {count_T}")
-    print(f"满足条件a+b+c(T日后10日下降): {count_decline}")
-    print(f"满足条件a+b+c+d(最低/最高<80%): {count_price}")
-    print(f"满足条件a+b+c+d+e(成交量<60%): {count_volume}")
-    print(f"满足条件a+b+c+d+e+f(close>ma5): {count_close_ma5}")
+    print(f"满足条件a+b(close>ma5): {count_close_ma5}")
+    print(f"满足条件a+b+c(最近30日出现波峰): {count_T}")
+    print(f"满足条件a+b+c+d(T日后10日下降): {count_decline}")
+    print(f"满足条件a+b+c+d+e(最低/最高<80%): {count_price}")
+    print(f"满足条件a+b+c+d+e+f(n1/n2>1且avg1/avg2>1.5): {count_ratio}")
     print(f"最终选出: {len(result)}")
     print("=" * 60)
     
@@ -332,12 +331,14 @@ def main():
     print("=" * 80)
     print("\n📊 选股逻辑：")
     print("  a. 总市值 > 100亿")
-    print("  b. 最近30个交易日内出现波峰(T日)，且T日成交量>1000000")
-    print("  c. T日后出现至少10个交易日的下降")
-    print("  d. T日至最近日，最低/最高收盘价 < 80%")
-    print("  e. T日开始的下降交易日平均成交量/T-3至T+1平均成交量 < 60%")
-    print("  f. 去除非A股股票")
-    print("  g. 最近2个交易日收盘价 > MA5")
+    print("  b. 最近2个交易日收盘价 > MA5")
+    print("  c. 最近30个交易日内出现波峰(T日)，且T日成交量>1000000")
+    print("  d. T日后出现至少10个交易日的下降")
+    print("  e. T日至最近日，最低/最高收盘价 < 80%")
+    print("  f. n1/n2 > 1 且 avg1/avg2 > 1.5")
+    print("     (n1: T日前连续上升天数, avg1: 上升日平均成交量)")
+    print("     (n2: T日后连续下降天数, avg2: 下降日平均成交量)")
+    print("  g. 去除非A股股票")
     print("=" * 80)
     
     folder_path = create_folder()
@@ -362,12 +363,12 @@ def main():
         for i, stock in enumerate(stocks[:10], 1):
             mv_billion = stock['total_mv'] / 100000000
             price_drop_pct = (1 - stock['price_ratio']) * 100
-            volume_shrink_pct = (1 - stock['volume_ratio']) * 100
             print(f"{i}. {stock['ts_code']} {stock['name']}")
             print(f"   └─ 市值: {mv_billion:.2f}亿")
             print(f"   └─ T日: {stock['T_date']}")
             print(f"   └─ 价格跌幅: {price_drop_pct:.2f}%")
-            print(f"   └─ 成交量缩量: {volume_shrink_pct:.2f}%")
+            print(f"   └─ n1/n2: {stock['n1']}/{stock['n2']}={stock['n_ratio']:.2f}")
+            print(f"   └─ avg1/avg2: {stock['avg_ratio']:.2f}")
     else:
         print("\n❌ 没有选出符合条件的股票")
 
