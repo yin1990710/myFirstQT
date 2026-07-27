@@ -236,7 +236,7 @@ def analyze_stocks(data):
             continue
 
         total_mv = latest['total_mv']
-        if total_mv < 10000000000:
+        if total_mv < 8000000000:
             continue
 
         count_total += 1
@@ -317,7 +317,7 @@ def main():
     print("🌊 3浪启动选股策略")
     print("=" * 80)
     print("\n📊 选股逻辑：")
-    print("  a. 总市值 > 100亿")
+    print("  a. 总市值 > 80亿")
     print("  b. 最近100个交易日内出现3浪模式：")
     print("     - 波峰→波谷→波峰（间隔≥10日，近期波峰>远期波峰）")
     print("     - 波谷→波峰→波谷（间隔≥10日，近期波谷>远期波谷）")
