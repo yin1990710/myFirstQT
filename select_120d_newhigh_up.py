@@ -23,7 +23,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"120区间突破{target_date}"
+    folder_name = f"120天区间突破{target_date}"
     return folder_name
 
 
@@ -197,7 +197,7 @@ def analyze_stocks(data):
 
 
 def generate_csv_file(stocks, folder_path):
-    csv_filename = "120区间突破.csv"
+    csv_filename = "120天区间突破.csv"
     csv_path = os.path.join(folder_path, csv_filename)
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:

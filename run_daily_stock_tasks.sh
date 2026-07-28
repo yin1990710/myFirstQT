@@ -99,7 +99,7 @@ fi
 log "========== 第一批任务完成，开始第二批任务 =========="
 
 
-# 步骤8: 执行 select_newhigh_in_120d.py
+# 步骤8: 执行 select_newhigh_in_120d.py 区间放量破新高
 log "[步骤8/17] 开始执行 select_newhigh_in_120d.py..."
 if ${VENV_PYTHON} select_newhigh_in_120d.py >> "${LOG_DIR}/select_newhigh_120d_${DATE}.log" 2>&1; then
     log "[步骤8/17] ✅ select_newhigh_in_120d.py 执行成功"
@@ -108,7 +108,7 @@ else
     exit 1
 fi
 
-# 步骤9: 执行 select_turn_bottom.py
+# 步骤9: 执行 select_turn_bottom.py 底部反转
 log "[步骤9/17] 开始执行 select_turn_bottom.py..."
 if ${VENV_PYTHON} select_turn_bottom.py >> "${LOG_DIR}/select_turn_bottom_${DATE}.log" 2>&1; then
     log "[步骤9/17] ✅ select_turn_bottom.py 执行成功"
@@ -127,7 +127,7 @@ else
 fi
 
 
-# 步骤14: 执行 select_limitup_1d.py
+# 步骤14: 执行 select_limitup_1d.py 当日涨停股票
 log "[步骤14/17] 开始执行 select_limitup_1d.py..."
 if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d${DATE}.log" 2>&1; then
     log "[步骤14/17] ✅ select_limitup_1d.py 执行成功"
@@ -136,12 +136,22 @@ else
     exit 1
 fi
 
-# 步骤15: 执行 select_boomvol.py (爆量上涨选股)
-log "[步骤15/17] 开始执行 select_boomvol.py..."
-if ${VENV_PYTHON} select_boomvol.py >> "${LOG_DIR}/select_boomvol_${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_boomvol.py 执行成功"
+
+# 步骤18: 执行 select_break_ma30.py
+log "[步骤18/18] 开始执行 select_break_ma30.py..."
+if ${VENV_PYTHON} select_break_ma30.py>> "${LOG_DIR}/select_break_ma30.${DATE}.log" 2>&1; then
+    log "[步骤18/18] ✅ select_break_ma30.py 执行成功"
 else
-    log "[步骤15/17] ❌ select_boomvol.py 执行失败，停止任务"
+    log "[步骤18/18] ❌ select_break_ma30.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤15: 执行 select_120d_newhigh_up.py (120天区间突破选股)
+log "[步骤15/17] 开始执行 select_120d_newhigh_up.py..."
+if ${VENV_PYTHON} select_120d_newhigh_up.py >> "${LOG_DIR}/select_120d_newhigh_up${DATE}.log" 2>&1; then
+    log "[步骤15/17] ✅ select_boselect_120d_newhigh_upomvol.py 执行成功"
+else
+    log "[步骤15/17] ❌ select_120d_newhigh_up.py 执行失败，停止任务"
     exit 1
 fi
 
@@ -154,6 +164,23 @@ else
     exit 1
 fi
 
+# 步骤15: 执行 select_3wave_up.py (3浪上涨选股)
+log "[步骤15/17] 开始执行 select_3wave_up.py..."
+if ${VENV_PYTHON} select_3wave_up.py >> "${LOG_DIR}/select_3wave_up${DATE}.log" 2>&1; then
+    log "[步骤15/17] ✅ select_3wave_up.py 执行成功"
+else
+    log "[步骤15/17] ❌ select_3wave_up.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤15: 执行 select_3wave_up.py (2浪上涨选股)
+log "[步骤15/17] 开始执行 select_2wave_up.py..."
+if ${VENV_PYTHON} select_2wave_up.py >> "${LOG_DIR}/select_2wave_up${DATE}.log" 2>&1; then
+    log "[步骤15/17] ✅ select_2wave_up.py 执行成功"
+else
+    log "[步骤15/17] ❌ select_2wave_up.py 执行失败，停止任务"
+    exit 1
+fi
 
 # 步骤16: 执行 stock_overall_report.py
 log "[步骤16/17] 开始执行 stock_overall_report.py..."
@@ -181,14 +208,7 @@ else
     log "[步骤18/18] ❌ analyze_index_change.py 执行失败，停止任务"
     exit 1
 fi
-# 步骤18: 执行 select_break_ma30.py
-log "[步骤18/18] 开始执行 select_break_ma30.py..."
-if ${VENV_PYTHON} select_break_ma30.py>> "${LOG_DIR}/select_break_ma30.${DATE}.log" 2>&1; then
-    log "[步骤18/18] ✅ select_break_ma30.py 执行成功"
-else
-    log "[步骤18/18] ❌ select_break_ma30.py 执行失败，停止任务"
-    exit 1
-fi
+
 
 
 log "=========================================="
