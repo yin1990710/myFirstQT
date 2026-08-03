@@ -327,4 +327,4 @@ select trade_date,'中证全指' as idx_name, close - open as diff from stock_in
 7. 新建（已存在的删除重建）一个文件夹，文件夹名为120区间突破加当日日期后缀，将以上csv文件放在该文件夹下。
 
 -----------------波浪图像-----------
-从stock_daily_t表中读取600206.SH股票近100个交易日的ts_code、trade_date、ma5、turning_point字段值，根据ma5走势绘制一个名为600206.SH.png的图片，并且将turning_point标记到图片上。
+从stock_daily_t表中读取300875.SZ股票近100个交易日的ts_code、trade_date、ma5、turning_point字段值，根据ma5走势绘制一个名为300875.SZ.png的图片，并且将turning_point标记到图片上。

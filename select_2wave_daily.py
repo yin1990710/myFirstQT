@@ -157,7 +157,11 @@ def analyze_stocks(data):
         if 'ST' in stock_name:
             continue
         
-        # 过滤条件2：去除流通市值小于50亿的股票（circ_mv单位为元）
+        # 过滤条件2：只保留A股上市股票（.SH或.SZ结尾）
+        if not (ts_code.endswith('.SH') or ts_code.endswith('.SZ')):
+            continue
+        
+        # 过滤条件3：去除流通市值小于50亿的股票（circ_mv单位为元）
         circ_mv = latest['circ_mv']
         if circ_mv < 5000000000:  # 50亿 = 5000000000元
             continue
