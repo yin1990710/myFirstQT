@@ -22,7 +22,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"二浪启动{target_date}"
+    folder_name = f"2浪启动{target_date}"
     return folder_name
 
 
@@ -304,7 +304,7 @@ def analyze_stocks(data):
 
 def generate_csv_file(stocks, folder_path):
     target_date = get_target_date()
-    csv_filename = f"二浪启动{target_date}.csv"
+    csv_filename = f"2浪启动{target_date}.csv"
     csv_path = os.path.join(folder_path, csv_filename)
 
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:

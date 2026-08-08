@@ -138,7 +138,7 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
 def save_results_to_csv(results: list, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
 
-    csv_path = os.path.join(output_dir, f"区间新高{get_trade_date()}.csv")
+    csv_path = os.path.join(output_dir, f"120日区间新高{get_trade_date()}.csv")
     with open(csv_path, 'w') as f:
         ts_codes = [r['ts_code'] for r in results]
         f.write(','.join(ts_codes))
@@ -194,7 +194,7 @@ def main():
                   f"{r['gain']:>7.2f}%")
 
     print("\n💾 步骤4: 保存结果到CSV文件...")
-    folder_name = f"区间新高{trade_date}"
+    folder_name = f"120日区间新高{trade_date}"
     output_dir = os.path.join(os.getcwd(), folder_name)
 
     if os.path.exists(output_dir):

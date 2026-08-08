@@ -137,24 +137,6 @@ else
 fi
 
 
-# 步骤18: 执行 select_break_ma30.py
-log "[步骤18/18] 开始执行 select_break_ma30.py..."
-if ${VENV_PYTHON} select_break_ma30.py>> "${LOG_DIR}/select_break_ma30.${DATE}.log" 2>&1; then
-    log "[步骤18/18] ✅ select_break_ma30.py 执行成功"
-else
-    log "[步骤18/18] ❌ select_break_ma30.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤15: 执行 select_120d_newhigh_up.py (120天区间突破选股)
-log "[步骤15/17] 开始执行 select_120d_newhigh_up.py..."
-if ${VENV_PYTHON} select_120d_newhigh_up.py >> "${LOG_DIR}/select_120d_newhigh_up${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_boselect_120d_newhigh_upomvol.py 执行成功"
-else
-    log "[步骤15/17] ❌ select_120d_newhigh_up.py 执行失败，停止任务"
-    exit 1
-fi
-
 # 步骤15: 执行 select_2wave_daily.py (2波上涨选股)
 log "[步骤15/17] 开始执行 select_2wave_daily.py..."
 if ${VENV_PYTHON} select_2wave_daily.py >> "${LOG_DIR}/select_2wave_daily_${DATE}.log" 2>&1; then
@@ -164,14 +146,6 @@ else
     exit 1
 fi
 
-# 步骤15: 执行 select_3wave_up.py (3浪上涨选股)
-log "[步骤15/17] 开始执行 select_3wave_up.py..."
-if ${VENV_PYTHON} select_3wave_up.py >> "${LOG_DIR}/select_3wave_up${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_3wave_up.py 执行成功"
-else
-    log "[步骤15/17] ❌ select_3wave_up.py 执行失败，停止任务"
-    exit 1
-fi
 
 # 步骤15: 执行 select_3wave_up.py (2浪上涨选股)
 log "[步骤15/17] 开始执行 select_2wave_up.py..."
@@ -182,33 +156,23 @@ else
     exit 1
 fi
 
+# 步骤15: 执行 select_3wave_up.py (2浪上涨选股)
+log "[步骤15/17] 开始执行 select_2wave_up_v2.py..."
+if ${VENV_PYTHON} select_2wave_up_v2.py >> "${LOG_DIR}/select_2wave_up_v2${DATE}.log" 2>&1; then
+    log "[步骤15/17] ✅ select_2wave_up_v2.py 执行成功"
+else
+    log "[步骤15/17] ❌ select_2wave_up_v2.py 执行失败，停止任务"
+    exit 1
+fi
+
 # 步骤16: 执行 stock_overall_report.py
-log "[步骤16/17] 开始执行 stock_overall_report.py..."
-if ${VENV_PYTHON} stock_overall_report.py >> "${LOG_DIR}/stock_overall_report_${DATE}.log" 2>&1; then
-    log "[步骤16/17] ✅ stock_overall_report.py 执行成功"
+log "[步骤16/17] 开始执行 report_stock_overall.py..."
+if ${VENV_PYTHON} report_stock_overall.py >> "${LOG_DIR}/report_stock_overall${DATE}.log" 2>&1; then
+    log "[步骤16/17] ✅ report_stock_overall.py 执行成功"
 else
-    log "[步骤16/17] ❌ stock_overall_report.py 执行失败，停止任务"
+    log "[步骤16/17] ❌ report_stock_overall.py 执行失败，停止任务"
     exit 1
 fi
-
-# 步骤17: 执行 industry_exchange_report.py
-log "[步骤17/18] 开始执行 industry_exchange_report.py..."
-if ${VENV_PYTHON} industry_exchange_report.py >> "${LOG_DIR}/industry_exchange_report_${DATE}.log" 2>&1; then
-    log "[步骤17/18] ✅ industry_exchange_report.py 执行成功"
-else
-    log "[步骤17/18] ❌ industry_exchange_report.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤18: 执行 analyze_index_change.py
-log "[步骤18/18] 开始执行 analyze_index_change.py..."
-if ${VENV_PYTHON} analyze_index_change.py >> "${LOG_DIR}/analyze_index_change_${DATE}.log" 2>&1; then
-    log "[步骤18/18] ✅ analyze_index_change.py 执行成功"
-else
-    log "[步骤18/18] ❌ analyze_index_change.py 执行失败，停止任务"
-    exit 1
-fi
-
 
 
 log "=========================================="

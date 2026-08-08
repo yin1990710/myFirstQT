@@ -5,7 +5,6 @@ import os
 import sys
 import csv
 import shutil
-import math
 from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -14,32 +13,20 @@ from mysql_connection import get_mysql_connection, close_connection
 
 def get_target_date():
     now = datetime.now()
-    current_hour = now.hour
-    if current_hour < 15:
-        target_date = (now - timedelta(days=1)).strftime('%Y%m%d')
-    else:
-        target_date = now.strftime('%Y%m%d')
-    return target_date
+    if now.hour < 15:
+        return (now - timedelta(days=1)).strftime('%Y%m%d')
+    return now.strftime('%Y%m%d')
 
 
-def get_folder_name():
-    target_date = get_target_date()
-    folder_name = f"底部反转{target_date}"
-    return folder_name
-
-
-def create_folder():
-    folder_name = get_folder_name()
+def get_folder_path():
+    folder_name = f"底部企稳{get_target_date()}"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     folder_path = os.path.join(script_dir, folder_name)
-
     if os.path.exists(folder_path):
         shutil.rmtree(folder_path)
         print(f"🗑️ 已删除旧文件夹: {folder_name}")
-
     os.makedirs(folder_path)
     print(f"📁 创建文件夹: {folder_name}")
-
     return folder_path
 
 
@@ -49,15 +36,15 @@ def read_stock_data():
         print("❌ 数据库连接失败")
         return []
 
-    start_date = '20250101'
     target_date = get_target_date()
+    # 220个交易日约需要320个自然日
+    start_date = (datetime.now() - timedelta(days=320)).strftime('%Y%m%d')
 
     query_sql = """
     SELECT
         d.ts_code,
         d.trade_date,
         d.close,
-        d.open,
         d.amount,
         d.ma5,
         d.ma30,
@@ -83,105 +70,93 @@ def read_stock_data():
 
 
 def check_price_range(records):
-    recent_200 = records[-200:] if len(records) >= 200 else records
-    
-    prices = []
-    for r in recent_200:
-        close = r['close']
-        if close is not None:
-            prices.append(float(close))
-    
-    if len(prices) < 2:
+    """最近200个交易日内，最低收盘价/最高收盘价 > 50%，且220日内最低收盘价在最近20日内"""
+    if len(records) < 200:
         return False
-    
-    min_price = min(prices)
-    max_price = max(prices)
-    
-    if max_price == 0:
+
+    recent_200 = records[-200:]
+    closes_200 = [r['close'] for r in recent_200 if r['close'] is not None]
+    if len(closes_200) < 2:
         return False
-    
-    ratio = min_price / max_price
-    return ratio <= 0.5
+    min_200 = min(closes_200)
+    max_200 = max(closes_200)
+    if max_200 == 0:
+        return False
+    if min_200 / max_200 <= 0.5:
+        return False
+
+    # 220日内最低收盘价在最近20日内
+    recent_220 = records[-220:] if len(records) >= 220 else records
+    closes_220 = [(i, r['close']) for i, r in enumerate(recent_220) if r['close'] is not None]
+    if not closes_220:
+        return False
+    min_idx_220 = min(closes_220, key=lambda x: x[1])[0]
+    # recent_220 的索引转换为 records 的索引
+    offset = len(records) - len(recent_220)
+    min_idx_in_records = offset + min_idx_220
+    # 检查最低点是否在最近20个交易日内
+    if min_idx_in_records < len(records) - 20:
+        return False
+
+    return True
 
 
-def calculate_angle(records):
-    n = len(records)
-    if n < 5:
-        return None, None, None
-    
-    T_minus_4 = records[-5]
-    T = records[-1]
-    
-    ma5_T_4 = float(T_minus_4['ma5']) if T_minus_4['ma5'] else None
-    ma5_T = float(T['ma5']) if T['ma5'] else None
-    ma30_T_4 = float(T_minus_4['ma30']) if T_minus_4['ma30'] else None
-    ma30_T = float(T['ma30']) if T['ma30'] else None
-    
-    if ma5_T_4 is None or ma5_T is None or ma30_T_4 is None or ma30_T is None:
-        return None, None, None
-    
-    a1 = (ma5_T - ma5_T_4) / 4
-    b1 = (ma30_T - ma30_T_4) / 4
-    
-    denominator = math.sqrt((a1**2 + 1) * (b1**2 + 1))
-    if denominator == 0:
-        return a1, b1, None
-    
-    cos_x = (a1 * b1 + 1) / denominator
-    cos_x = max(-1, min(1, cos_x))
-    x = math.acos(cos_x) * 180 / math.pi
-    
-    return a1, b1, x
-
-
-def check_yang_line(records):
-    recent_10 = records[-10:] if len(records) >= 10 else records
-    
-    yang_count = 0
-    yang_amount = 0
-    yin_amount = 0
-    
+def check_gain_10d(records):
+    """最近10个交易日至少有1日涨幅>8%"""
+    if len(records) < 11:
+        return False
+    recent_10 = records[-10:]
     for i in range(len(recent_10)):
-        r = recent_10[i]
-        open_p = float(r['open']) if r['open'] else None
-        close_p = float(r['close']) if r['close'] else None
-        amount = float(r['amount']) if r['amount'] else 0
-        
-        if open_p is not None and close_p is not None:
-            if close_p > open_p:
-                yang_count += 1
-                yang_amount += amount
-            elif close_p < open_p:
-                yin_amount += amount
-    
-    if yang_count < 5:
-        return False, yang_count, yang_amount, yin_amount
-    
-    if yin_amount == 0:
-        return True, yang_count, yang_amount, yin_amount
-    
-    ratio = yang_amount / yin_amount
-    return ratio > 1.5, yang_count, yang_amount, yin_amount
+        prev_close = recent_10[i - 1]['close'] if i == 0 else recent_10[i]['close']
+        # i=0时需要取前一天的close
+        if i == 0:
+            prev_idx = len(records) - 11
+            if prev_idx < 0:
+                continue
+            prev_close = records[prev_idx]['close']
+            curr_close = recent_10[i]['close']
+        else:
+            prev_close = recent_10[i - 1]['close']
+            curr_close = recent_10[i]['close']
+
+        if prev_close and curr_close and prev_close > 0:
+            gain = (curr_close - prev_close) / prev_close
+            if gain > 0.08:
+                return True
+    return False
 
 
-def check_gain(records):
-    recent_10 = records[-10:] if len(records) >= 10 else records
-    
-    for i in range(1, len(recent_10)):
-        prev_close = float(recent_10[i-1]['close']) if recent_10[i-1]['close'] else None
-        curr_close = float(recent_10[i]['close']) if recent_10[i]['close'] else None
-        
-        if prev_close is not None and curr_close is not None and prev_close > 0:
-            gain = (curr_close - prev_close) / prev_close * 100
-            if gain > 6:
-                return True, gain
-    
-    return False, 0
+def check_close_above_ma5_3d(records):
+    """最近3个交易日收盘价>ma5"""
+    if len(records) < 3:
+        return False
+    for r in records[-3:]:
+        close = float(r['close']) if r['close'] else None
+        ma5 = float(r['ma5']) if r['ma5'] else None
+        if close is None or ma5 is None:
+            return False
+        if close <= ma5:
+            return False
+    return True
+
+
+def check_ma30_increasing_3d(records):
+    """最近3个交易日ma30单调递增"""
+    if len(records) < 3:
+        return False
+    recent_3 = records[-3:]
+    for i in range(len(recent_3) - 1):
+        ma30_1 = float(recent_3[i]['ma30']) if recent_3[i]['ma30'] else None
+        ma30_2 = float(recent_3[i + 1]['ma30']) if recent_3[i + 1]['ma30'] else None
+        if ma30_1 is None or ma30_2 is None:
+            return False
+        if ma30_2 <= ma30_1:
+            return False
+    return True
 
 
 def analyze_stocks(data):
     stock_data = {}
-    
     for record in data:
         ts_code = record['ts_code']
         if ts_code not in stock_data:
@@ -189,152 +164,132 @@ def analyze_stocks(data):
         stock_data[ts_code].append({
             'trade_date': record['trade_date'],
             'close': float(record['close']) if record['close'] else None,
-            'open': float(record['open']) if record['open'] else None,
             'amount': float(record['amount']) if record['amount'] else None,
             'ma5': float(record['ma5']) if record['ma5'] else None,
             'ma30': float(record['ma30']) if record['ma30'] else None,
             'name': record['stock_name'] or '',
             'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0
         })
-    
+
     result = []
     count_total = 0
     count_mv = 0
-    count_price_range = 0
-    count_angle = 0
-    count_yang = 0
+    count_range = 0
     count_gain = 0
-    
+    count_ma5 = 0
+    count_ma30 = 0
+
     for ts_code, records in stock_data.items():
-        if len(records) < 220:
+        if len(records) < 200:
             continue
-        
+
         records.sort(key=lambda x: x['trade_date'])
-        
         latest = records[-1]
         stock_name = latest['name']
-        
-        if 'ST' in stock_name:
-            continue
-        
+
+        # 去除非A股
         if not (ts_code.endswith('.SZ') or ts_code.endswith('.SH')):
             continue
-        
-        total_mv = latest['total_mv']
-        if total_mv < 8000000000:
+
+        # 去除ST股
+        if 'ST' in stock_name:
             continue
-        
+
         count_total += 1
+
+        # 条件2：总市值 > 100亿
+        total_mv = latest['total_mv']
+        if total_mv < 10000000000:
+            continue
         count_mv += 1
-        
+
+        # 条件3：价格范围 + 最低点位置
         if not check_price_range(records):
             continue
-        
-        count_price_range += 1
-        
-        a1, b1, x = calculate_angle(records)
-        if a1 is None or b1 is None or x is None:
+        count_range += 1
+
+        # 条件4：最近10日至少1日涨幅>8%
+        if not check_gain_10d(records):
             continue
-        
-        if a1 < 0 or b1 < 0 or x < 0:
-            continue
-        
-        count_angle += 1
-        
-        yang_result, yang_count, yang_amount, yin_amount = check_yang_line(records)
-        if not yang_result:
-            continue
-        
-        count_yang += 1
-        
-        gain_result, max_gain = check_gain(records)
-        if not gain_result:
-            continue
-        
         count_gain += 1
-        
+
+        # 条件5：最近3日close>ma5
+        if not check_close_above_ma5_3d(records):
+            continue
+        count_ma5 += 1
+
+        # 条件6：最近3日ma30单调递增
+        if not check_ma30_increasing_3d(records):
+            continue
+        count_ma30 += 1
+
         result.append({
             'ts_code': ts_code,
             'name': stock_name,
-            'total_mv': total_mv,
-            'a1': a1,
-            'b1': b1,
-            'angle': x,
-            'yang_count': yang_count,
-            'yang_amount': yang_amount,
-            'yin_amount': yin_amount,
-            'max_gain': max_gain
+            'total_mv': total_mv
         })
-    
+
     result.sort(key=lambda x: x['total_mv'], reverse=True)
-    
+
     print("\n" + "=" * 60)
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
-    print(f"满足条件a(市值>80亿): {count_mv}")
-    print(f"满足条件a+b(最低/最高<50%): {count_price_range}")
-    print(f"满足条件a+b+c(a1,b1,x>0): {count_angle}")
-    print(f"满足条件a+b+c+d(阳线>5且成交额>1.5): {count_yang}")
-    print(f"满足条件a+b+c+d+e(涨幅>6%): {count_gain}")
+    print(f"满足条件(市值>100亿): {count_mv}")
+    print(f"满足条件(价格范围+最低点位置): {count_range}")
+    print(f"满足条件(10日涨幅>8%): {count_gain}")
+    print(f"满足条件(close>ma5): {count_ma5}")
+    print(f"满足条件(ma30递增): {count_ma30}")
     print(f"最终选出: {len(result)}")
     print("=" * 60)
-    
+
     return result
 
 
 def generate_csv_file(stocks, folder_path):
     csv_filename = "底部企稳.csv"
     csv_path = os.path.join(folder_path, csv_filename)
-    
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow(['股票代码', '股票名称'])
         for stock in stocks:
             writer.writerow([stock['ts_code'], stock['name']])
-    
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
 
 
 def main():
     print("=" * 80)
-    print("📈 底部企稳选股策略")
+    print("📊 底部企稳选股策略")
     print("=" * 80)
-    print("\n📊 选股逻辑：")
-    print("  a. 总市值 > 80亿")
-    print("  b. 最近200日最低/最高收盘价 <= 50%")
-    print("  c. T-4至T日，ma5斜率a1>0, ma30斜率b1>0, 夹角x>0")
-    print("  d. 最近10日至少5个阳线，阳线成交额/阴线成交额>1.5")
-    print("  e. 最近10日至少1日涨幅>6%")
+    print("\n选股逻辑：")
+    print("  1. 总市值 > 100亿")
+    print("  2. 最近200日 最低/最高收盘价 > 50%，且220日最低点在最近20日内")
+    print("  3. 最近10日至少1日涨幅 > 8%")
+    print("  4. 最近3日收盘价 > MA5")
+    print("  5. 最近3日MA30单调递增")
+    print("  6. 去除非A股股票")
     print("=" * 80)
-    
-    folder_path = create_folder()
-    
+
+    folder_path = get_folder_path()
+
     data = read_stock_data()
     if not data:
         print("❌ 没有获取到数据，退出程序")
         return
-    
+
     stocks = analyze_stocks(data)
-    
+
     if stocks:
         generate_csv_file(stocks, folder_path)
-        
         print("\n" + "=" * 80)
         print("🎉 选股完成！")
         print(f"📁 文件夹路径: {folder_path}")
         print(f"📄 CSV路径: {folder_path}/底部企稳.csv")
         print("=" * 80)
-        
         print("\n🔥 精选股票：")
         for i, stock in enumerate(stocks[:10], 1):
             mv_billion = stock['total_mv'] / 100000000
-            yang_ratio = stock['yang_amount'] / stock['yin_amount'] if stock['yin_amount'] > 0 else float('inf')
-            print(f"{i}. {stock['ts_code']} {stock['name']}")
-            print(f"   └─ 市值: {mv_billion:.2f}亿")
-            print(f"   └─ a1: {stock['a1']:.4f}, b1: {stock['b1']:.4f}, 夹角: {stock['angle']:.2f}°")
-            print(f"   └─ 阳线: {stock['yang_count']}/10, 成交额比: {yang_ratio:.2f}")
-            print(f"   └─ 最大涨幅: {stock['max_gain']:.2f}%")
+            print(f"{i}. {stock['ts_code']} {stock['name']} (市值: {mv_billion:.2f}亿)")
     else:
         print("\n❌ 没有选出符合条件的股票")
 

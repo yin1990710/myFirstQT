@@ -71,6 +71,22 @@ def get_stock_info(stock_name_or_code):
         print(f"❌ 查询失败: {e}")
         return None
 
+def get_stock_daily_pro_bar(ts_code, start_date=None, end_date=None):
+    """
+    获取股票前复权日线数据
+
+    :param ts_code: 股票代码，格式如 '003031.SZ'
+    :param start_date: 开始日期，格式 'YYYYMMDD'
+    :param end_date: 结束日期，格式 'YYYYMMDD'
+    :return: 包含前复权日线数据的DataFrame
+    """
+    print(f"      📡 Tushare pro_bar 调用参数:")
+    print(f"         ts_code={ts_code}, start_date={start_date}, end_date={end_date}, adj=qfq")
+
+    df = ts.pro_bar(ts_code=ts_code, adj='qfq', start_date=start_date, end_date=end_date)
+    return df
+
+
 def get_stock_daily(ts_code, start_date=None, end_date=None, limit=500, offset=0):
     """
     获取股票日线数据
@@ -115,21 +131,12 @@ def main():
     主函数：获取股票日线数据并打印
     """
     # 示例：获取中瓷电子(003031.SZ) 2026-05-06 至 2026-05-10 的数据
-    ts_code = '003031.SZ'
-    start_date = '20260506'
-    end_date = '20260510'
-    
-    print(f"📈 正在获取 {ts_code} 的日线数据 ({start_date} ~ {end_date})")
-    
-    # 调用pro.daily获取数据
-    df = get_stock_daily(ts_code, start_date, end_date)
-    
-    # 打印数据
-    if not df.empty:
-        print("\n📋 数据预览:")
-        print(df.to_string(index=False))
-    else:
-        print(f"⚠️ 未获取到 {ts_code} 的数据")
+    ts_code = '002768.SZ'
+    start_date = '20260730'
+    end_date = '20260807'
+
+    df = get_stock_daily_pro_bar(ts_code,start_date, end_date)
+    print(df)
 
 if __name__ == "__main__":
     main()
