@@ -88,11 +88,11 @@ else
 fi
 
 # 步骤6: 执行 update_stock_ma5_ma30.py
-log "[步骤6/17] 开始执行 update_stock_turning_point_tag.py..."
-if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag${DATE}.log" 2>&1; then
-    log "[步骤6/17] ✅ update_stock_turning_point_tag.py 执行成功"
+log "[步骤6/17] 开始执行 update_stock_turning_point_tag_v2.py..."
+if ${VENV_PYTHON} update_stock_turning_point_tag_v2.py >> "${LOG_DIR}/update_stock_turning_point_tag_v2${DATE}.log" 2>&1; then
+    log "[步骤6/17] ✅ update_stock_turning_point_tag_v2.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
+    log "[步骤6/17] ❌ update_stock_turning_point_tag_v2.py 执行失败，停止任务"
     exit 1
 fi
 

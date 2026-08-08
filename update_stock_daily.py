@@ -137,13 +137,28 @@ def get_latest_trade_date():
 
 def main():
     """
-    主函数：从stock_info_t读取股票代码，查询最新交易数据并插入stock_daily_t
+    主函数：从stock_info_t读取股票代码，查询指定日期范围的数据并插入stock_daily_t
+    可通过命令行参数指定开始日期和结束日期，不指定则默认取当天日期
     """
+    # 解析命令行参数
+    if len(sys.argv) >= 3:
+        start_date = sys.argv[1]
+        end_date = sys.argv[2]
+    elif len(sys.argv) == 2:
+        start_date = sys.argv[1]
+        end_date = sys.argv[1]
+    else:
+        today = get_latest_trade_date()
+        start_date = today
+        end_date = today
+
     print("=" * 60)
     print("📊 股票日线数据更新程序")
     print("=" * 60)
 
-    print("\n🔌 步骤1: 连接数据库...")
+    print(f"\n📅 日期范围: {start_date} ~ {end_date}")
+
+    print("\n� 步骤1: 连接数据库...")
     conn = get_mysql_connection()
     if not conn:
         print("❌ 无法连接数据库，程序退出")
@@ -158,8 +173,7 @@ def main():
 
         print(f"   ✅ 共读取到 {len(stock_codes)} 个股票代码")
 
-        latest_date = get_latest_trade_date()
-        print(f"\n📅 步骤3: 查询最新交易日数据 ({latest_date})...")
+        print(f"\n📅 步骤3: 查询交易日数据 ({start_date} ~ {end_date})...")
 
         total_inserted = 0
         total_updated = 0
@@ -170,7 +184,7 @@ def main():
                 if i % 10 == 0:
                     print(f"   进度: {i}/{len(stock_codes)} ({i*100//len(stock_codes)}%)")
 
-                df = get_stock_daily(ts_code, start_date=latest_date, end_date=latest_date, limit=1)
+                df = get_stock_daily(ts_code, start_date=start_date, end_date=end_date, limit=5000, offset=0)
 
                 if df is not None and not df.empty:
                     inserted = insert_stock_daily(conn, df)

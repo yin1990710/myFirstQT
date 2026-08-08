@@ -11,7 +11,6 @@ from mysql_connection import get_mysql_connection, close_connection
 
 def get_latest_trade_date(conn):
     """获取数据库中最近的交易日期（限制查询最近20个自然日的数据）"""
-    from datetime import datetime, timedelta
     cutoff_date = (datetime.now() - timedelta(days=20)).strftime('%Y%m%d')
     sql = "SELECT MAX(trade_date) AS latest_date FROM stock_daily_t WHERE trade_date >= %s"
     with conn.cursor() as cursor:
@@ -20,7 +19,7 @@ def get_latest_trade_date(conn):
     return row['latest_date'] if row else None
 
 
-def read_stock_data(conn, fetch_start_date, end_date):
+def read_stock_data(conn, fetch_start_date, fetch_end_date):
     """读取指定日期范围的股票数据"""
     query_sql = """
         SELECT ts_code, trade_date, ma5, close
@@ -30,46 +29,52 @@ def read_stock_data(conn, fetch_start_date, end_date):
     """
     try:
         with conn.cursor() as cursor:
-            cursor.execute(query_sql, (fetch_start_date, end_date))
+            cursor.execute(query_sql, (fetch_start_date, fetch_end_date))
             results = cursor.fetchall()
-        print(f"✅ 成功读取 {len(results)} 条数据（范围: {fetch_start_date} ~ {end_date}）")
+        print(f"✅ 成功读取 {len(results)} 条数据（范围: {fetch_start_date} ~ {fetch_end_date}）")
         return results
     except Exception as e:
         print(f"❌ 查询数据失败: {e}")
         return None
 
 
-def fix_consecutive_tags(tags, closes):
-    """一次修正：修正连续的波峰和波谷标记"""
+def fix_turning_points(tags):
+    """修正标记：根据前后各3个非NULL标记的交易日，判断波峰/波谷"""
     n = len(tags)
-    i = 0
-    while i < n:
-        if tags[i] in ('波峰', '波谷'):
-            j = i
-            while j + 1 < n and tags[j + 1] == tags[i]:
-                j += 1
+    for i in range(n):
+        if tags[i] is None:
+            continue
 
-            if j > i:
-                best_idx = i
-                if tags[i] == '波峰':
-                    for k in range(i, j + 1):
-                        if closes[k] > closes[best_idx]:
-                            best_idx = k
-                else:
-                    for k in range(i, j + 1):
-                        if closes[k] < closes[best_idx]:
-                            best_idx = k
+        # 向前找3个非NULL标记
+        before = []
+        j = i - 1
+        while j >= 0 and len(before) < 3:
+            if tags[j] is not None:
+                before.append(tags[j])
+            j -= 1
 
-                for k in range(i, j + 1):
-                    if k != best_idx:
-                        if k < best_idx:
-                            tags[k] = '上升'
-                        else:
-                            tags[k] = '下降'
+        # 向后找3个非NULL标记
+        after = []
+        j = i + 1
+        while j < n and len(after) < 3:
+            if tags[j] is not None:
+                after.append(tags[j])
+            j += 1
 
-            i = j + 1
-        else:
-            i += 1
+        if len(before) < 3 or len(after) < 3:
+            continue
+
+        before_up = sum(1 for t in before if t == '上升')
+        before_down = sum(1 for t in before if t == '下降')
+        after_up = sum(1 for t in after if t == '上升')
+        after_down = sum(1 for t in after if t == '下降')
+
+        # 前3个多数上升，后3个多数下降 → 波峰
+        if before_up >= 2 and after_down >= 2:
+            tags[i] = '波峰'
+        # 前3个多数下降，后3个多数上升 → 波谷
+        elif before_down >= 2 and after_up >= 2:
+            tags[i] = '波谷'
 
     return tags
 
@@ -94,55 +99,56 @@ def analyze_and_update(data, conn, start_date, end_date):
     try:
         with conn.cursor() as cursor:
             for ts_code, records in stock_data.items():
-                if len(records) < 11:
+                if len(records) < 7:
                     continue
 
                 records.sort(key=lambda x: x['trade_date'])
 
                 ma5_values = [r['ma5'] for r in records]
-                close_values = [r['close'] for r in records]
                 tags = [None] * len(records)
 
+                # 第一步：根据斜率计算初始标记（上升/下降/NULL）
                 for i in range(len(records)):
-                    if i < 5 or i >= len(records) - 5:
+                    if i < 3 or i >= len(records) - 3:
                         continue
 
-                    ma5_before5 = ma5_values[i - 5]
+                    ma5_before3 = ma5_values[i - 3]
                     ma5_current = ma5_values[i]
-                    ma5_after5 = ma5_values[i + 5]
+                    ma5_after3 = ma5_values[i + 3]
 
-                    if ma5_before5 is None or ma5_before5 <= 0 or ma5_current is None or ma5_current <= 0 or ma5_after5 is None or ma5_after5 <= 0:
+                    # T-3和T+3的ma5值都大于0才继续
+                    if ma5_before3 is None or ma5_before3 <= 0 or ma5_current is None or ma5_current <= 0 or ma5_after3 is None or ma5_after3 <= 0:
                         continue
 
-                    a1 = (ma5_current - ma5_before5) / 5
-                    b1 = (ma5_after5 - ma5_current) / 5
+                    # 计算斜率a1（T-3到T）和b1（T到T+3）
+                    a1 = (ma5_current - ma5_before3) / 3
+                    b1 = (ma5_after3 - ma5_current) / 3
 
-                    if a1 > 0 and b1 < 0:
-                        tags[i] = '波峰'
-                    elif a1 < 0 and b1 > 0:
-                        tags[i] = '波谷'
-                    elif a1 < 0 and b1 < 0:
+                    # 仅标记上升和下降，其他为NULL
+                    if a1 < 0 and b1 < 0:
                         tags[i] = '下降'
                     elif a1 > 0 and b1 > 0:
                         tags[i] = '上升'
+                    # 不满足条件则为NULL（默认）
 
-                tags = fix_consecutive_tags(tags, close_values)
+                # 第二步：修正标记，判断波峰/波谷
+                tags = fix_turning_points(tags)
 
+                # 更新数据库
                 for i in range(len(records)):
-                    if tags[i] is None:
-                        continue
-
                     trade_date = records[i]['trade_date']
                     # 只更新 start_date ~ end_date 范围内的日期
                     if trade_date < start_date or trade_date > end_date:
                         continue
+
+                    tag_value = tags[i] if tags[i] is not None else None
 
                     update_sql = """
                         UPDATE stock_daily_t
                         SET turning_point = %s
                         WHERE ts_code = %s AND trade_date = %s
                     """
-                    cursor.execute(update_sql, (tags[i], ts_code, trade_date))
+                    cursor.execute(update_sql, (tag_value, ts_code, trade_date))
                     update_count += 1
 
             conn.commit()
@@ -154,7 +160,7 @@ def analyze_and_update(data, conn, start_date, end_date):
 
 def main():
     print("=" * 80)
-    print("📊 更新股票turning_point字段（波峰/波谷/上升/下降）含连续标记修正")
+    print("📊 更新股票turning_point字段 v2（T±3斜率法 + 前后3日修正）")
     print("=" * 80)
 
     conn = get_mysql_connection()
@@ -176,10 +182,10 @@ def main():
             start_date = latest_date
             end_date = latest_date
 
-        # 计算抓取数据的日期范围（前后各扩展10天，确保T-5和T+5有足够数据）
+        # 数据抓取范围：起始日期-20天 ~ 结束日期+10天
         start_dt = datetime.strptime(start_date, '%Y%m%d')
         end_dt = datetime.strptime(end_date, '%Y%m%d')
-        fetch_start_date = (start_dt - timedelta(days=10)).strftime('%Y%m%d')
+        fetch_start_date = (start_dt - timedelta(days=20)).strftime('%Y%m%d')
         fetch_end_date = (end_dt + timedelta(days=10)).strftime('%Y%m%d')
 
         print(f"📅 目标日期范围: {start_date} ~ {end_date}")
