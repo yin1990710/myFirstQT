@@ -131,12 +131,22 @@ def main():
     主函数：获取股票日线数据并打印
     """
     # 示例：获取中瓷电子(003031.SZ) 2026-05-06 至 2026-05-10 的数据
-    ts_code = '002768.SZ'
-    start_date = '20260730'
-    end_date = '20260807'
+    ts_code = '600795.SH'
+    start_date = '20260710'
+    end_date = '20260710'
 
-    df = get_stock_daily_pro_bar(ts_code,start_date, end_date)
-    print(df)
+    df1 = get_stock_daily_pro_bar(ts_code,start_date, start_date)
+    df2 = pro.adj_factor(ts_code=ts_code, trade_date=start_date)
+    df3 = pro.adj_factor(ts_code=ts_code, trade_date=end_date)
+    x1 = df1.iloc[0,5]
+
+    x2= df2.iloc[0,2]
+    x3= df3.iloc[0,2]
+
+    print(x1,x2,x3)
+     
+    
+
 
 if __name__ == "__main__":
     main()

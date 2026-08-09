@@ -48,6 +48,7 @@ def read_stock_data():
         d.amount,
         d.ma5,
         d.ma30,
+        d.qfq_adj_factor,
         i.stock_name,
         i.total_mv
     FROM stock_daily_t d
@@ -167,6 +168,7 @@ def analyze_stocks(data):
             'amount': float(record['amount']) if record['amount'] else None,
             'ma5': float(record['ma5']) if record['ma5'] else None,
             'ma30': float(record['ma30']) if record['ma30'] else None,
+            'qfq_adj_factor': float(record['qfq_adj_factor']) if record['qfq_adj_factor'] else None,
             'name': record['stock_name'] or '',
             'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0
         })
@@ -186,6 +188,14 @@ def analyze_stocks(data):
         records.sort(key=lambda x: x['trade_date'])
         latest = records[-1]
         stock_name = latest['name']
+
+        # 前复权价计算: close = close * (当日复权因子 / 最新交易日复权因子)
+        latest_factor = latest['qfq_adj_factor']
+        if latest_factor and latest_factor > 0:
+            for r in records:
+                factor = r['qfq_adj_factor']
+                if factor and factor > 0 and r['close'] is not None:
+                    r['close'] = r['close'] * (factor / latest_factor)
 
         # 去除非A股
         if not (ts_code.endswith('.SZ') or ts_code.endswith('.SH')):

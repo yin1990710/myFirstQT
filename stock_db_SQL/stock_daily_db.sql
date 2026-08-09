@@ -77,6 +77,7 @@ CREATE TABLE `stock_daily_t` (
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `turning_point` varchar(10) DEFAULT NULL COMMENT '波峰、波谷、波中',
   `is_buy` varchar(20) DEFAULT '未买' COMMENT '是否已买 未买/已买入',
+  `qfq_adj_factor` float(4,2) DEFAULT NULL COMMENT'当日前复权因子',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
@@ -168,3 +169,5 @@ CREATE TABLE `ths_industry_daily_t` (
 ) ENGINE=InnoDB AUTO_INCREMENT=21853 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='同花顺行业板块日线数据表';
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+

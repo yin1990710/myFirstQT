@@ -35,6 +35,7 @@ def get_stock_codes_from_db(conn):
         return []
 
 def get_stock_daily_qfq(ts_code, start_date=None, end_date=None):
+    """获取前复权日线数据"""
     df = ts.pro_bar(**{
         "ts_code": ts_code,
         "start_date": start_date,
@@ -55,9 +56,30 @@ def get_stock_daily_qfq(ts_code, start_date=None, end_date=None):
     ])
     return df
 
+def get_adj_factor(ts_code, start_date=None, end_date=None):
+    """获取前复权因子"""
+    df = pro.adj_factor(**{
+        "ts_code": ts_code,
+        "start_date": start_date,
+        "end_date": end_date
+    }, fields=[
+        "ts_code",
+        "trade_date",
+        "adj_factor"
+    ])
+    return df
+
+def get_latest_trade_date():
+    now = datetime.now()
+    if now.hour < 15:
+        target_date = now - timedelta(days=1)
+        return target_date.strftime('%Y%m%d')
+    else:
+        return now.strftime('%Y%m%d')
+
 def main():
     print("=" * 60)
-    print("📊 股票日线数据更新程序（前复权）")
+    print("📊 股票日线数据更新程序（前复权+复权因子）")
     print("=" * 60)
 
     conn = get_mysql_connection()
@@ -73,50 +95,68 @@ def main():
 
         print(f"   ✅ 共读取到 {len(stock_codes)} 个股票代码")
 
-        print("\n⚠️ 正在清空stock_daily_t表...")
-        cursor = conn.cursor()
-        cursor.execute("TRUNCATE TABLE stock_daily_t")
-        conn.commit()
-        print("   ✅ 表已清空")
-
-        start_date = '20250101'
+        start_date = (datetime.now() - timedelta(days=180)).strftime('%Y%m%d')
         end_date = datetime.now().strftime('%Y%m%d')
+        print(f"   📅 日期范围: {start_date} ~ {end_date}")
 
+        cursor = conn.cursor()
         total_inserted = 0
+        total_updated = 0
         error_count = 0
 
         for i, ts_code in enumerate(stock_codes, 1):
             try:
                 if i % 10 == 0:
-                    print(f"   进度: {i}/{len(stock_codes)} ({i*100//len(stock_codes)}%), 已插入: {total_inserted}")
+                    print(f"   进度: {i}/{len(stock_codes)} ({i*100//len(stock_codes)}%), 已插入: {total_inserted}, 已更新: {total_updated}")
 
-                df = get_stock_daily_qfq(ts_code, start_date=start_date, end_date=end_date)
+                # 1. 获取前复权日线数据
+                df_daily = get_stock_daily_qfq(ts_code, start_date=start_date, end_date=end_date)
 
-                if df is not None and not df.empty:
-                    df = df.sort_values('trade_date')
-                    for _, row in df.iterrows():
-                        insert_sql = """
-                            INSERT INTO stock_daily_t (
-                                ts_code, trade_date, open, high, low, close, pre_close,
-                                `change`, pct_chg, vol, amount
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """
-                        cursor.execute(insert_sql, (
-                            row['ts_code'],
-                            row['trade_date'],
-                            row.get('open'),
-                            row.get('high'),
-                            row.get('low'),
-                            row.get('close'),
-                            row.get('pre_close'),
-                            row.get('change'),
-                            row.get('pct_chg'),
-                            row.get('vol'),
-                            row.get('amount')
-                        ))
-                    total_inserted += len(df)
-                    conn.commit()
+                if df_daily is None or df_daily.empty:
+                    continue
 
+                # 2. 获取前复权因子
+                df_factor = get_adj_factor(ts_code, start_date=start_date, end_date=end_date)
+
+                # 3. 关联前复权数据和复权因子
+                if df_factor is not None and not df_factor.empty:
+                    df_merged = df_daily.merge(df_factor[['trade_date', 'adj_factor']], on='trade_date', how='left')
+                else:
+                    df_merged = df_daily.copy()
+                    df_merged['adj_factor'] = None
+
+                # 4. 写入stock_daily_qfq_t表
+                df_merged = df_merged.sort_values('trade_date')
+                for _, row in df_merged.iterrows():
+                    insert_sql = """
+                        INSERT INTO stock_daily_qfq_t (
+                            ts_code, trade_date, open, high, low, close, pre_close,
+                            `change`, pct_chg, vol, amount, qfq_adj_factor
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            open=VALUES(open), high=VALUES(high), low=VALUES(low),
+                            close=VALUES(close), pre_close=VALUES(pre_close),
+                            `change`=VALUES(`change`), pct_chg=VALUES(pct_chg),
+                            vol=VALUES(vol), amount=VALUES(amount),
+                            qfq_adj_factor=VALUES(qfq_adj_factor)
+                    """
+                    cursor.execute(insert_sql, (
+                        row['ts_code'],
+                        row['trade_date'],
+                        row.get('open'),
+                        row.get('high'),
+                        row.get('low'),
+                        row.get('close'),
+                        row.get('pre_close'),
+                        row.get('change'),
+                        row.get('pct_chg'),
+                        row.get('vol'),
+                        row.get('amount'),
+                        row.get('adj_factor')
+                    ))
+                    total_inserted += 1
+
+                conn.commit()
                 time.sleep(CALL_INTERVAL)
 
             except Exception as e:
@@ -128,7 +168,7 @@ def main():
         print(f"\n📈 更新结果统计:")
         print("-" * 40)
         print(f"   处理股票数量: {len(stock_codes)}")
-        print(f"   新增记录数: {total_inserted}")
+        print(f"   新增/更新记录数: {total_inserted}")
         print(f"   出错次数: {error_count}")
 
         print("\n🎉 股票日线数据更新完成！")

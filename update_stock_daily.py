@@ -8,10 +8,33 @@ from datetime import datetime, timedelta
 from mysql_connection import get_mysql_connection, close_connection
 from tushare_get_daily import get_stock_daily
 
+import tushare as ts
+pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
+
 
 """ 更新数据库stock_daily_t表中的股票日线数据 """
 
 CALL_INTERVAL = 1
+
+def get_adj_factor(ts_code, start_date=None, end_date=None):
+    """
+    获取前复权因子
+
+    :param ts_code: 股票代码
+    :param start_date: 开始日期，格式 'YYYYMMDD'
+    :param end_date: 结束日期，格式 'YYYYMMDD'
+    :return: 包含复权因子的DataFrame
+    """
+    df = pro.adj_factor(**{
+        "ts_code": ts_code,
+        "start_date": start_date,
+        "end_date": end_date
+    }, fields=[
+        "ts_code",
+        "trade_date",
+        "adj_factor"
+    ])
+    return df
 
 def get_stock_codes_from_db(conn):
     """
@@ -94,8 +117,8 @@ def insert_stock_daily(conn, df):
             insert_sql = """
                 INSERT INTO stock_daily_t (
                     ts_code, trade_date, open, high, low, close, pre_close,
-                    `change`, pct_chg, vol, amount
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    `change`, pct_chg, vol, amount, qfq_adj_factor
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
             cursor.execute(insert_sql, (
@@ -109,7 +132,8 @@ def insert_stock_daily(conn, df):
                 row.get('change'),
                 row.get('pct_chg'),
                 row.get('vol'),
-                row.get('amount')
+                row.get('amount'),
+                row.get('adj_factor')
             ))
             inserted_count += 1
 
@@ -187,6 +211,11 @@ def main():
                 df = get_stock_daily(ts_code, start_date=start_date, end_date=end_date, limit=5000, offset=0)
 
                 if df is not None and not df.empty:
+                    # 获取前复权因子并关联
+                    df_factor = get_adj_factor(ts_code, start_date=start_date, end_date=end_date)
+                    if df_factor is not None and not df_factor.empty:
+                        df = df.merge(df_factor[['trade_date', 'adj_factor']], on='trade_date', how='left')
+
                     inserted = insert_stock_daily(conn, df)
                     total_inserted += inserted
 

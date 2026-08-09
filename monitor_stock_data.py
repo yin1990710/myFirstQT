@@ -6,6 +6,7 @@
 1. 最近10个交易日，每日ts_code数量（表格1）
 2. 最近10个交易日，每日turning_point分布（表格2）
 3. 最近10个交易日，每日ma5和ma30大于0的记录数（表格3）
+4. 最近10个交易日qfq_adj_factor大于0的记录数（表格4）
 4. 将以上图表保存为monitor_stock_data.png
 5. 放入monitor_stock_data+当日日期后缀的文件夹下
 """
@@ -104,6 +105,23 @@ def get_ma_count(conn, dates):
     return ma5_counts, ma30_counts
 
 
+def get_qfq_factor_count(conn, dates):
+    """每日qfq_adj_factor>0的记录数"""
+    qfq_counts = []
+    for d in dates:
+        sql = """
+            SELECT
+                SUM(CASE WHEN qfq_adj_factor IS NOT NULL AND qfq_adj_factor > 0 THEN 1 ELSE 0 END) AS qfq_cnt
+            FROM stock_daily_t
+            WHERE trade_date = %s
+        """
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (d,))
+            row = cursor.fetchone()
+        qfq_counts.append(row['qfq_cnt'] if row and row['qfq_cnt'] else 0)
+    return qfq_counts
+
+
 def create_folder():
     """创建文件夹"""
     today = datetime.now().strftime('%Y%m%d')
@@ -120,13 +138,13 @@ def create_folder():
     return folder_path
 
 
-def plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, output_path):
+def plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, qfq_counts, output_path):
     """绘制监控图表"""
     n_dates = len(dates)
     n_tags = len(tp_tags)
 
-    # 计算总行数：表格1(标题+表头+数据行) + 空行 + 表格2(...) + 空行 + 表格3(...)
-    fig_height = 3 + n_dates * 0.35 + n_tags * 0.35 + n_dates * 0.35
+    # 计算总行数：表格1 + 空行 + 表格2 + 空行 + 表格3 + 空行 + 表格4
+    fig_height = 3 + n_dates * 0.35 + n_tags * 0.35 + n_dates * 0.35 + n_dates * 0.35
     fig, ax = plt.subplots(figsize=(max(14, n_dates * 1.5), fig_height))
     ax.axis('off')
 
@@ -182,6 +200,23 @@ def plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, ou
                       bbox=[0.0, y_cursor - table3_height, 1.0, table3_height])
     table3.auto_set_font_size(False)
     table3.set_fontsize(9)
+    y_cursor -= table3_height + row_height * 0.5
+
+    # ===== 表格4：每日qfq_adj_factor>0记录数 =====
+    ax.text(0.5, y_cursor, '表格4：最近10个交易日qfq_adj_factor>0记录数', fontsize=14, fontweight='bold',
+            ha='center', va='top', transform=ax.transAxes)
+    y_cursor -= row_height * 1.5
+
+    table4_data = [
+        ['交易日期'] + dates,
+        ['qfq_adj_factor>0记录数'] + [str(c) for c in qfq_counts],
+    ]
+
+    table4_height = row_height * 2
+    table4 = ax.table(cellText=table4_data, loc='upper center',
+                      bbox=[0.0, y_cursor - table4_height, 1.0, table4_height])
+    table4.auto_set_font_size(False)
+    table4.set_fontsize(9)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -217,10 +252,14 @@ def main():
         print(f"✅ ma5>0记录数: {ma5_counts}")
         print(f"✅ ma30>0记录数: {ma30_counts}")
 
+        # 表格4：每日qfq_adj_factor>0记录数
+        qfq_counts = get_qfq_factor_count(conn, dates)
+        print(f"✅ qfq_adj_factor>0记录数: {qfq_counts}")
+
         # 创建文件夹并保存图片
         folder_path = create_folder()
         output_path = os.path.join(folder_path, "monitor_stock_data.png")
-        plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, output_path)
+        plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, qfq_counts, output_path)
 
         print("\n🎉 监控完成！")
         print(f"📁 文件夹路径: {folder_path}")
