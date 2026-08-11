@@ -80,7 +80,7 @@ def read_stock_data():
 
 
 def find_T_date(records):
-    recent_30 = records[-30:] if len(records) >= 30 else records
+    recent_30 = records[-45:] if len(records) >= 45 else records
     
     for i in range(len(recent_30)):
         if recent_30[i]['turning_point'] == '波峰':

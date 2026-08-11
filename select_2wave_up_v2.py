@@ -106,8 +106,8 @@ def check_ma30_increasing(records):
 
 
 def find_T_date(records):
-    """在最近30个交易日中找到波峰，T日成交量>1000000"""
-    recent_30 = records[-30:] if len(records) >= 30 else records
+    """在最近45个交易日中找到波峰，T日成交量>1000000"""
+    recent_30 = records[-45:] if len(records) >= 45 else records
     for i in range(len(recent_30)):
         if recent_30[i]['turning_point'] == '波峰':
             amount = float(recent_30[i]['amount']) if recent_30[i]['amount'] else 0
