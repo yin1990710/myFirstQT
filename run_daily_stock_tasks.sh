@@ -10,6 +10,7 @@ VENV_PYTHON="${SCRIPT_DIR}/.venv/bin/python3"
 LOG_DIR="${SCRIPT_DIR}/cron_logs"
 DATE=$(date +%Y%m%d_%H%M%S)
 
+rm -rf "${LOG_DIR}"
 mkdir -p "${LOG_DIR}"
 
 log() {
