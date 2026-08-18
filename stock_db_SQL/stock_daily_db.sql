@@ -84,6 +84,36 @@ CREATE TABLE `stock_daily_t` (
   KEY `idx_trade_date` (`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1871482 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 
+
+
+-----
+
+
+DROP TABLE IF EXISTS `stock_daily_qfq_t`;
+CREATE TABLE `stock_daily_qfq_t` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `ts_code` varchar(20) NOT NULL COMMENT '股票代码',
+  `trade_date` varchar(8) NOT NULL COMMENT '交易日期',
+  `open` float DEFAULT NULL COMMENT '开盘价',
+  `high` float DEFAULT NULL COMMENT '最高价',
+  `low` float DEFAULT NULL COMMENT '最低价',
+  `close` float DEFAULT NULL COMMENT '收盘价',
+  `pre_close` float DEFAULT NULL COMMENT '昨收价',
+  `change` float DEFAULT NULL COMMENT '涨跌额',
+  `pct_chg` float DEFAULT NULL COMMENT '涨跌幅',
+  `vol` float DEFAULT NULL COMMENT '成交量',
+  `amount` float DEFAULT NULL COMMENT '成交额',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `turning_point` varchar(10) DEFAULT NULL COMMENT '波峰、波谷、波中',
+  `qfq_adj_factor` float(4,2) DEFAULT NULL COMMENT'当日前复权因子',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
+  KEY `idx_ts_code` (`ts_code`),
+  KEY `idx_trade_date` (`trade_date`)
+) ENGINE=InnoDB AUTO_INCREMENT=1871482 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+
+
 -- ----------------------------
 -- Table structure for stock_index_daily_t
 -- ----------------------------

@@ -157,6 +157,17 @@ else
     exit 1
 fi
 
+
+
+# 步骤15: 执行 10天涨幅大于20个点
+log "[步骤14/17] 开始执行 select_10d_20pct.py..."
+if ${VENV_PYTHON} select_10d_20pct.py>> "${LOG_DIR}/select_10d_20pct${DATE}.log" 2>&1; then
+    log "[步骤15/17] ✅ select_10d_20pct.py 执行成功"
+else
+    log "[步骤15/17] ❌ select_10d_20pct.py 执行失败，停止任务"
+    exit 1
+fi
+
 # 步骤16: 执行 stock_overall_report.py
 log "[步骤15/17] 开始执行 report_stock_overall.py..."
 if ${VENV_PYTHON} report_stock_overall.py >> "${LOG_DIR}/report_stock_overall${DATE}.log" 2>&1; then
