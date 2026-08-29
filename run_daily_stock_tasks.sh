@@ -35,13 +35,13 @@ else
 fi
 
 # 步骤2: 执行 update_industry_daily.py
-log "[步骤2/17] 开始执行 update_industry_daily.py..."
-if ${VENV_PYTHON} update_industry_daily.py >> "${LOG_DIR}/update_industry_daily_${DATE}.log" 2>&1; then
-    log "[步骤2/17] ✅ update_industry_daily.py 执行成功"
-else
-    log "[步骤2/17] ❌ update_industry_daily.py 执行失败，停止任务"
-    exit 1
-fi
+# log "[步骤2/17] 开始执行 update_industry_daily.py..."
+# if ${VENV_PYTHON} update_industry_daily.py >> "${LOG_DIR}/update_industry_daily_${DATE}.log" 2>&1; then
+#     log "[步骤2/17] ✅ update_industry_daily.py 执行成功"
+# else
+#     log "[步骤2/17] ❌ update_industry_daily.py 执行失败，停止任务"
+#     exit 1
+# fi
 
 # 步骤3: 执行 update_stock_index_daily.py
 log "[步骤3/17] 开始执行 update_stock_index_daily.py..."
@@ -98,6 +98,15 @@ else
 fi
 
 log "========== 第一批任务完成，开始第二批任务 =========="
+
+# 步骤8: 执行 select_10d_20pct.py 10天涨幅大于20%股票
+log "[步骤9/17] 开始执行 select_10d_20pct.py..."
+if ${VENV_PYTHON} select_10d_20pct.py >> "${LOG_DIR}/select_10d_20pct${DATE}.log" 2>&1; then
+    log "[步骤8/17] ✅ select_10d_20pct.py 执行成功"
+else
+    log "[步骤8/17] ❌ select_10d_20pct.py 执行失败，停止任务"
+    exit 1
+fi
 
 
 # 步骤8: 执行 select_newhigh_in_120d.py 区间放量破新高

@@ -105,6 +105,23 @@ def check_ma30_increasing(records):
     return ma30_2 > ma30_1
 
 
+def check_amount_by_mv(total_mv, amount):
+    """按市值分层判断当日成交额（amount单位为千元，*1000转换为元）
+    - 市值>1000亿: 成交额>30亿
+    - 市值300亿~1000亿: 成交额>20亿
+    - 市值100亿~300亿: 成交额>10亿
+    """
+    if amount is None:
+        return False
+    amount_yuan = amount * 1000
+    if total_mv > 100000000000:
+        return amount_yuan > 3000000000
+    elif total_mv > 30000000000:
+        return amount_yuan > 2000000000
+    else:
+        return amount_yuan > 1000000000
+
+
 def find_T_date(records):
     """在最近45个交易日中找到波峰，T日成交量>1000000"""
     recent_30 = records[-45:] if len(records) >= 45 else records
@@ -169,6 +186,7 @@ def analyze_stocks(data):
     result = []
     count_total = 0
     count_mv = 0
+    count_amount = 0
     count_close_ma5 = 0
     count_T = 0
     count_decline = 0
@@ -198,6 +216,11 @@ def analyze_stocks(data):
         if total_mv < 10000000000:
             continue
         count_mv += 1
+
+        # 条件2b：按市值分层判断当日成交额
+        if not check_amount_by_mv(total_mv, latest['amount']):
+            continue
+        count_amount += 1
 
         # 条件3：最近2个交易日收盘价 > ma5
         if not check_close_above_ma5(records):
@@ -247,6 +270,7 @@ def analyze_stocks(data):
     print(f"满足条件统计：")
     print(f"总股票数(数据完整): {count_total}")
     print(f"满足条件(市值>100亿): {count_mv}")
+    print(f"满足条件(分层成交额): {count_amount}")
     print(f"满足条件(close>ma5): {count_close_ma5}")
     print(f"满足条件(最近30日出现波峰): {count_T}")
     print(f"满足条件(T日后5日下降): {count_decline}")
@@ -276,12 +300,14 @@ def main():
     print("=" * 80)
     print("\n📊 选股逻辑：")
     print("  1. 总市值 > 100亿")
-    print("  2. 最近2个交易日收盘价 > MA5，且最近1个交易日成交量>500000")
-    print("  3. 最近30个交易日内出现波峰(T日)，T日成交量>1000000")
-    print("  4. T日后至少5个交易日turning_point为下降")
-    print("  5. T日至最近日，最低/最高收盘价 < 80%")
-    print("  6. 最近2个交易日ma30单调递增")
-    print("  7. 去除非A股股票")
+    print("  2. 按市值分层判断当日成交额:")
+    print("     市值>1000亿: 成交额>30亿 | 300亿~1000亿: >20亿 | 100亿~300亿: >10亿")
+    print("  3. 最近2个交易日收盘价 > MA5，且最近1个交易日成交量>500000")
+    print("  4. 最近45个交易日内出现波峰(T日)，T日成交量>1000000")
+    print("  5. T日后至少5个交易日turning_point为下降")
+    print("  6. T日至最近日，最低/最高收盘价 < 80%")
+    print("  7. 最近2个交易日ma30单调递增")
+    print("  8. 去除非A股股票")
     print("=" * 80)
 
     folder_path = get_folder_path()

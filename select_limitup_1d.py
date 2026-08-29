@@ -93,7 +93,7 @@ def analyze_stocks(data):
     result = []
 
     for ts_code, info in stock_data.items():
-        if info['total_mv'] <= 10000000000:
+        if info['total_mv'] <= 5000000000:
             continue
 
         records = info['records']
@@ -103,6 +103,12 @@ def analyze_stocks(data):
             continue
 
         latest_record = records[-1]
+
+        # 校验最新记录的日期是否为目标日期
+        target_date = get_target_date()
+        if latest_record['trade_date'] != target_date:
+            continue
+
         close = latest_record['close']
         pre_close = latest_record['pre_close']
 
@@ -111,7 +117,7 @@ def analyze_stocks(data):
 
         pct_chg = (close - pre_close) / pre_close * 100
 
-        if pct_chg <= 9.5:
+        if pct_chg <= 9:
             continue
 
         result.append({
