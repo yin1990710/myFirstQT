@@ -144,6 +144,8 @@ def analyze_stocks(data):
     count_trough = 0
 
     for ts_code, records in stock_data.items():
+        # 过滤无效数据（close<=0，如停牌日脏数据），避免后续计算除零
+        records = [r for r in records if r['close'] > 0]
         if len(records) < 45:
             continue
 

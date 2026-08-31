@@ -19,7 +19,7 @@ def get_target_date():
 
 def get_folder_path():
     target_date = get_target_date()
-    folder_name = f"10天涨幅大于20个点{target_date}"
+    folder_name = f"10天涨20个点{target_date}"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     folder_path = os.path.join(script_dir, folder_name)
     if not os.path.exists(folder_path):
