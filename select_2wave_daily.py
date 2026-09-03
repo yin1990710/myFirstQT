@@ -3,7 +3,7 @@
 
 import os
 import sys
-import shutil
+import csv
 from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -26,18 +26,15 @@ def get_folder_name():
     return folder_name
 
 
-def create_folder():
+def get_folder_path():
     folder_name = get_folder_name()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     folder_path = os.path.join(script_dir, folder_name)
-
-    if os.path.exists(folder_path):
-        shutil.rmtree(folder_path)
-        print(f"🗑️ 已删除旧文件夹: {folder_name}")
-
-    os.makedirs(folder_path)
-    print(f"📁 创建文件夹: {folder_name}")
-
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+        print(f"� 创建文件夹: {folder_name}")
+    else:
+        print(f"📁 文件夹已存在: {folder_name}")
     return folder_path
 
 
@@ -60,11 +57,10 @@ def read_stock_data(days=120):
         d.low,
         d.amount,
         d.pct_chg,
-        i.stock_name,
-        i.total_mv,
-        i.circ_mv
+        b.total_mv,
+        b.circ_mv
     FROM stock_daily_t d
-    LEFT JOIN stock_info_t i ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
+    LEFT JOIN stock_daily_basic_info_t b ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
     WHERE d.trade_date >= %s AND d.trade_date <= %s
     ORDER BY d.ts_code, d.trade_date
     """
@@ -130,7 +126,6 @@ def analyze_stocks(data):
             'high': float(record['high'] or 0),
             'low': float(record['low'] or 0),
             'amount': float(record['amount'] or 0),
-            'name': record['stock_name'] or '',
             'total_mv': float(record['total_mv'] or 0) if record['total_mv'] else 0,
             'circ_mv': float(record['circ_mv'] or 0) if record['circ_mv'] else 0
         })
@@ -153,19 +148,10 @@ def analyze_stocks(data):
 
         # 获取最新记录用于过滤
         latest = records[-1]
-        
-        # 过滤条件1：去除ST股（股票名称包含ST）
-        stock_name = latest['name']
-        if 'ST' in stock_name:
-            continue
-        
-        # 过滤条件2：只保留A股上市股票（.SH或.SZ结尾）
-        if not (ts_code.endswith('.SH') or ts_code.endswith('.SZ')):
-            continue
-        
-        # 过滤条件3：去除流通市值小于50亿的股票（circ_mv单位为元）
+
+        # 过滤条件1：去除流通市值小于50亿的股票（circ_mv单位为万元，来自stock_daily_basic_info_t）
         circ_mv = latest['circ_mv']
-        if circ_mv < 5000000000:  # 50亿 = 5000000000元
+        if circ_mv < 500000:  # 50亿 = 500000万元
             continue
 
         count_total += 1
@@ -261,7 +247,7 @@ def analyze_stocks(data):
                 break
 
         # 放宽条件：今日涨幅>1.5% 或者 近3个交易日出现波谷
-        if today_gain < 1.5 and not has_recent_trough:
+        if today_gain < 5 and not has_recent_trough:
             continue
 
         if has_recent_trough:
@@ -269,8 +255,8 @@ def analyze_stocks(data):
         else:
             count_condition4 += 1
 
-        # 放宽条件：市值>20亿
-        if latest['total_mv'] < 200000000:
+        # 放宽条件：市值>2亿（total_mv单位为万元，来自stock_daily_basic_info_t）
+        if latest['total_mv'] < 20000:  # 2亿 = 20000万元
             continue
 
         # 必须条件：成交额>5亿 (amount*1000 > 500000000)
@@ -279,7 +265,6 @@ def analyze_stocks(data):
 
         result.append({
             'ts_code': ts_code,
-            'name': latest['name'],
             'close': latest['close'],
             'total_mv': latest['total_mv'],
             'first_wave_gain': first_wave_gain,
@@ -305,18 +290,13 @@ def analyze_stocks(data):
 
 
 def generate_csv_file(stocks, folder_path):
-    target_date = get_target_date()
-    csv_filename = f"2浪启动{target_date}.csv"
+    csv_filename = "2浪启动.csv"
     csv_path = os.path.join(folder_path, csv_filename)
-
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        f.write("股票代码,股票名称,收盘价,第一波涨幅(%),今日涨幅(%),调整量/上涨量,市值(亿),是否波谷\n")
+        writer = csv.writer(f)
+        writer.writerow(['股票代码'])
         for stock in stocks:
-            trough_flag = "是" if stock.get('has_trough', False) else "否"
-            f.write(f"{stock['ts_code']},{stock['name']},{stock['close']:.2f},")
-            f.write(f"{stock['first_wave_gain']:.2f},{stock['today_gain']:.2f},")
-            f.write(f"{stock['amount_ratio']:.2f},{stock['total_mv']/10000:.2f},{trough_flag}\n")
-
+            writer.writerow([stock['ts_code']])
     print(f"✅ CSV文件已生成: {csv_path}")
     return csv_path
 
@@ -326,7 +306,7 @@ def main():
     print("🌊 二浪启动选股策略")
     print("=" * 80)
     print("\n📊 选股逻辑：")
-    print("  1. 基础过滤：非ST股，流通市值>50亿")
+    print("  1. 基础过滤：流通市值>50亿")
     print("  2. 第一波上涨：涨幅超过15%")
     print("  3. 调整阶段：未跌破30日均线（允许10%的误差）")
     print("  4. 量能特征：调整期间成交量较放量上涨阶段萎缩60%以下")
@@ -334,7 +314,7 @@ def main():
     print("  6. 流动性：成交额超过5亿（必须条件）")
     print("=" * 80)
 
-    folder_path = create_folder()
+    folder_path = get_folder_path()
 
     data = read_stock_data(days=120)
 
@@ -357,7 +337,7 @@ def main():
         print("\n🔥 精选股票：")
         for i, stock in enumerate(selected_stocks[:20], 1):
             trough_mark = " 📉" if stock.get('has_trough', False) else ""
-            print(f"{i}. {stock['ts_code']} {stock['name']}{trough_mark} - 第一波涨{stock['first_wave_gain']:.1f}% 今日涨{stock['today_gain']:.1f}% 市值{stock['total_mv']/10000:.1f}亿")
+            print(f"{i}. {stock['ts_code']}{trough_mark} - 第一波涨{stock['first_wave_gain']:.1f}% 今日涨{stock['today_gain']:.1f}% 市值{stock['total_mv']/10000:.1f}亿")
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")

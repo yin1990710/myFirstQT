@@ -15,12 +15,38 @@ cron_logs/
 涨跌停*/
 每日选股报告*/
 区间新高*/
+120日区间新高*/
 步步高*/
 低波放量*/
 30天低波放量*/
+低幅波动*/
 同花顺行业资金流向*/
 大盘趋势报告*/
 波浪选股*/
+# 日常选股输出目录（名称末尾含YYYYMMDD日期后缀）
+10天涨20个点*/
+10天涨幅大于20个点*/
+2浪启动*/
+2浪趋势*/
+底部企稳*/
+当日涨停*/
+突破30日均线*/
+高换手*/
+爆量上涨*/
+品字交易法*/
+品字交易法同行业*/
+monitor_stock_data*/
+上交所首页数据*/
+深交所首页数据*/
+
+# Output files (per-stock charts & dated reports at root)
+*.SH.png
+*.SZ.png
+*.BJ.png
+大盘趋势报告*.png
+
+# Python virtual env bytecode artifacts
+*.pyc
 
 # Database
 *.db

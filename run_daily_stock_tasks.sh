@@ -25,14 +25,6 @@ cd "${SCRIPT_DIR}"
 
 log "========== 第一批任务：数据更新 =========="
 
-# 步骤1: 执行 update_stock_info.py
-log "[步骤1/17] 开始执行 update_stock_info_daily.py..."
-if ${VENV_PYTHON} update_stock_info_daily.py >> "${LOG_DIR}/update_stock_info_daily_${DATE}.log" 2>&1; then
-    log "[步骤1/17] ✅ update_stock_info_daily.py 执行成功"
-else
-    log "[步骤1/17] ❌ update_stock_info_daily.py 执行失败，停止任务"
-    exit 1
-fi
 
 # 步骤2: 执行 update_industry_daily.py
 # log "[步骤2/17] 开始执行 update_industry_daily.py..."
@@ -79,6 +71,15 @@ else
     exit 1
 fi
 
+# 步骤6: 执行 update_stock_daily_basic_info.py
+log "[步骤6/17] 开始执行 update_stock_daily_basic_info.py..."
+if ${VENV_PYTHON} update_stock_daily_basic_info.py >> "${LOG_DIR}/update_stock_daily_basic_info${DATE}.log" 2>&1; then
+    log "[步骤6/17] ✅ update_stock_daily_basic_info.py 执行成功"
+else
+    log "[步骤6/17] ❌ update_stock_daily_basic_info.py 执行失败，停止任务"
+    exit 1
+fi
+
 # 步骤6: 执行 update_stock_ma5_ma30.py
 log "[步骤7/17] 开始执行 update_stock_ma5_ma30.py..."
 if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30${DATE}.log" 2>&1; then
@@ -93,20 +94,11 @@ log "[步骤8/17] 开始执行 update_stock_turning_point_tag.py..."
 if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag${DATE}.log" 2>&1; then
     log "[步骤6/17] ✅ update_stock_turning_point_tag.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_turning_point_tag_v2.py 执行失败，停止任务"
+    log "[步骤6/17] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
     exit 1
 fi
 
 log "========== 第一批任务完成，开始第二批任务 =========="
-
-# 步骤8: 执行 select_10d_20pct.py 10天涨幅大于20%股票
-log "[步骤9/17] 开始执行 select_10d_20pct.py..."
-if ${VENV_PYTHON} select_10d_20pct.py >> "${LOG_DIR}/select_10d_20pct${DATE}.log" 2>&1; then
-    log "[步骤8/17] ✅ select_10d_20pct.py 执行成功"
-else
-    log "[步骤8/17] ❌ select_10d_20pct.py 执行失败，停止任务"
-    exit 1
-fi
 
 
 # 步骤8: 执行 select_newhigh_in_120d.py 区间放量破新高
