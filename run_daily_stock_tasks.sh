@@ -26,164 +26,168 @@ cd "${SCRIPT_DIR}"
 log "========== 第一批任务：数据更新 =========="
 
 
-# 步骤2: 执行 update_industry_daily.py
-# log "[步骤2/17] 开始执行 update_industry_daily.py..."
+# 步骤1: 执行 update_industry_daily.py（行业日数据）
+# log "[步骤1/18] 开始执行 update_industry_daily.py..."
 # if ${VENV_PYTHON} update_industry_daily.py >> "${LOG_DIR}/update_industry_daily_${DATE}.log" 2>&1; then
-#     log "[步骤2/17] ✅ update_industry_daily.py 执行成功"
+#     log "[步骤1/18] ✅ update_industry_daily.py 执行成功"
 # else
-#     log "[步骤2/17] ❌ update_industry_daily.py 执行失败，停止任务"
+#     log "[步骤1/18] ❌ update_industry_daily.py 执行失败，停止任务"
 #     exit 1
 # fi
 
-# 步骤3: 执行 update_stock_index_daily.py
-log "[步骤3/17] 开始执行 update_stock_index_daily.py..."
+# 步骤2: 执行 update_stock_index_daily.py（指数日数据）
+log "[步骤2/18] 开始执行 update_stock_index_daily.py..."
 if ${VENV_PYTHON} update_stock_index_daily.py >> "${LOG_DIR}/update_stock_index_daily_${DATE}.log" 2>&1; then
-    log "[步骤3/17] ✅ update_stock_index_daily.py 执行成功"
+    log "[步骤2/18] ✅ update_stock_index_daily.py 执行成功"
 else
-    log "[步骤3/17] ❌ update_stock_index_daily.py 执行失败，停止任务"
+    log "[步骤2/18] ❌ update_stock_index_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤4: 执行 update_stock_index_future_daily.py
-log "[步骤4/17] 开始执行 update_stock_index_future_daily.py..."
+# 步骤3: 执行 update_stock_index_future_daily.py（股指期货日数据）
+log "[步骤3/18] 开始执行 update_stock_index_future_daily.py..."
 if ${VENV_PYTHON} update_stock_index_future_daily.py >> "${LOG_DIR}/update_stock_index_future_daily_${DATE}.log" 2>&1; then
-    log "[步骤4/17] ✅ update_stock_index_future_daily.py 执行成功"
+    log "[步骤3/18] ✅ update_stock_index_future_daily.py 执行成功"
 else
-    log "[步骤4/17] ❌ update_stock_index_future_daily.py 执行失败，停止任务"
+    log "[步骤3/18] ❌ update_stock_index_future_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤5: 执行 update_rzrq_daily.py
-log "[步骤5/17] 开始执行 update_rzrq_daily.py..."
+# 步骤4: 执行 update_rzrq_daily.py（融资融券数据）
+log "[步骤4/18] 开始执行 update_rzrq_daily.py..."
 if ${VENV_PYTHON} update_rzrq_daily.py >> "${LOG_DIR}/update_rzrq_daily_${DATE}.log" 2>&1; then
-    log "[步骤5/17] ✅ update_rzrq_daily.py 执行成功"
+    log "[步骤4/18] ✅ update_rzrq_daily.py 执行成功"
 else
-    log "[步骤5/17] ❌ update_rzrq_daily.py 执行失败，停止任务"
+    log "[步骤4/18] ❌ update_rzrq_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤6: 执行 update_stock_daily.py
-log "[步骤6/17] 开始执行 update_stock_daily.py..."
+# 步骤5: 执行 update_stock_daily.py（股票日数据）
+log "[步骤5/18] 开始执行 update_stock_daily.py..."
 if ${VENV_PYTHON} update_stock_daily.py >> "${LOG_DIR}/update_stock_daily_${DATE}.log" 2>&1; then
-    log "[步骤6/17] ✅ update_stock_daily.py 执行成功"
+    log "[步骤5/18] ✅ update_stock_daily.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_daily.py 执行失败，停止任务"
+    log "[步骤5/18] ❌ update_stock_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤6: 执行 update_stock_daily_basic_info.py
-log "[步骤6/17] 开始执行 update_stock_daily_basic_info.py..."
-if ${VENV_PYTHON} update_stock_daily_basic_info.py >> "${LOG_DIR}/update_stock_daily_basic_info${DATE}.log" 2>&1; then
-    log "[步骤6/17] ✅ update_stock_daily_basic_info.py 执行成功"
+# 步骤6: 执行 update_stock_info_daily.py（股票信息）
+log "[步骤6/18] 开始执行 update_stock_info_daily.py..."
+if ${VENV_PYTHON} update_stock_info_daily.py >> "${LOG_DIR}/update_stock_info_daily_${DATE}.log" 2>&1; then
+    log "[步骤6/18] ✅ update_stock_info_daily.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_daily_basic_info.py 执行失败，停止任务"
+    log "[步骤6/18] ❌ update_stock_info_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤6: 执行 update_stock_ma5_ma30.py
-log "[步骤7/17] 开始执行 update_stock_ma5_ma30.py..."
-if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30${DATE}.log" 2>&1; then
-    log "[步骤6/17] ✅ update_stock_ma5_ma30.py 执行成功"
+# 步骤7: 执行 update_stock_daily_basic_info.py（日基本交易指标数据）
+log "[步骤7/18] 开始执行 update_stock_daily_basic_info.py..."
+if ${VENV_PYTHON} update_stock_daily_basic_info.py >> "${LOG_DIR}/update_stock_daily_basic_info_${DATE}.log" 2>&1; then
+    log "[步骤7/18] ✅ update_stock_daily_basic_info.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_ma5_ma30.py 执行失败，停止任务"
+    log "[步骤7/18] ❌ update_stock_daily_basic_info.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤6: 执行 update_stock_ma5_ma30.py
-log "[步骤8/17] 开始执行 update_stock_turning_point_tag.py..."
-if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag${DATE}.log" 2>&1; then
-    log "[步骤6/17] ✅ update_stock_turning_point_tag.py 执行成功"
+# 步骤8: 执行 update_stock_ma5_ma30.py（MA5/MA30 打标）
+log "[步骤8/18] 开始执行 update_stock_ma5_ma30.py..."
+if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30_${DATE}.log" 2>&1; then
+    log "[步骤8/18] ✅ update_stock_ma5_ma30.py 执行成功"
 else
-    log "[步骤6/17] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
+    log "[步骤8/18] ❌ update_stock_ma5_ma30.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤9: 执行 update_stock_turning_point_tag.py（turning_point 打标）
+log "[步骤9/18] 开始执行 update_stock_turning_point_tag.py..."
+if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag_${DATE}.log" 2>&1; then
+    log "[步骤9/18] ✅ update_stock_turning_point_tag.py 执行成功"
+else
+    log "[步骤9/18] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
     exit 1
 fi
 
 log "========== 第一批任务完成，开始第二批任务 =========="
 
 
-# 步骤8: 执行 select_newhigh_in_120d.py 区间放量破新高
-log "[步骤9/17] 开始执行 select_newhigh_in_120d.py..."
+# 步骤10: 执行 select_newhigh_in_120d.py（近120日区间突破）
+log "[步骤10/18] 开始执行 select_newhigh_in_120d.py..."
 if ${VENV_PYTHON} select_newhigh_in_120d.py >> "${LOG_DIR}/select_newhigh_120d_${DATE}.log" 2>&1; then
-    log "[步骤8/17] ✅ select_newhigh_in_120d.py 执行成功"
+    log "[步骤10/18] ✅ select_newhigh_in_120d.py 执行成功"
 else
-    log "[步骤8/17] ❌ select_newhigh_in_120d.py 执行失败，停止任务"
+    log "[步骤10/18] ❌ select_newhigh_in_120d.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤9: 执行 select_turn_bottom.py 底部反转
-log "[步骤10/17] 开始执行 select_turn_bottom.py..."
-if ${VENV_PYTHON} select_turn_bottom.py >> "${LOG_DIR}/select_turn_bottom_${DATE}.log" 2>&1; then
-    log "[步骤9/17] ✅ select_turn_bottom.py 执行成功"
+# 步骤11: 执行 select_bottom_bounce.py（见底反弹策略）
+log "[步骤11/18] 开始执行 select_bottom_bounce.py..."
+if ${VENV_PYTHON} select_bottom_bounce.py >> "${LOG_DIR}/select_bottom_bounce_${DATE}.log" 2>&1; then
+    log "[步骤11/18] ✅ select_bottom_bounce.py 执行成功"
 else
-    log "[步骤9/17] ❌ select_turn_bottom.py 执行失败，停止任务"
+    log "[步骤11/18] ❌ select_bottom_bounce.py 执行失败，停止任务"
     exit 1
 fi
 
-
-# 步骤14: 执行 select_limitup_1d.py 当日涨停股票
-log "[步骤11/17] 开始执行 select_limitup_1d.py..."
-if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d${DATE}.log" 2>&1; then
-    log "[步骤14/17] ✅ select_limitup_1d.py 执行成功"
+# 步骤12: 执行 select_high_exchange.py（高换手率策略）
+log "[步骤12/18] 开始执行 select_high_exchange.py..."
+if ${VENV_PYTHON} select_high_exchange.py >> "${LOG_DIR}/select_high_exchange_${DATE}.log" 2>&1; then
+    log "[步骤12/18] ✅ select_high_exchange.py 执行成功"
 else
-    log "[步骤14/17] ❌ select_limitup_1d.py 执行失败，停止任务"
+    log "[步骤12/18] ❌ select_high_exchange.py 执行失败，停止任务"
     exit 1
 fi
 
+# 步骤13: 执行 select_2wave_up.py（二浪启动策略）
+log "[步骤13/18] 开始执行 select_2wave_up.py..."
+if ${VENV_PYTHON} select_2wave_up.py >> "${LOG_DIR}/select_2wave_up_${DATE}.log" 2>&1; then
+    log "[步骤13/18] ✅ select_2wave_up.py 执行成功"
+else
+    log "[步骤13/18] ❌ select_2wave_up.py 执行失败，停止任务"
+    exit 1
+fi
 
-# 步骤15: 执行 select_2wave_daily.py (2波上涨选股)
-log "[步骤12/17] 开始执行 select_2wave_daily.py..."
+# 步骤14: 执行 select_limitup_1d.py（当日涨停股票）
+log "[步骤14/18] 开始执行 select_limitup_1d.py..."
+if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d_${DATE}.log" 2>&1; then
+    log "[步骤14/18] ✅ select_limitup_1d.py 执行成功"
+else
+    log "[步骤14/18] ❌ select_limitup_1d.py 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤15: 执行 select_2wave_daily.py（2浪趋势选股）
+log "[步骤15/18] 开始执行 select_2wave_daily.py..."
 if ${VENV_PYTHON} select_2wave_daily.py >> "${LOG_DIR}/select_2wave_daily_${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_2wave_daily.py 执行成功"
+    log "[步骤15/18] ✅ select_2wave_daily.py 执行成功"
 else
-    log "[步骤15/17] ❌ select_2wave_daily.py 执行失败，停止任务"
+    log "[步骤15/18] ❌ select_2wave_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-
-# 步骤15: 执行 select_3wave_up.py (2浪上涨选股)
-log "[步骤13/17] 开始执行 select_2wave_up.py..."
-if ${VENV_PYTHON} select_2wave_up.py >> "${LOG_DIR}/select_2wave_up${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_2wave_up.py 执行成功"
+# 步骤16: 执行 report_stock_overall.py（大盘趋势报告）
+log "[步骤16/18] 开始执行 report_stock_overall.py..."
+if ${VENV_PYTHON} report_stock_overall.py >> "${LOG_DIR}/report_stock_overall_${DATE}.log" 2>&1; then
+    log "[步骤16/18] ✅ report_stock_overall.py 执行成功"
 else
-    log "[步骤15/17] ❌ select_2wave_up.py 执行失败，停止任务"
+    log "[步骤16/18] ❌ report_stock_overall.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤15: 执行 select_3wave_up.py (2浪上涨选股)
-log "[步骤14/17] 开始执行 select_2wave_up_v2.py..."
-if ${VENV_PYTHON} select_2wave_up_v2.py >> "${LOG_DIR}/select_2wave_up_v2${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_2wave_up_v2.py 执行成功"
+# 步骤17: 执行 report_industry_exchange.py（行业趋势报告）
+log "[步骤17/18] 开始执行 report_industry_exchange.py..."
+if ${VENV_PYTHON} report_industry_exchange.py >> "${LOG_DIR}/report_industry_exchange_${DATE}.log" 2>&1; then
+    log "[步骤17/18] ✅ report_industry_exchange.py 执行成功"
 else
-    log "[步骤15/17] ❌ select_2wave_up_v2.py 执行失败，停止任务"
+    log "[步骤17/18] ❌ report_industry_exchange.py 执行失败，停止任务"
     exit 1
 fi
 
-
-
-# 步骤15: 执行 10天涨幅大于20个点
-log "[步骤14/17] 开始执行 select_10d_20pct.py..."
-if ${VENV_PYTHON} select_10d_20pct.py>> "${LOG_DIR}/select_10d_20pct${DATE}.log" 2>&1; then
-    log "[步骤15/17] ✅ select_10d_20pct.py 执行成功"
+# 步骤18: 执行 monitor_stock_data.py（数据更新监控）
+log "[步骤18/18] 开始执行 monitor_stock_data.py..."
+if ${VENV_PYTHON} monitor_stock_data.py >> "${LOG_DIR}/monitor_stock_data_${DATE}.log" 2>&1; then
+    log "[步骤18/18] ✅ monitor_stock_data.py 执行成功"
 else
-    log "[步骤15/17] ❌ select_10d_20pct.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤16: 执行 stock_overall_report.py
-log "[步骤15/17] 开始执行 report_stock_overall.py..."
-if ${VENV_PYTHON} report_stock_overall.py >> "${LOG_DIR}/report_stock_overall${DATE}.log" 2>&1; then
-    log "[步骤16/17] ✅ report_stock_overall.py 执行成功"
-else
-    log "[步骤16/17] ❌ report_stock_overall.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤16: 执行 monitor_stock_data.py
-log "[步骤16/17] 开始执行 monitor_stock_data.py..."
-if ${VENV_PYTHON} monitor_stock_data.py >> "${LOG_DIR}/monitor_stock_data${DATE}.log" 2>&1; then
-    log "[步骤16/17] ✅ monitor_stock_data.py 执行成功"
-else
-    log "[步骤16/17] ❌ monitor_stock_data.py 执行失败，停止任务"
+    log "[步骤18/18] ❌ monitor_stock_data.py 执行失败，停止任务"
     exit 1
 fi
 
