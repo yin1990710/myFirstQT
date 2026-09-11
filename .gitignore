@@ -40,6 +40,7 @@ monitor_stock_data*/
 深交所首页数据*/
 5日均线相似度*/
 以图选股*/
+量价相似*/
 
 # Output files (per-stock charts & dated reports at root)
 *.SH.png
