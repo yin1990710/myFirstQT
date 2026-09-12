@@ -66,6 +66,7 @@ DTW_BAND = 10              # DTW Sakoe-Chiba 带状约束（对齐偏移不超�
 MIN_AMOUNT_YI = 5.0        # 最近一个交易日最低成交额（亿元）；amount 单位千元，5亿=500000千元
 LIMIT_UP_LOOKBACK = 5      # 涨停回溯交易日数
 LIMIT_UP_PCT = 9         # 涨停涨幅阈值（%）：(当日close-前日close)/前日close*100
+MA30_DEVIATION_MAX = 0.12  # 最新收盘价相对 ma30 的最大正偏离 +12%，排除严重超买
 
 
 def _filter_min_amount(records):
@@ -90,10 +91,28 @@ def _filter_recent_limit_up(records):
     return False
 
 
+def _filter_ma30_deviation(records):
+    """最近一个交易日收盘价相对 ma30 偏离不超过 +MA30_DEVIATION_MAX（排除严重超买）。"""
+    latest = records[-1]
+    if latest.get('close') is None or latest.get('ma30') is None or latest['ma30'] <= 0:
+        return False
+    return (latest['close'] / latest['ma30'] - 1) <= MA30_DEVIATION_MAX
+
+
+def _filter_close_above_ma5(records):
+    """最近一个交易日收盘价 > ma5（ma5 由 close 自算，字段 ma5）。"""
+    latest = records[-1]
+    if latest.get('close') is None or latest.get('ma5') is None or latest['ma5'] <= 0:
+        return False
+    return latest['close'] > latest['ma5']
+
+
 # 过滤条件注册表：每个条件为 (名称, 函数)；函数入参为该股票记录（按日期升序），返回 True=通过
 STOCK_FILTERS = [
     (f'最新日成交额<={MIN_AMOUNT_YI:g}亿', _filter_min_amount),
     (f'近{LIMIT_UP_LOOKBACK}日无涨停(>{LIMIT_UP_PCT}%)', _filter_recent_limit_up),
+    (f'最新日close相对ma30偏离>+{MA30_DEVIATION_MAX*100:g}%', _filter_ma30_deviation),
+    ('最新日close<=ma5', _filter_close_above_ma5),
 ]
 
 
@@ -263,6 +282,7 @@ def read_candidates(start_date, end_date):
             d.trade_date,
             d.close,
             d.ma30,
+            d.ma5,
             d.vol,
             d.amount,
             b.total_mv
@@ -296,6 +316,7 @@ def scan_stocks(data, tpl_ma, tpl_vol, seq_len, latest_date, template_code=TEMPL
             'trade_date': record['trade_date'],
             'close': float(record['close']) if record['close'] is not None else None,
             'ma30': float(record['ma30']) if record['ma30'] is not None else None,
+            'ma5': float(record['ma5']) if record['ma5'] is not None else None,
             'vol': float(record['vol']) if record['vol'] is not None else None,
             'amount': float(record['amount']) if record['amount'] is not None else None,
             'total_mv': float(record['total_mv']) if record['total_mv'] is not None else 0.0,
