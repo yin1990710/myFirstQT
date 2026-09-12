@@ -46,6 +46,7 @@ pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 # ---------- 灵活过滤条件（新增条件只需在 STOCK_FILTERS 中追加一行） ----------
 MA30_DEVIATION_MAX = 0.12  # 最新收盘价相对 ma30 的最大正偏离 +12%，排除严重超买
 MIN_AMOUNT_YI = 5.0        # 最近一个交易日最低成交额（亿元）；amount 单位千元，5亿=500000千元
+MIN_TURNOVER_RATE = 5.0    # 最近一个交易日最低换手率 turnover_rate_f（%）
 
 
 def _filter_ma30_deviation(records):
@@ -64,10 +65,33 @@ def _filter_min_amount(records):
     return latest['amount'] * 1000 > MIN_AMOUNT_YI * 1e8
 
 
+def _filter_turnover_rate(records):
+    """最近一个交易日换手率 turnover_rate_f >= MIN_TURNOVER_RATE%。"""
+    latest = records[-1]
+    tr = latest.get('turnover_rate_f')
+    if tr is None:
+        return False
+    return tr >= MIN_TURNOVER_RATE
+
+
+def _filter_close_above_ma5(records):
+    """最近2个交易日收盘价均高于 ma5。"""
+    if len(records) < 2:
+        return False
+    for r in records[-2:]:
+        if r['close'] is None or r['ma5'] is None or r['ma5'] <= 0:
+            return False
+        if r['close'] <= r['ma5']:
+            return False
+    return True
+
+
 # 过滤条件注册表：每个条件为 (名称, 函数)；函数入参为该股票近N日记录（按日期升序），返回 True=通过
 STOCK_FILTERS = [
     ('最新日close相对ma30偏离>+12%', _filter_ma30_deviation),
     (f'最新日成交额<={MIN_AMOUNT_YI:g}亿', _filter_min_amount),
+    (f'最新日换手率<{MIN_TURNOVER_RATE:g}%', _filter_turnover_rate),
+    ('近2日close未均高于ma5', _filter_close_above_ma5),
 ]
 
 
@@ -178,10 +202,13 @@ def read_ma5_data(start_date, end_date):
         return []
 
     query_sql = """
-        SELECT ts_code, trade_date, close, ma5, ma30, vol, amount
-        FROM stock_daily_t
-        WHERE trade_date >= %s AND trade_date <= %s
-        ORDER BY ts_code, trade_date
+        SELECT d.ts_code, d.trade_date, d.close, d.ma5, d.ma30, d.vol, d.amount,
+               b.turnover_rate_f
+        FROM stock_daily_t d
+        LEFT JOIN stock_daily_basic_info_t b
+               ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
+        WHERE d.trade_date >= %s AND d.trade_date <= %s
+        ORDER BY d.ts_code, d.trade_date
     """
     try:
         with conn.cursor() as cursor:
@@ -215,6 +242,8 @@ def find_similar(target_code, data, trade_dates, window, top_n=10):
             'ma30': float(record['ma30']) if record['ma30'] is not None else None,
             'vol': float(record['vol']) if record['vol'] is not None else None,
             'amount': float(record['amount']) if record['amount'] is not None else None,
+            'turnover_rate_f': (float(record['turnover_rate_f'])
+                                if record['turnover_rate_f'] is not None else None),
         })
 
     if target_code not in stock_data:
