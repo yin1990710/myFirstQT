@@ -119,21 +119,12 @@ else
     exit 1
 fi
 
-# 步骤11: 执行 select_bottom_bounce.py（见底反弹策略）
-log "[步骤11/18] 开始执行 select_bottom_bounce.py..."
-if ${VENV_PYTHON} select_bottom_bounce.py >> "${LOG_DIR}/select_bottom_bounce_${DATE}.log" 2>&1; then
-    log "[步骤11/18] ✅ select_bottom_bounce.py 执行成功"
+# 步骤11: 执行 select_v_reverse.py（V形反转策略）
+log "[步骤11/18] 开始执行 select_v_reverse.py..."
+if ${VENV_PYTHON} select_v_reverse.py >> "${LOG_DIR}/select_v_reverse${DATE}.log" 2>&1; then
+    log "[步骤11/18] ✅ select_v_reverse.py 执行成功"
 else
-    log "[步骤11/18] ❌ select_bottom_bounce.py 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤12: 执行 select_high_exchange.py（高换手率策略）
-log "[步骤12/18] 开始执行 select_high_exchange.py..."
-if ${VENV_PYTHON} select_high_exchange.py >> "${LOG_DIR}/select_high_exchange_${DATE}.log" 2>&1; then
-    log "[步骤12/18] ✅ select_high_exchange.py 执行成功"
-else
-    log "[步骤12/18] ❌ select_high_exchange.py 执行失败，停止任务"
+    log "[步骤11/18] ❌ select_v_reverse.py 执行失败，停止任务"
     exit 1
 fi
 
