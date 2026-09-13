@@ -107,6 +107,17 @@ else
     exit 1
 fi
 
+
+# 步骤10: 执行 update_stock_daily_factor.py (获取股票技术面因此）
+log "[步骤9/18] 开始执行 update_stock_daily_factor.py..."
+if ${VENV_PYTHON} update_stock_daily_factor.py >> "${LOG_DIR}/update_stock_daily_factor${DATE}.log" 2>&1; then
+    log "[步骤9/18] ✅ update_stock_daily_factor.py 执行成功"
+else
+    log "[步骤9/18] ❌ update_stock_daily_factor.py 执行失败，停止任务"
+    exit 1
+fi
+
+
 log "========== 第一批任务完成，开始第二批任务 =========="
 
 
