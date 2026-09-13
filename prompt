@@ -405,3 +405,12 @@ select trade_date,'中证全指' as idx_name, close - open as diff from stock_in
 新建（已存在的删除重建）一个文件夹，文件夹名为5日均线相似度加当日日期后缀，将以上csv文件放在该文件夹下。
 
 
+------ V形反转 ------
+读取stock_daily_t表最近的120个交易日的数据，和stock_daily_basic_info_t表中最近的1个交易日的数据，用ts_code字段关联。选取符合以下条件的股票：
+1. 最近一个交易日总市值total_mv(单位万元)大于100亿。
+2. 过去120个交易日 最低收盘价close/最高收盘价close 小于50%，且最低收盘价出现在最近30个交易日内，且最近30个交易日turning_point出现至少10个交易日上升，且ma5大于ma30。
+3. 
+
+------------获取股票技术面因子----------
+访问tushare的stk_factor接口，批量获取股票最近一个交易日的股票基本交易指标数据。并新建一个表（如果已经存在则直接更新），表名为stock_daily_factor_t。
+将获取到的股票基本交易指标数据更新到stock_daily_factor_t表中，根据ts_code和trade_date主键字段。
