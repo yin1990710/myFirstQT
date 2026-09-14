@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+当日涨停选股策略 (select_limitup_1d.py)
+
+读取 stock_daily_t 最近 10 个交易日数据，选出最近一个交易日涨停的股票。
+选股条件：
+1. 最新记录的 trade_date 必须等于目标交易日
+   （当前时间 0-15 点取前一交易日，15 点后取当日；避免用旧数据误判）
+2. 当日涨幅 (close - pre_close) / pre_close × 100% > 9%
+
+输出：CSV「limitup_1d.csv」（股票代码、股票名称、涨幅，utf-8-sig），
+文件夹「当日涨停+当日日期后缀」（已存在则复用）；无结果不生成文件/文件夹。
+"""
+
 import os
 import sys
 import shutil

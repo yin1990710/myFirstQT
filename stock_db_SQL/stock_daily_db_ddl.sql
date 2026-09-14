@@ -16,13 +16,12 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 SET @MYSQLDUMP_TEMP_LOG_BIN = @@SESSION.SQL_LOG_BIN;
 SET @@SESSION.SQL_LOG_BIN= 0;
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
+
 --
 -- GTID state at the beginning of the backup 
 --
 
-SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-397463';
+SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-397666';
 
 --
 -- Table structure for table `index_daily_t`
@@ -232,7 +231,7 @@ CREATE TABLE `stock_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
   KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=41051246 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=41080892 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -328,6 +327,29 @@ CREATE TABLE `stock_info_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `strategy_selected_stock_daily_t`
+--
+
+DROP TABLE IF EXISTS `strategy_selected_stock_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `strategy_selected_stock_daily_t` (
+  `ts_code` varchar(12) NOT NULL COMMENT '股票代码',
+  `stock_name` varchar(50) DEFAULT NULL COMMENT '股票名称(来自stock_info_t，可空)',
+  `trade_date` varchar(8) NOT NULL COMMENT '交易日(选股目标日)',
+  `strategy` varchar(128) NOT NULL COMMENT '选股策略，多个用逗号分隔(如2wave_daily,2wave_w23)',
+  `selected` tinyint NOT NULL DEFAULT '1' COMMENT '是否被选中(0:否,1:是)，任一策略选中即为1',
+  `max_gain_10d` float DEFAULT NULL COMMENT '10个交易日中最大涨幅(%,T+1~T+10最高close/T日close)',
+  `max_down_10d` float DEFAULT NULL COMMENT '10个交易日中最大跌幅(%,T+1~T+10最低close/T日close)',
+  `max_down_20d` float DEFAULT NULL COMMENT '20个交易日中最大跌幅(%,T+1~T+20最低close/T日close)',
+  `max_gain_20d` float DEFAULT NULL COMMENT '20个交易日中最大涨幅(%,T+1~T+20最高close/T日close)',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`ts_code`,`trade_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='每日选股结果记录表(便于回测)';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `szse_market_summary_t`
 --
 
@@ -373,14 +395,6 @@ CREATE TABLE `ths_industry_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=35564 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='同花顺行业板块日线数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping events for database 'stock_daily_db'
---
-
---
--- Dumping routines for database 'stock_daily_db'
---
 SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -392,4 +406,4 @@ SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-13 19:32:13
+-- Dump completed on 2026-09-14 23:13:44
