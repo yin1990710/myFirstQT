@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务运行监控 - 力矩量化选股平台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f7fa; color: #1f2933; }
+  /* 与首页一致的导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .wrap { max-width: 1200px; margin: 24px auto 48px; padding: 0 24px; }
+  .page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .page-head h1 { font-size: 22px; margin: 0; }
+  .head-tools { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #6b7684; }
+  .btn { border: 1px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 6px;
+         padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn:hover { background: #eef4ff; }
+  label.auto { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+
+  .notice { margin-top: 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .notice.warn { display: block; background: #fff6e8; color: #9a6404; border: 1px solid #f5d59a; }
+  .notice.err { display: block; background: #fdecec; color: #b02a2a; border: 1px solid #f3bcbc; }
+
+  .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 18px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+  .kpi { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
+         padding: 14px 16px; }
+  .kpi .label { font-size: 12.5px; color: #6b7684; }
+  .kpi .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .kpi .sub { font-size: 12px; color: #8a94a3; margin-top:2px; }
+  .v-blue { color: #1a73e8; } .v-green { color: #159947; }
+  .v-red { color: #d83a3a; } .v-gray { color: #6b7684; }
+
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
+          padding: 18px 20px; margin-top: 18px; }
+  .run-meta { display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 13.5px; color: #3d4752; }
+  .run-meta b { color: #1f2933; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+  th, td { padding: 10px 8px; text-align: center; border-bottom: 1px solid #edf0f4; }
+  th { white-space: nowrap; }
+  th { background: #f0f5ff; color: #1a4480; font-weight: 600; }
+  tbody tr:hover { background: #f8fafd; }
+  td.left, th.left { text-align: left; }
+  .script { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .step { display: inline-block; min-width: 64px; padding: 2px 8px; border-radius: 10px;
+          background: #eef1f5; color: #5b6572; font-size: 12px; }
+  .phase { color: #6b7684; font-size: 12.5px; }
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 600; }
+  .badge.success { background: #e6f6ec; color: #159947; }
+  .badge.failed { background: #fdecec; color: #d83a3a; }
+  .badge.running { background: #e8f1fe; color: #1a73e8; }
+  .badge.running::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                           background: #1a73e8; margin-right: 6px; vertical-align: 1px;
+                           animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  .muted { color: #b4bdc8; }
+  .log-link { color: #1a73e8; cursor: pointer; text-decoration: none; font-size: 12.5px; }
+  .log-link:hover { text-decoration: underline; }
+  tr.detail td { background: #f8fafd; padding: 0; }
+  .detail-box { text-align: left; padding: 10px 16px; }
+  .detail-box pre { margin: 0; max-height: 320px; overflow: auto; background: #10233a;
+                    color: #d6e2f0; padding: 12px 14px; border-radius: 8px;
+                    font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+  .detail-head { font-size: 12px; color: #6b7684; margin: 0 0 6px; }
+  .empty { text-align: center; color: #8a94a3; padding: 70px 0; font-size: 15px; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">回测结果查询</a>
+    <a href="/cron" class="active">任务运行监控</a>
+    <a href="/market">大盘风险监控</a>
+    <a href="/#about">关于我们</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>任务运行监控</h1>
+    <div class="head-tools">
+      <label class="auto"><input type="checkbox" id="autoRefresh" checked> 自动刷新（10秒）</label>
+      <span id="countdown"></span>
+      <button class="btn" id="refreshBtn">立即刷新</button>
+    </div>
+  </div>
+
+  <div class="notice" id="notice"></div>
+
+  <div class="cards">
+    <div class="kpi"><div class="label">批次状态</div><div class="value" id="kBatch">-</div><div class="sub" id="kBatchSub"></div></div>
+    <div class="kpi"><div class="label">任务总数</div><div class="value v-gray" id="kTotal">-</div><div class="sub">本次运行</div></div>
+    <div class="kpi"><div class="label">成功</div><div class="value v-green" id="kSuccess">-</div><div class="sub">✅ 执行成功</div></div>
+    <div class="kpi"><div class="label">失败</div><div class="value v-red" id="kFailed">-</div><div class="sub">❌ 执行失败</div></div>
+    <div class="kpi"><div class="label">运行中</div><div class="value v-blue" id="kRunning">-</div><div class="sub">正在执行</div></div>
+  </div>
+
+  <section class="card">
+    <div class="run-meta" id="runMeta"></div>
+  </section>
+
+  <section class="card">
+    <table>
+      <thead><tr>
+        <th style="width:90px">步骤</th>
+        <th class="left">任务名称</th>
+        <th style="width:120px">所属批次</th>
+        <th style="width:90px">状态</th>
+        <th style="width:160px">开始时间</th>
+        <th style="width:160px">结束时间</th>
+        <th style="width:100px">运行时间</th>
+        <th style="width:90px">明细日志</th>
+      </tr></thead>
+      <tbody id="taskBody">
+        <tr><td colspan="8" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const POLL_MS = 10000;
+let timer = null, left = 0;
+const expanded = new Set();   // 保持刷新后展开状态：任务脚本名
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDuration(sec) {
+  if (sec == null) return '<span class="muted">-</span>';
+  if (sec < 60) return sec.toFixed(1) + ' 秒';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return m + ' 分 ' + s + ' 秒';
+}
+function clock(ts) { return ts ? esc(ts.slice(11)) : '<span class="muted">-</span>'; }
+function statusBadge(st) {
+  if (st === 'success') return '<span class="badge success">成功</span>';
+  if (st === 'failed') return '<span class="badge failed">失败</span>';
+  return '<span class="badge running">运行中</span>';
+}
+
+async function loadLog(name, box) {
+  box.querySelector('.detail-head').textContent = '日志加载中…';
+  try {
+    const r = await fetch('/api/cron_log?file=' + encodeURIComponent(name) + '&tail=300');
+    const d = await r.json();
+    if (!r.ok) { box.querySelector('pre').textContent = '读取失败：' + (d.error || r.status); return; }
+    box.querySelector('.detail-head').textContent =
+      'cron_logs/' + d.file + (d.truncated ? '（仅显示末尾 300 行）' : '（全部内容）');
+    box.querySelector('pre').textContent = d.content || '（日志为空）';
+  } catch (e) {
+    box.querySelector('pre').textContent = '读取失败：' + e.message;
+  }
+}
+
+function toggleDetail(tr, task) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('detail')) {
+    next.remove(); expanded.delete(task.name);
+    return;
+  }
+  expanded.add(task.name);
+  const dr = document.createElement('tr');
+  dr.className = 'detail';
+  dr.innerHTML = '<td colspan="8"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+  tr.after(dr);
+  if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'));
+  else dr.querySelector('pre').textContent = '未找到该任务的明细日志文件';
+}
+
+function render(d) {
+  const notice = document.getElementById('notice');
+  notice.className = 'notice';
+
+  if (d.log_dir_exists === false) {
+    document.getElementById('taskBody').innerHTML =
+      '<tr><td colspan="8" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
+    setKpis('-','-','-','-','-');
+    document.getElementById('runMeta').textContent = '';
+    return;
+  }
+  if (!d.has_run) {
+    document.getElementById('taskBody').innerHTML =
+      '<tr><td colspan="8" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
+    setKpis('-','-','-','-','-');
+    document.getElementById('runMeta').textContent = '';
+    return;
+  }
+  if (!d.is_today) {
+    notice.className = 'notice warn';
+    notice.textContent = '今日（' + new Date().toISOString().slice(0,10) +
+      '）暂无运行记录，下表展示最近一次运行：' + d.run_date + ' ' + d.run_time;
+  }
+
+  const batchMap = {success:['成功','v-green'], failed:['失败','v-red'],
+                    running:['运行中','v-blue'], unknown:['未知','v-gray']};
+  const [bt, bc] = batchMap[d.batch_status] || ['-','v-gray'];
+  document.getElementById('kBatch').textContent = bt;
+  document.getElementById('kBatch').className = 'value ' + bc;
+  document.getElementById('kBatchSub').textContent = d.batch_duration != null
+    ? '总耗时 ' + fmtDuration(d.batch_duration) : (d.batch_status === 'running' ? '尚未结束' : '');
+  document.getElementById('kTotal').textContent = d.summary.total;
+  document.getElementById('kSuccess').textContent = d.summary.success;
+  document.getElementById('kFailed').textContent = d.summary.failed;
+  document.getElementById('kRunning').textContent = d.summary.running;
+
+  document.getElementById('runMeta').innerHTML =
+    '<span>运行日期：<b>' + esc(d.run_date) + ' ' + esc(d.run_time) + '</b></span>'
+    + '<span>运行编号：<b>' + esc(d.run_id) + '</b></span>'
+    + '<span>开始时间：<b>' + esc(d.batch_start || '-') + '</b></span>'
+    + '<span>结束时间：<b>' + esc(d.batch_end || (d.batch_status === 'running' ? '运行中…' : '-')) + '</b></span>'
+    + '<span>编排日志：<b>cron_logs/' + esc(d.log_file) + '</b></span>';
+
+  document.getElementById('taskBody').innerHTML = d.tasks.map((t, i) =>
+    '<tr data-idx="' + i + '">'
+    + '<td><span class="step">' + esc(t.step) + '</span></td>'
+    + '<td class="left"><span class="script">' + esc(t.name) + '</span></td>'
+    + '<td><span class="phase">' + esc(t.phase || '-') + '</span></td>'
+    + '<td>' + statusBadge(t.status) + '</td>'
+    + '<td>' + clock(t.start) + '</td>'
+    + '<td>' + clock(t.end) + '</td>'
+    + '<td>' + fmtDuration(t.duration) + '</td>'
+    + '<td>' + (t.detail_log
+        ? '<a class="log-link" data-name="' + esc(t.name) + '">查看</a>'
+        : '<span class="muted">-</span>') + '</td>'
+    + '</tr>').join('');
+
+  document.querySelectorAll('.log-link').forEach(a => {
+    a.addEventListener('click', () => {
+      const tr = a.closest('tr');
+      const task = d.tasks[Number(tr.dataset.idx)];
+      toggleDetail(tr, task);
+    });
+  });
+
+  // 恢复之前展开的明细
+  if (expanded.size) {
+    document.querySelectorAll('#taskBody tr[data-idx]').forEach(tr => {
+      const task = d.tasks[Number(tr.dataset.idx)];
+      if (expanded.has(task.name)) {
+        const dr = document.createElement('tr');
+        dr.className = 'detail';
+        dr.innerHTML = '<td colspan="8"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+        tr.after(dr);
+        if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'));
+      }
+    });
+  }
+}
+
+function setKpis(batch, total, ok, fail, run) {
+  document.getElementById('kBatch').textContent = batch;
+  document.getElementById('kTotal').textContent = total;
+  document.getElementById('kSuccess').textContent = ok;
+  document.getElementById('kFailed').textContent = fail;
+  document.getElementById('kRunning').textContent = run;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/cron_tasks');
+    render(await r.json());
+  } catch (e) {
+    const notice = document.getElementById('notice');
+    notice.className = 'notice err';
+    notice.textContent = '加载任务数据失败：' + e.message;
+  }
+  left = POLL_MS / 1000;
+}
+
+function tick() {
+  document.getElementById('countdown').textContent =
+    document.getElementById('autoRefresh').checked ? left + ' 秒后刷新' : '自动刷新已暂停';
+  if (left <= 0) { refresh(); return; }
+  left--;
+}
+
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('autoRefresh').addEventListener('change', function () {
+  clearInterval(timer);
+  if (this.checked) { left = 0; timer = setInterval(tick, 1000); }
+});
+
+refresh();
+timer = setInterval(tick, 1000);
+</script>
+</body>
+</html>

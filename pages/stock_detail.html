@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>个股走势详情</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
+        onerror="document.getElementById('chartErr').textContent='图表库(echarts)加载失败，请检查网络后刷新'"></script>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; padding: 16px 70px;
+         background: #f7f8fa; color: #222; }
+  .top { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; flex-wrap: wrap; }
+  .top a.back { font-size: 13px; color: #1a73e8; text-decoration: none; }
+  .top a.back:hover { text-decoration: underline; }
+  h1 { font-size: 19px; margin: 0; }
+  h1 .code { color: #777; font-size: 14px; font-weight: normal; margin-left: 8px; }
+  #pos { font-size: 13px; color: #666; }
+  .legend { font-size: 12px; color: #888; }
+  .legend i { display: inline-block; width: 18px; border-top: 2px dashed #f5a623;
+              vertical-align: middle; margin: 0 4px 0 10px; }
+  #msg { font-size: 14px; color: #d93025; }
+  #chart { width: 100%; height: 620px; background: #fff; border-radius: 8px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  /* 左右切换箭头：固定在视口两侧垂直居中，仅箭头形态 */
+  .nav-arrow { position: fixed; top: 50%; transform: translateY(-50%);
+               width: 46px; height: 84px; display: flex; align-items: center; justify-content: center;
+               font-size: 40px; line-height: 1; color: #1a73e8; text-decoration: none;
+               background: rgba(255,255,255,.92); border: 1px solid #d8dee8; border-radius: 10px;
+               box-shadow: 0 2px 8px rgba(0,0,0,.15); user-select: none; z-index: 10; }
+  .nav-arrow.left { left: 10px; }
+  .nav-arrow.right { right: 10px; }
+  .nav-arrow:hover:not(.disabled) { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  .nav-arrow.disabled { color: #ccc; cursor: not-allowed; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="top">
+  <a class="back" href="/backtest">← 返回回测列表</a>
+  <h1 id="title">加载中…<span class="code" id="code"></span></h1>
+  <span id="pos"></span>
+  <span class="legend"><i></i>橙色虚线 = 策略选中日（标签为策略名）</span>
+  <span id="msg"></span>
+</div>
+<div id="chart"></div>
+<div id="chartErr" style="color:#d93025;font-size:13px;"></div>
+
+<a id="prevBtn" class="nav-arrow left disabled" title="上一只 (←)">‹</a>
+<a id="nextBtn" class="nav-arrow right disabled" title="下一只 (→)">›</a>
+
+<script>
+const NAV_KEY = 'stock_nav';   // 列表页写入的导航上下文 {list:[{ts_code,stock_name}], from}
+let navList = [];              // 导航股票序列
+let chart = null;
+
+function codeFromUrl() {
+  return new URLSearchParams(location.search).get('code') || '';
+}
+
+async function init() {
+  const code = codeFromUrl();
+  if (!code) { showMsg('URL 缺少 code 参数'); return; }
+  if (typeof echarts === 'undefined') return;
+  chart = echarts.init(document.getElementById('chart'));
+  window.addEventListener('resize', () => chart.resize());
+
+  // 导航序列：优先用列表页当前排序结果；缺失时（直接打开详情页）用全部选中股票兜底
+  let ctx = null;
+  try { ctx = JSON.parse(sessionStorage.getItem(NAV_KEY) || 'null'); } catch (e) { ctx = null; }
+  if (ctx && Array.isArray(ctx.list) && ctx.list.length) {
+    navList = ctx.list;
+  } else {
+    try {
+      const d = await fetch('/api/selected_stocks').then(r => r.json());
+      navList = d.stocks || [];
+    } catch (e) { navList = []; }
+  }
+  document.getElementById('prevBtn').onclick = () => goto(-1);
+  document.getElementById('nextBtn').onclick = () => goto(1);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') goto(-1);
+    if (e.key === 'ArrowRight') goto(1);
+  });
+  loadStock(code);
+}
+
+function goto(delta) {
+  const cur = codeFromUrl();
+  let idx = navList.findIndex(s => s.ts_code === cur);
+  if (idx === -1) return;
+  const ni = idx + delta;
+  if (ni < 0 || ni >= navList.length) return;
+  loadStock(navList[ni].ts_code);
+}
+
+function updateNav(code, name) {
+  const idx = navList.findIndex(s => s.ts_code === code);
+  const prev = document.getElementById('prevBtn');
+  const next = document.getElementById('nextBtn');
+  prev.classList.toggle('disabled', idx <= 0);
+  next.classList.toggle('disabled', idx === -1 || idx >= navList.length - 1);
+  document.getElementById('pos').textContent =
+      idx === -1 ? '该股票不在当前选股列表中，无法切换上一只/下一只'
+                 : `第 ${idx + 1}/${navList.length} 只（点击两侧箭头或键盘 ← → 切换）`;
+  document.getElementById('title').firstChild.textContent = (name || code) + ' ';
+  document.getElementById('code').textContent = code;
+}
+
+function showMsg(t) { document.getElementById('msg').textContent = t; }
+
+async function loadStock(code) {
+  showMsg('');
+  document.getElementById('title').firstChild.textContent = '加载中…';
+  document.getElementById('code').textContent = code;
+  try {
+    const d = await fetch('/api/kline?code=' + encodeURIComponent(code)).then(r => r.json());
+    if (d.error) {
+      showMsg(d.error);
+      chart.clear();
+      updateNav(code, null);
+      return;
+    }
+    renderChart(d);
+    updateNav(code, d.stock_name);
+    history.replaceState(null, '', '/stock?code=' + encodeURIComponent(code));
+  } catch (e) {
+    showMsg('数据加载失败: ' + e);
+    updateNav(code, null);
+  }
+}
+
+function renderChart(d) {
+  // 合并并行的成交量数组，便于渲染与 tooltip 取用
+  const rows = d.klines.map((k, i) => ({ ...k, vol: d.vols[i] }));
+  const dates = rows.map(k => k.date);
+  // ECharts 蜡烛图：[open, close, low, high]；A股习惯 涨红跌绿
+  const candle = rows.map(k => k.ohlc);
+  const markMap = {};                 // date -> 策略串（tooltip 用）
+  d.marks.forEach(m => { markMap[m.date] = m.strategy; });
+  const volumes = rows.map(k => {
+    const up = k.ohlc[1] >= k.ohlc[0];
+    return { value: k.vol, itemStyle: { color: up ? '#d93025' : '#0f9d58' } };
+  });
+
+  const option = {
+    animation: false,
+    grid: [
+      { left: 62, right: 24, top: 56, height: '60%' },
+      { left: 62, right: 24, top: '74%', height: '14%' }
+    ],
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      formatter: params => {
+        if (!params || !params.length) return '';
+        const date = params[0].axisValue;
+        const k = rows.find(x => x.date === date);
+        if (!k) return date;
+        const [o, c, lo, hi] = k.ohlc;
+        const pct = k.pct_chg;
+        const pctColor = pct === null || pct === undefined ? '#888'
+              : (pct > 0 ? '#d93025' : (pct < 0 ? '#0f9d58' : '#888'));
+        const pctTxt = pct === null || pct === undefined ? '—'
+              : (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
+        const volTxt = k.vol == null ? '—' : (k.vol / 10000).toFixed(2) + ' 万手';
+        let html = `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}`
+                 + `<br/>涨跌 <span style="color:${pctColor}">${pctTxt}</span>`
+                 + `<br/>量 ${volTxt}`;
+        if (markMap[date]) html += `<br/><span style="color:#f5a623">★ 策略选中: ${markMap[date]}</span>`;
+        return html;
+      }
+    },
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, boundaryGap: true,
+        axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, boundaryGap: true,
+        axisLabel: { fontSize: 10 } }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitArea: { show: true } },
+      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: {
+          formatter: v => (v / 10000).toFixed(0) + '万' } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], top: '92%', height: 18, start: 0, end: 100 }
+    ],
+    series: [
+      {
+        name: '日K', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0,
+        itemStyle: { color: '#d93025', color0: '#0f9d58',
+                     borderColor: '#d93025', borderColor0: '#0f9d58' },
+        markLine: {
+          symbol: 'none', animation: false,
+          data: d.marks.map(m => ({
+            xAxis: m.date,
+            lineStyle: { color: '#f5a623', type: 'dashed', width: 1.5 },
+            label: { formatter: m.strategy, color: '#b26a00', fontSize: 10,
+                     position: 'insideStartTop' }
+          }))
+        }
+      },
+      {
+        name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1,
+        barWidth: '70%'
+      }
+    ]
+  };
+  chart.setOption(option, true);
+}
+
+init();
+</script>
+</body>
+</html>

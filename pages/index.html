@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>量化选股平台 - 首页</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0;
+         background: #f7f8fa; color: #222; }
+  a { text-decoration: none; }
+
+  /* 顶部导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600;
+                               white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+
+  .container { max-width: 1080px; margin: 0 auto; padding: 28px 24px 60px; }
+
+  .hero { background: linear-gradient(135deg, #1a73e8, #4a9af5); color: #fff;
+          border-radius: 12px; padding: 36px 32px; margin-bottom: 28px;
+          box-shadow: 0 2px 10px rgba(26,115,232,.25); }
+  .hero h1 { margin: 0 0 10px; font-size: 26px; }
+  .hero p { margin: 0; font-size: 14px; line-height: 1.8; color: rgba(255,255,255,.92); }
+  .hero .btns { margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .hero .btns a { padding: 9px 20px; border-radius: 6px; font-size: 14px; }
+  .hero .btns .primary { background: #fff; color: #1a73e8; font-weight: 600; }
+  .hero .btns .ghost { border: 1px solid rgba(255,255,255,.7); color: #fff; }
+
+  h2.section { font-size: 19px; margin: 30px 0 14px; padding-left: 10px;
+               border-left: 4px solid #1a73e8; }
+  .section-sub { font-size: 13px; color: #888; margin: -8px 0 16px 12px; }
+
+  /* 策略手风琴 */
+  .strategy-list { display: flex; flex-direction: column; gap: 10px; }
+  details.strategy { background: #fff; border-radius: 8px;
+                     box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+  details.strategy summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                             padding: 14px 18px; cursor: pointer; list-style: none;
+                             font-size: 15px; font-weight: 600; user-select: none; }
+  details.strategy summary::-webkit-details-marker { display: none; }
+  details.strategy summary::before { content: '▶'; font-size: 10px; color: #1a73e8;
+                                     transition: transform .15s ease; }
+  details.strategy[open] summary::before { transform: rotate(90deg); }
+  details.strategy summary:hover { background: #f2f7ff; }
+  .badge { font-size: 11px; font-weight: 400; padding: 2px 8px; border-radius: 10px;
+           background: #e8f0fe; color: #1a56c4; font-family: Menlo, Consolas, monospace; }
+  .badge.file { background: #f1f3f4; color: #666; }
+  .summary-link { margin-left: auto; font-size: 12px; font-weight: 400; color: #1a73e8; }
+  .strategy-body { padding: 2px 18px 16px 38px; }
+  .strategy-body pre { margin: 0; white-space: pre-wrap; word-break: break-word;
+                       font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+                       font-size: 13px; line-height: 1.85; color: #444; }
+  .strategy-body .to-backtest { display: inline-block; margin-top: 12px; font-size: 13px;
+                                color: #1a73e8; }
+  .strategy-body .to-backtest:hover { text-decoration: underline; }
+  #strategyErr { color: #d93025; font-size: 14px; }
+
+  /* 关于我们 */
+  .about-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                 gap: 14px; }
+  .about-card { background: #fff; border-radius: 8px; padding: 18px 20px;
+                box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .about-card .k { font-size: 13px; color: #888; margin-bottom: 6px; }
+  .about-card .v { font-size: 15px; color: #222; word-break: break-all; }
+  .about-card .v a { color: #1a73e8; }
+  .about-intro { background: #fff; border-radius: 8px; padding: 20px 24px; margin-top: 14px;
+                 box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 14px; line-height: 1.9;
+                 color: #444; }
+  footer { text-align: center; font-size: 12px; color: #aaa; margin-top: 36px; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="#strategies">选股策略</a>
+    <a href="/backtest">回测结果查询</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/market">大盘风险监控</a>
+    <a href="#about">关于我们</a>
+  </nav>
+</header>
+
+<main class="container">
+  <section class="hero">
+    <h1>基于 Python 的量化选股 Web 应用</h1>
+    <p>内置多种可自定义的模型选股策略（二浪、涨停、V形反转、区间新高、高换手……），
+       每日自动跑批选股并入库，支持按策略与日期范围查询回测结果、查看个股近 200 日 K 线走势。</p>
+    <div class="btns">
+      <a class="primary" href="#strategies">查看选股策略</a>
+      <a class="ghost" href="/backtest">进入回测结果查询</a>
+    </div>
+  </section>
+
+  <h2 class="section" id="strategies">选股策略</h2>
+  <p class="section-sub">共 <span id="strategyCount">…</span> 个策略，点击任意策略可展开查看全部选股条件</p>
+  <div class="strategy-list" id="strategyList">
+    <div style="font-size:13px;color:#888;">策略列表加载中…</div>
+  </div>
+  <p id="strategyErr"></p>
+
+  <h2 class="section" id="about">关于我们</h2>
+  <div class="about-cards">
+    <div class="about-card">
+      <div class="k">作者</div>
+      <div class="v">luckboy</div>
+    </div>
+    <div class="about-card">
+      <div class="k">联系邮箱</div>
+      <div class="v"><a href="mailto:714829836@qq.com">714829836@qq.com</a></div>
+    </div>
+    <div class="about-card">
+      <div class="k">技术栈</div>
+      <div class="v">Python · Flask · MySQL · ECharts</div>
+    </div>
+  </div>
+  <div class="about-intro">
+    这是一个基于 Python 框架的量化选股 web 应用，用户可以自定义模型策略和检查该策略的回测结果。
+    系统每日定时更新行情数据、运行全部选股策略并将结果统一入库，随后自动计算各策略选中股票
+    未来 10 / 20 个交易日的最大涨幅与最大跌幅，供策略复盘与迭代。欢迎来信交流。
+  </div>
+
+  <footer>© 2026 luckboy · 量化选股平台 · 仅供学习研究，不构成投资建议</footer>
+</main>
+
+<script>
+function esc(s) {
+  return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+fetch('/api/strategies_meta').then(r => r.json()).then(d => {
+  const list = d.strategies || [];
+  document.getElementById('strategyCount').textContent = list.length;
+  const box = document.getElementById('strategyList');
+  if (!list.length) {
+    box.innerHTML = '<div style="font-size:13px;color:#888;">未发现 select_*.py 策略文件</div>';
+    return;
+  }
+  box.innerHTML = list.map((s, i) => {
+    const backLink = s.strategy
+        ? `<a class="to-backtest" href="/backtest?strategy=${encodeURIComponent(s.strategy)}">查看「${esc(s.strategy)}」回测结果 →</a>`
+        : '';
+    return `
+    <details class="strategy" ${i === 0 ? 'open' : ''}>
+      <summary>
+        <span>${esc(s.title)}</span>
+        ${s.strategy ? `<span class="badge">${esc(s.strategy)}</span>` : ''}
+        <span class="badge file">${esc(s.file)}</span>
+        ${backLink ? `<a class="summary-link" href="/backtest?strategy=${encodeURIComponent(s.strategy)}"
+                    onclick="event.stopPropagation()">回测结果 →</a>` : ''}
+      </summary>
+      <div class="strategy-body">
+        <pre>${esc(s.doc) || '（该策略暂无选股条件说明）'}</pre>
+        ${backLink}
+      </div>
+    </details>`;
+  }).join('');
+}).catch(err => {
+  document.getElementById('strategyErr').textContent = '策略列表加载失败: ' + err;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>选股策略回测结果查询</title>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #fff; padding: 12px 16px;
+         border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; }
+  .bar label { font-size: 13px; color: #555; }
+  .bar select, .bar input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+  .bar input { width: 100px; }
+  .bar input[type="date"] { width: 145px; font-family: inherit; cursor: pointer; }
+  .bar button { padding: 6px 14px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
+                font-size: 13px; cursor: pointer; }
+  .bar button.reset { background: #888; }
+  #count { font-size: 13px; color: #666; }
+  #msg { font-size: 13px; color: #d93025; }
+  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px; }
+  th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  th:nth-child(1), td:nth-child(1), th:nth-child(2), td:nth-child(2),
+  th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { text-align: left; }
+  thead th { background: #1a73e8; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 0; }
+  thead th:hover { background: #1558b0; }
+  thead th .arrow { font-size: 10px; margin-left: 4px; }
+  tbody tr:hover { background: #eef4ff; }
+  .up { color: #d93025; }
+  .down { color: #0f9d58; }
+  .null { color: #bbb; }
+  td a.stocklink { color: #1a73e8; text-decoration: none; }
+  td a.stocklink:hover { text-decoration: underline; }
+  .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end;
+           background: #fff; padding: 10px 16px; border-radius: 8px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-top: 10px; font-size: 13px; color: #555; }
+  .pager .info { margin-right: auto; }
+  .pager button { min-width: 30px; padding: 4px 9px; border: 1px solid #ccc; border-radius: 6px;
+                  background: #fff; color: #333; font-size: 13px; cursor: pointer; }
+  .pager button:hover:not(:disabled):not(.active) { border-color: #1a73e8; color: #1a73e8; }
+  .pager button.active { background: #1a73e8; border-color: #1a73e8; color: #fff; cursor: default; }
+  .pager button:disabled { color: #bbb; cursor: not-allowed; }
+  .pager .ellipsis { padding: 4px 2px; color: #999; }
+</style>
+</head>
+<body>
+<h1>📊 选股策略回测结果查询</h1>
+<div class="bar">
+  <label>策略 <select id="strategy"><option value="">全部策略</option></select></label>
+  <label>起始日期 <input id="startDate" type="date"></label>
+  <label>结束日期 <input id="endDate" type="date"></label>
+  <button onclick="query()">查询</button>
+  <button class="reset" onclick="resetFilters()">重置</button>
+  <span id="count"></span>
+  <span id="msg"></span>
+</div>
+<table>
+  <thead><tr id="headRow"></tr></thead>
+  <tbody id="body"></tbody>
+</table>
+<div class="pager" id="pager"></div>
+<script>
+const COLS = [
+  {key: 'ts_code',      label: '股票代码',    type: 'str', link: true},
+  {key: 'stock_name',   label: '股票名称',    type: 'str', link: true},
+  {key: 'trade_date',   label: '交易日',      type: 'str'},
+  {key: 'strategy',     label: '策略',        type: 'str'},
+  {key: 'max_gain_10d', label: '10日最大涨幅%', type: 'pct'},
+  {key: 'max_down_10d', label: '10日最大跌幅%', type: 'pct'},
+  {key: 'max_gain_20d', label: '20日最大涨幅%', type: 'pct'},
+  {key: 'max_down_20d', label: '20日最大跌幅%', type: 'pct'},
+];
+let ROWS = [];
+let sortKey = 'trade_date', sortDir = -1;
+const PAGE_SIZE = 20;   // 每页最多展示 20 条
+let currentPage = 1;    // 当前页码（从 1 开始）
+const NAV_KEY = 'stock_nav';   // 跳转详情页时传递的导航上下文 key
+
+// 当前排序口径下的完整记录（分页切片前）
+function sortedRows() {
+  const col = COLS.find(c => c.key === sortKey);
+  const rows = ROWS.slice();
+  rows.sort((a, b) => {
+    const va = a[sortKey], vb = b[sortKey];
+    if (va === null || va === undefined) return 1;   // 空值排最后
+    if (vb === null || vb === undefined) return -1;
+    if (col.type === 'str') return va < vb ? -sortDir : (va > vb ? sortDir : 0);
+    return (va - vb) * sortDir;
+  });
+  return rows;
+}
+
+// 详情页"上一只/下一只"的股票序列：按当前筛选+排序结果去重
+function buildNavList() {
+  const seen = new Set(), list = [];
+  for (const r of sortedRows()) {
+    if (r.ts_code && !seen.has(r.ts_code)) {
+      seen.add(r.ts_code);
+      list.push({ts_code: r.ts_code, stock_name: r.stock_name || null});
+    }
+  }
+  return list;
+}
+
+// 点击代码/名称跳转前，把导航上下文存入 sessionStorage（同源详情页读取）
+document.getElementById('body').addEventListener('click', e => {
+  const a = e.target.closest('a.stocklink');
+  if (a) sessionStorage.setItem(NAV_KEY, JSON.stringify({list: buildNavList()}));
+});
+
+// 初始化：加载策略下拉框，点击表头排序
+document.getElementById('headRow').innerHTML = COLS.map(c =>
+  `<th data-key="${c.key}">${c.label}<span class="arrow"></span></th>`).join('');
+document.querySelectorAll('th').forEach(th => th.onclick = () => {
+  const k = th.dataset.key;
+  if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === 'ts_code' || k === 'trade_date') ? -1 : 1; }
+  render();
+});
+// 支持 URL 预筛选，如 /backtest?strategy=limitup_1d
+const urlStrategy = new URLSearchParams(location.search).get('strategy') || '';
+fetch('/api/strategies').then(r => r.json()).then(d => {
+  const sel = document.getElementById('strategy');
+  (d.strategies || []).forEach(s => {
+    const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
+  });
+  if (urlStrategy) sel.value = urlStrategy;
+}).finally(() => query());
+
+function resetFilters() {
+  document.getElementById('strategy').value = '';
+  document.getElementById('startDate').value = '';
+  document.getElementById('endDate').value = '';
+  query();
+}
+
+// 日历控件值为 YYYY-MM-DD，后端 trade_date 为 YYYYMMDD，去掉连字符即可
+function compactDate(v) {
+  return v ? v.replace(/-/g, '') : '';
+}
+
+function query() {
+  const st = document.getElementById('strategy').value,
+        s = document.getElementById('startDate').value,
+        e = document.getElementById('endDate').value;
+  const msgEl = document.getElementById('msg');
+  // YYYY-MM-DD 为定长 ISO 格式，可直接按字符串字典序比较，避免 new Date 时区问题
+  if (s && e && s > e) {
+    msgEl.textContent = '起始日期不能晚于结束日期';
+    return;
+  }
+  const qs = new URLSearchParams();
+  if (st) qs.set('strategy', st);
+  if (s) qs.set('start', compactDate(s));
+  if (e) qs.set('end', compactDate(e));
+  msgEl.textContent = '';
+  fetch('/api/results?' + qs.toString()).then(r => r.json()).then(d => {
+    if (d.error) { document.getElementById('msg').textContent = d.error; return; }
+    ROWS = d.rows || [];
+    currentPage = 1;    // 新查询结果回到第 1 页
+    render();
+  }).catch(err => document.getElementById('msg').textContent = '查询失败: ' + err);
+}
+
+function fmt(v, type) {
+  if (v === null || v === undefined) return '<span class="null">—</span>';
+  if (type === 'pct') {
+    const cls = v > 0 ? 'up' : (v < 0 ? 'down' : '');
+    return `<span class="${cls}">${v.toFixed(2)}</span>`;
+  }
+  return v;
+}
+
+function gotoPage(p) {
+  const totalPages = Math.max(1, Math.ceil(ROWS.length / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, p), totalPages);
+  render();
+}
+
+// 页码按钮序列：页数少时全显；多时显示首页、末页及当前页相邻页码，其余以省略号占位
+function pageNumbers(cur, total) {
+  if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+  const wanted = [1, cur - 1, cur, cur + 1, total];
+  const nums = [...new Set(wanted.filter(p => p >= 1 && p <= total))]
+      .sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const p of nums) {
+    if (p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+function renderPager(cur, totalPages) {
+  let html = `<span class="info">每页 ${PAGE_SIZE} 条，第 ${cur}/${totalPages} 页</span>`;
+  html += `<button onclick="gotoPage(1)" ${cur === 1 ? 'disabled' : ''}>首页</button>`;
+  html += `<button onclick="gotoPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>上一页</button>`;
+  for (const p of pageNumbers(cur, totalPages)) {
+    if (p === '…') {
+      html += '<span class="ellipsis">…</span>';
+    } else {
+      html += `<button class="${p === cur ? 'active' : ''}" ${p === cur ? 'disabled' : ''}
+               onclick="gotoPage(${p})">${p}</button>`;
+    }
+  }
+  html += `<button onclick="gotoPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>下一页</button>`;
+  html += `<button onclick="gotoPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>末页</button>`;
+  document.getElementById('pager').innerHTML = html;
+}
+
+function renderCell(r, c) {
+  const content = fmt(r[c.key], c.type);
+  // 代码/名称列渲染为个股详情页链接
+  if (c.link && r.ts_code) {
+    return `<td><a class="stocklink" href="/stock?code=${encodeURIComponent(r.ts_code)}">${content}</a></td>`;
+  }
+  return `<td>${content}</td>`;
+}
+
+function render() {
+  const rows = sortedRows();
+  // 分页：排序后切片当前页，页码越界（如重新查询/排序后数据变少）自动收敛
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE,
+                              currentPage * PAGE_SIZE);
+  document.querySelectorAll('th .arrow').forEach(a => a.textContent = '');
+  const th = document.querySelector(`th[data-key="${sortKey}"] .arrow`);
+  if (th) th.textContent = sortDir === 1 ? '▲' : '▼';
+  document.getElementById('count').textContent = `共 ${rows.length} 条记录`;
+  document.getElementById('body').innerHTML = pageRows.map(r => '<tr>' + COLS.map(c =>
+    renderCell(r, c)).join('') + '</tr>').join('');
+  renderPager(currentPage, totalPages);
+}
+</script>
+</body>
+</html>
