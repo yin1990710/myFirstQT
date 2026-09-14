@@ -7,8 +7,23 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <title>选股策略回测结果查询</title>
 <style>
+  * { box-sizing: border-box; }
   body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
   h1 { font-size: 20px; margin: 0 0 16px; }
+  /* 与首页一致的导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; margin: -24px -24px 20px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
   .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #fff; padding: 12px 16px;
          border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; }
   .bar label { font-size: 13px; color: #555; }
@@ -20,12 +35,14 @@
   .bar button.reset { background: #888; }
   #count { font-size: 13px; color: #666; }
   #msg { font-size: 13px; color: #d93025; }
-  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden;
+  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px;
           box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px; }
+  thead th:first-child { border-top-left-radius: 8px; }
+  thead th:last-child { border-top-right-radius: 8px; }
   th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
   th:nth-child(1), td:nth-child(1), th:nth-child(2), td:nth-child(2),
   th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { text-align: left; }
-  thead th { background: #1a73e8; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 0; }
+  thead th { background: #1a73e8; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 56px; z-index: 50; }
   thead th:hover { background: #1558b0; }
   thead th .arrow { font-size: 10px; margin-left: 4px; }
   tbody tr:hover { background: #eef4ff; }
@@ -47,6 +64,19 @@
 </style>
 </head>
 <body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest" class="active">回测结果查询</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/market">大盘风险监控</a>
+    <a href="/#about">关于我们</a>
+  </nav>
+</header>
 <h1>📊 选股策略回测结果查询</h1>
 <div class="bar">
   <label>策略 <select id="strategy"><option value="">全部策略</option></select></label>
