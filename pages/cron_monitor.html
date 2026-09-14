@@ -75,6 +75,18 @@
   .muted { color: #b4bdc8; }
   .log-link { color: #1a73e8; cursor: pointer; text-decoration: none; font-size: 12.5px; }
   .log-link:hover { text-decoration: underline; }
+  .run-btn { border: 1px solid #1a73e8; background: #1a73e8; color: #fff; border-radius: 6px;
+             padding: 5px 16px; font-size: 12.5px; cursor: pointer; }
+  .run-btn:hover { background: #1558b0; border-color: #1558b0; }
+  .run-btn:disabled { background: #b4c6e3; border-color: #b4c6e3; cursor: not-allowed; }
+  .manual-state { margin-top: 5px; font-size: 11.5px; color: #6b7684; line-height: 1.55; }
+  .ms-running { color: #1a73e8; font-weight: 600; }
+  .ms-running::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+                        background: #1a73e8; margin-right: 4px; vertical-align: 1px;
+                        animation: pulse 1.2s infinite; }
+  .ms-success { color: #159947; font-weight: 600; }
+  .ms-failed { color: #d83a3a; font-weight: 600; }
+  .hint { margin: 10px 0 0; font-size: 12.5px; color: #8a94a3; }
   tr.detail td { background: #f8fafd; padding: 0; }
   .detail-box { text-align: left; padding: 10px 16px; }
   .detail-box pre { margin: 0; max-height: 320px; overflow: auto; background: #10233a;
@@ -122,6 +134,7 @@
 
   <section class="card">
     <div class="run-meta" id="runMeta"></div>
+    <p class="hint">提示：点击每行【运行】可在后台手动执行对应脚本（与定时批次互不影响，输出写入项目 manual_logs/ 目录）；任务执行期间按钮锁定，页面每 10 秒自动刷新状态。</p>
   </section>
 
   <section class="card">
@@ -135,9 +148,10 @@
         <th style="width:160px">结束时间</th>
         <th style="width:100px">运行时间</th>
         <th style="width:90px">明细日志</th>
+        <th style="width:150px">操作</th>
       </tr></thead>
       <tbody id="taskBody">
-        <tr><td colspan="8" class="empty">加载中…</td></tr>
+        <tr><td colspan="9" class="empty">加载中…</td></tr>
       </tbody>
     </table>
   </section>
@@ -165,14 +179,17 @@ function statusBadge(st) {
   return '<span class="badge running">运行中</span>';
 }
 
-async function loadLog(name, box) {
+async function loadLog(name, box, src) {
+  src = src || 'cron';
   box.querySelector('.detail-head').textContent = '日志加载中…';
   try {
-    const r = await fetch('/api/cron_log?file=' + encodeURIComponent(name) + '&tail=300');
+    const r = await fetch('/api/cron_log?src=' + encodeURIComponent(src)
+      + '&file=' + encodeURIComponent(name) + '&tail=300');
     const d = await r.json();
     if (!r.ok) { box.querySelector('pre').textContent = '读取失败：' + (d.error || r.status); return; }
+    const dir = src === 'manual' ? 'manual_logs/' : 'cron_logs/';
     box.querySelector('.detail-head').textContent =
-      'cron_logs/' + d.file + (d.truncated ? '（仅显示末尾 300 行）' : '（全部内容）');
+      dir + d.file + (d.truncated ? '（仅显示末尾 300 行）' : '（全部内容）');
     box.querySelector('pre').textContent = d.content || '（日志为空）';
   } catch (e) {
     box.querySelector('pre').textContent = '读取失败：' + e.message;
@@ -188,10 +205,41 @@ function toggleDetail(tr, task) {
   expanded.add(task.name);
   const dr = document.createElement('tr');
   dr.className = 'detail';
-  dr.innerHTML = '<td colspan="8"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+  dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
   tr.after(dr);
-  if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'));
-  else dr.querySelector('pre').textContent = '未找到该任务的明细日志文件';
+  if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'), 'cron');
+  else dr.querySelector('pre').textContent = '未找到该任务的定时批次明细日志文件';
+}
+
+function manualStateHtml(m) {
+  if (!m) return '';
+  if (m.status === 'running') {
+    return '<div class="manual-state"><span class="ms-running">执行中…</span><br>'
+      + '开始 ' + esc(m.start.slice(11)) + '</div>';
+  }
+  const ok = m.status === 'success';
+  return '<div class="manual-state"><span class="' + (ok ? 'ms-success' : 'ms-failed') + '">'
+    + (ok ? '✅ 成功' : '❌ 失败') + '</span> ' + fmtDuration(m.duration)
+    + (m.rc ? '（退出码 ' + m.rc + '）' : '') + '<br>' + esc((m.end || '').slice(11))
+    + (m.log ? ' <a class="log-link manual-log-link" title="手动执行日志">日志</a>' : '') + '</div>';
+}
+
+async function runTask(btn, name) {
+  btn.disabled = true;
+  btn.textContent = '启动中…';
+  try {
+    const r = await fetch('/api/cron_run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script: name })
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      alert((d.error || '启动失败') + (r.status === 409 ? '' : ''));
+    }
+  } catch (e) {
+    alert('请求失败：' + e.message);
+  }
+  await refresh();
 }
 
 function render(d) {
@@ -200,14 +248,14 @@ function render(d) {
 
   if (d.log_dir_exists === false) {
     document.getElementById('taskBody').innerHTML =
-      '<tr><td colspan="8" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
+      '<tr><td colspan="9" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
     setKpis('-','-','-','-','-');
     document.getElementById('runMeta').textContent = '';
     return;
   }
   if (!d.has_run) {
     document.getElementById('taskBody').innerHTML =
-      '<tr><td colspan="8" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
+      '<tr><td colspan="9" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
     setKpis('-','-','-','-','-');
     document.getElementById('runMeta').textContent = '';
     return;
@@ -247,28 +295,50 @@ function render(d) {
     + '<td>' + clock(t.end) + '</td>'
     + '<td>' + fmtDuration(t.duration) + '</td>'
     + '<td>' + (t.detail_log
-        ? '<a class="log-link" data-name="' + esc(t.name) + '">查看</a>'
+        ? '<a class="log-link cron-log-link">查看</a>'
         : '<span class="muted">-</span>') + '</td>'
+    + '<td><button class="run-btn"'
+        + (t.manual && t.manual.status === 'running' ? ' disabled' : '') + '>'
+        + (t.manual && t.manual.status === 'running' ? '执行中…' : '运行') + '</button>'
+        + manualStateHtml(t.manual) + '</td>'
     + '</tr>').join('');
 
-  document.querySelectorAll('.log-link').forEach(a => {
+  document.querySelectorAll('.cron-log-link').forEach(a => {
+    a.addEventListener('click', () => {
+      const tr = a.closest('tr');
+      toggleDetail(tr, d.tasks[Number(tr.dataset.idx)]);
+    });
+  });
+  document.querySelectorAll('.run-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tr = btn.closest('tr');
+      runTask(btn, d.tasks[Number(tr.dataset.idx)].name);
+    });
+  });
+  document.querySelectorAll('.manual-log-link').forEach(a => {
     a.addEventListener('click', () => {
       const tr = a.closest('tr');
       const task = d.tasks[Number(tr.dataset.idx)];
-      toggleDetail(tr, task);
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains('detail')) { next.remove(); return; }
+      const dr = document.createElement('tr');
+      dr.className = 'detail';
+      dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+      tr.after(dr);
+      loadLog(task.manual.log, dr.querySelector('.detail-box'), 'manual');
     });
   });
 
-  // 恢复之前展开的明细
+  // 恢复之前展开的定时批次明细
   if (expanded.size) {
     document.querySelectorAll('#taskBody tr[data-idx]').forEach(tr => {
       const task = d.tasks[Number(tr.dataset.idx)];
       if (expanded.has(task.name)) {
         const dr = document.createElement('tr');
         dr.className = 'detail';
-        dr.innerHTML = '<td colspan="8"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+        dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
         tr.after(dr);
-        if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'));
+        if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'), 'cron');
       }
     });
   }

@@ -36,7 +36,9 @@ import difflib
 import glob
 import os
 import re
+import subprocess
 import sys
+import threading
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -132,9 +134,49 @@ def cron_monitor():
 # 定时任务运行监控：解析 cron_logs/ 下 run_daily_stock_tasks.sh 的编排日志
 # ---------------------------------------------------------------------------
 CRON_LOG_DIR = os.path.join(BASE_DIR, 'cron_logs')
+MANUAL_LOG_DIR = os.path.join(BASE_DIR, 'manual_logs')
+_DAILY_SH_PATH = os.path.join(BASE_DIR, 'run_daily_stock_tasks.sh')
 _CRON_TS_LINE = re.compile(r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(?P<body>.*)$')
 _CRON_START = re.compile(r'^\[(?P<step>[^\]]+)\]\s?开始执行\s?(?P<script>[\w.]+\.py)\s?\.\.\.$')
 _CRON_END = re.compile(r'^\[(?P<step>[^\]]+)\]\s?[✅❌]\s?(?P<script>[\w.]+\.py)\s?执行(?P<result>成功|失败)')
+
+
+def _allowed_task_scripts():
+    """允许手动触发的任务脚本白名单：从 run_daily_stock_tasks.sh 非注释行提取。"""
+    allowed = set()
+    try:
+        with open(_DAILY_SH_PATH, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('#'):
+                    continue
+                allowed.update(re.findall(r'([A-Za-z0-9_]+\.py)', line))
+    except OSError:
+        pass
+    return allowed
+
+
+# 手动执行的在途/最近状态（进程内存保存，Flask 重启后重置）
+_manual_state = {}   # {脚本名: {status,start,end,rc,duration,log,pid}}
+_manual_lock = threading.Lock()
+
+
+def _manual_snapshot(script):
+    st = _manual_state.get(script)
+    return dict(st) if st else None
+
+
+def _reap_manual_process(script, proc, started, log_fp):
+    """后台等待子进程结束并回写状态。"""
+    rc = proc.wait()
+    log_fp.close()
+    ended = datetime.now()
+    with _manual_lock:
+        st = _manual_state.get(script)
+        if st:
+            st.update(status='success' if rc == 0 else 'failed',
+                      end=ended.strftime('%Y-%m-%d %H:%M:%S'), rc=rc,
+                      duration=round((ended - started).total_seconds(), 1))
 
 
 def _match_detail_logs(scripts, run_id):
@@ -302,19 +344,76 @@ def _parse_cron_run():
 
 @app.route('/api/cron_tasks')
 def api_cron_tasks():
-    """当天定时任务运行列表（实时读 cron_logs，可轮询）。"""
-    return jsonify(_parse_cron_run() or {'log_dir_exists': False})
+    """当天定时任务运行列表（实时读 cron_logs，可轮询），并附带手动执行状态。"""
+    data = _parse_cron_run() or {'log_dir_exists': False}
+    if data.get('has_run'):
+        for task in data['tasks']:
+            task['manual'] = _manual_snapshot(task['name'])
+    return jsonify(data)
+
+
+@app.route('/api/cron_run', methods=['POST'])
+def api_cron_run():
+    """手动触发单个任务脚本：后台执行，输出重定向到 manual_logs/。"""
+    payload = request.get_json(silent=True) or {}
+    script = (payload.get('script') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_]+\.py', script):
+        return jsonify({'error': '任务名不合法'}), 400
+    if script not in _allowed_task_scripts():
+        return jsonify({'error': '该脚本不在每日定时任务清单中，禁止执行'}), 403
+    script_path = os.path.join(BASE_DIR, script)
+    if not os.path.isfile(script_path):
+        return jsonify({'error': '任务脚本不存在'}), 404
+
+    with _manual_lock:
+        current = _manual_state.get(script)
+        if current and current.get('status') == 'running':
+            return jsonify({'error': '该任务正在执行中，请勿重复触发',
+                            'state': dict(current)}), 409
+
+        os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
+        started = datetime.now()
+        log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
+        log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
+        try:
+            proc = subprocess.Popen([sys.executable, script_path], cwd=BASE_DIR,
+                                     stdout=log_fp, stderr=subprocess.STDOUT)
+        except OSError as e:
+            log_fp.close()
+            return jsonify({'error': f'任务启动失败: {e}'}), 500
+
+        state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
+                 'end': None, 'rc': None, 'duration': None,
+                 'log': log_name, 'pid': proc.pid}
+        _manual_state[script] = state
+
+    threading.Thread(target=_reap_manual_process,
+                     args=(script, proc, started, log_fp), daemon=True).start()
+    return jsonify({'ok': True, 'state': state}), 202
 
 
 @app.route('/api/cron_log')
 def api_cron_log():
-    """读取单个任务明细日志（默认末尾 200 行），仅允许 cron_logs 内的文件名。"""
+    """读取单个任务明细日志（默认末尾 200 行）。
+
+    src=cron（默认）读 cron_logs/ 定时编排内的任务日志；
+    src=manual 读 manual_logs/ 手动触发产生的日志。
+    """
     name = request.args.get('file', '')
-    if not re.match(r'^[\w.\-]+\.log$', name) or name.startswith('daily_stock_'):
+    src = request.args.get('src', 'cron')
+    if not re.match(r'^[\w.\-]+\.log$', name):
         return jsonify({'error': '非法日志文件名'}), 400
-    path = os.path.join(CRON_LOG_DIR, name)
-    log_dir = os.path.realpath(CRON_LOG_DIR)
-    if not os.path.realpath(path).startswith(log_dir + os.sep) or not os.path.isfile(path):
+    if src not in ('cron', 'manual'):
+        return jsonify({'error': '非法日志来源'}), 400
+    base_dir = MANUAL_LOG_DIR if src == 'manual' else CRON_LOG_DIR
+    if src == 'cron' and name.startswith('daily_stock_'):
+        return jsonify({'error': '编排日志不支持明细查看'}), 400
+    if src == 'manual' and not name.startswith('manual_'):
+        return jsonify({'error': '非法手动日志文件名'}), 400
+
+    path = os.path.join(base_dir, name)
+    if not os.path.realpath(path).startswith(os.path.realpath(base_dir) + os.sep) \
+            or not os.path.isfile(path):
         return jsonify({'error': '日志文件不存在'}), 404
     try:
         tail_n = max(1, min(int(request.args.get('tail', 200)), 5000))
@@ -322,7 +421,8 @@ def api_cron_log():
         tail_n = 200
     with open(path, encoding='utf-8', errors='replace') as f:
         lines = f.readlines()
-    return jsonify({'file': name, 'content': ''.join(lines[-tail_n:]), 'truncated': len(lines) > tail_n})
+    return jsonify({'file': name, 'content': ''.join(lines[-tail_n:]),
+                    'truncated': len(lines) > tail_n})
 
 
 # 标题形如 "二浪日线选股策略 (select_2wave_daily.py)"，去掉括号内文件名
