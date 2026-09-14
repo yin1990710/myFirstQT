@@ -17,6 +17,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from mysql_connection import get_mysql_connection, close_connection
+from insert_strategy_selected_record import record_selected_stocks
 
 
 def get_date_170_days_ago() -> str:
@@ -202,6 +203,13 @@ def main():
 
     save_results_to_csv(results, output_dir)
     print(f"   ✅ 已保存到: {output_dir}")
+
+    # 步骤5: 选股结果入库（便于回测）
+    if results:
+        record_selected_stocks(
+            'newhigh_in_120d',
+            [{'ts_code': r['ts_code'], 'selected': 1} for r in results],
+            str(df['trade_date'].max()))
 
     print(f"\n🎉 选股完成！共选出 {len(results)} 只股票")
     close_connection(conn)

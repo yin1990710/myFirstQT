@@ -41,6 +41,7 @@ import tushare as ts
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
+from insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
@@ -420,6 +421,14 @@ def main():
                 f"{s['vol_ratio']:.2f}", s['signals'], f"{s['total_mv']:.0f}", s['close'],
             ])
     print(f"✅ CSV已生成（{min(TOP_N, len(result))}只）: {csv_path}")
+
+    # 选股结果入库（便于回测，与CSV内容一致取Top N；确认=1，试仓/预警=0）
+    record_selected_stocks(
+        'wave2_early',
+        [{'ts_code': s['ts_code'],
+          'selected': 1 if s['level'] == LEVEL_CONFIRM else 0}
+         for s in result[:TOP_N]],
+        latest_date)
 
     icon = {LEVEL_CONFIRM: '🟢', LEVEL_TRIAL: '🟡', LEVEL_WARN: '🔵'}
     print(f"\n🔥 三级预警名单（前{min(TOP_N, len(result))}）：")

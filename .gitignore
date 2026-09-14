@@ -10,6 +10,7 @@ cron_logs/
 
 # Output directories
 底部放量反转*/
+pages/
 回测报告/
 同花顺行业分析报告/
 涨跌停*/

@@ -29,6 +29,7 @@ import tushare as ts
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
+from insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
@@ -362,6 +363,12 @@ def main():
                 f"T={s['T_date']} N={s['N_date']} | "
                 f"量比{s['vol_ratio']:>5.2f} 回调{s['close_ratio']:>5.1f}%"
             )
+
+        # 选股结果入库（便于回测）
+        record_selected_stocks(
+            '2wave_up',
+            [{'ts_code': s['ts_code'], 'selected': 1} for s in selected],
+            end_date)
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")

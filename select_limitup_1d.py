@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
+from insert_strategy_selected_record import record_selected_stocks
 
 def get_target_date():
     now = datetime.now()
@@ -170,6 +171,12 @@ def main():
 
         for stock in selected_stocks:
             print(f"• {stock['ts_code']} - {stock['stock_name']} ({stock['pct_chg']:.2f}%)")
+
+        # 选股结果入库（便于回测）
+        record_selected_stocks(
+            'limitup_1d',
+            [{'ts_code': s['ts_code'], 'selected': 1} for s in selected_stocks],
+            max(r['trade_date'] for r in data))
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")

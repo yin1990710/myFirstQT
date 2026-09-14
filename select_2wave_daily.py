@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
+from insert_strategy_selected_record import record_selected_stocks
 
 
 def get_target_date():
@@ -301,6 +302,9 @@ def generate_csv_file(stocks, folder_path):
     return csv_path
 
 
+STRATEGY_NAME = '2wave_daily'
+
+
 def main():
     print("=" * 80)
     print("🌊 二浪启动选股策略")
@@ -338,6 +342,14 @@ def main():
         for i, stock in enumerate(selected_stocks[:20], 1):
             trough_mark = " 📉" if stock.get('has_trough', False) else ""
             print(f"{i}. {stock['ts_code']}{trough_mark} - 第一波涨{stock['first_wave_gain']:.1f}% 今日涨{stock['today_gain']:.1f}% 市值{stock['total_mv']/10000:.1f}亿")
+
+        # 选股结果入库（便于回测）
+        selection_date = max(r['trade_date'] for r in data)
+        record_selected_stocks(
+            STRATEGY_NAME,
+            [{'ts_code': s['ts_code'], 'selected': 1} for s in selected_stocks],
+            selection_date)
+
     else:
         print("\n" + "=" * 80)
         print("⚠️ 没有满足条件的股票")

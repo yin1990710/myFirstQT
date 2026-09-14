@@ -176,6 +176,15 @@ else
     exit 1
 fi
 
+# 步骤15b: 执行 backtest.py（选股结果回测回填：10日最高/20日最低涨幅）
+log "[步骤15b/18] 开始执行 backtest.py..."
+if ${VENV_PYTHON} backtest.py >> "${LOG_DIR}/backtest_${DATE}.log" 2>&1; then
+    log "[步骤15b/18] ✅ backtest.py 执行成功"
+else
+    log "[步骤15b/18] ❌ backtest.py 执行失败，停止任务"
+    exit 1
+fi
+
 # 步骤16: 执行 report_stock_overall.py（大盘趋势报告）
 log "[步骤16/18] 开始执行 report_stock_overall.py..."
 if ${VENV_PYTHON} report_stock_overall.py >> "${LOG_DIR}/report_stock_overall_${DATE}.log" 2>&1; then

@@ -40,6 +40,7 @@ from select_wave2 import (
     MIN_SCORE, TOP_N,
     get_target_date, get_last_n_trade_dates, read_stock_data, add_mas,
 )
+from insert_strategy_selected_record import record_selected_stocks
 
 WEIGHT_MA = 0.5            # MA5 相似度权重
 WEIGHT_VOL = 0.5           # 成交量相似度权重
@@ -62,6 +63,11 @@ def get_folder_path():
     else:
         print(f"📁 文件夹已存在: {folder_name}")
     return folder_path
+
+
+# ---------- 选股结果入库（便于回测） ----------
+
+STRATEGY_NAME = 'similar_wave2'
 
 
 def minmax_normalize(vals):
@@ -237,6 +243,11 @@ def main():
                 f"{s['total_mv']:.0f}", s['close'],
             ])
     print(f"✅ CSV已生成（{min(args.top, len(ranked))}只）: {csv_path}")
+
+    # 选股结果入库（便于回测，与CSV内容一致取Top N）
+    record_selected_stocks(STRATEGY_NAME,
+                           [{'ts_code': s['ts_code'], 'selected': 1}
+                            for s in ranked[:args.top]], trade_dates[-1])
 
     print(f"\n🔥 相似度排名前{min(args.top, len(ranked))}：")
     for i, s in enumerate(ranked[:args.top], 1):
