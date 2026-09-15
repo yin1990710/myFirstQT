@@ -23,6 +23,10 @@ body{margin:0;background:#eef1f5;color:#1f2430;line-height:1.7;
       box-shadow:0 2px 14px rgba(0,0,0,.07);}
 h1{font-size:24px;margin:4px 0;}
 h1 a{text-decoration:none;color:#1f2430;}
+h1 .doc-btn{display:inline-block;vertical-align:middle;margin-left:12px;padding:4px 12px;
+            font-size:13px;font-weight:400;text-decoration:none;color:#1a73e8;
+            border:1px solid #1a73e8;border-radius:6px;background:#fff;cursor:pointer;}
+h1 .doc-btn:hover{background:#eef4ff;}
 .sub{color:#5a6472;font-size:13px;border-bottom:3px double #1f2430;padding-bottom:12px;}
 .hero{text-align:center;margin:26px 0;}
 .hero .num{font-size:58px;font-weight:700;line-height:1;}
@@ -40,7 +44,7 @@ td{border:1px solid #d9dee6;padding:5px 8px;vertical-align:top;}
 tr:nth-child(even) td{background:#fafbfd;}
 .warn{background:#fdf6ec;border-left:4px solid #b07d2b;padding:10px 14px;
       font-size:12.5px;margin-top:20px;}
-.regen-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.regen-bar{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-bottom:8px;}
 .regen-btn{border:1px solid #1a73e8;background:#1a73e8;color:#fff;border-radius:6px;
            padding:8px 20px;font-size:13px;cursor:pointer;}
 .regen-btn:hover{background:#1558b0;border-color:#1558b0;}
@@ -61,11 +65,11 @@ tr:nth-child(even) td{background:#fafbfd;}
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest">回测结果查询</a>
-    <a href="/cron">任务运行监控</a>
+    <a href="/backtest">策略回测</a>
     <a href="/market">大盘整体情况</a>
-    <a href="/mri" class="active">大盘风险分析报告</a>
+    <a href="/mri" class="active">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -74,7 +78,7 @@ tr:nth-child(even) td{background:#fafbfd;}
   <button class="regen-btn" id="regenBtn" onclick="regenerate()">重新生成报告</button>
   <span class="regen-state" id="regenState"></span>
 </div>
-<h1><a href="/mri/framework" title="点击查看指标体系说明">A股大盘风险指数（MRI）</a></h1>
+<h1>A股大盘风险指数（MRI）<a class="doc-btn" href="/mri/framework" title="查看六维 21 指标体系说明">查看指标说明</a></h1>
 <div id="content"><div class="loading">加载中…</div></div>
 </div>
 <script>

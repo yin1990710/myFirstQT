@@ -33,7 +33,6 @@
   .btn { border: 1px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 6px;
          padding: 6px 14px; font-size: 13px; cursor: pointer; }
   .btn:hover { background: #eef4ff; }
-  label.auto { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
 
   .notice { margin-top: 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; }
   .notice.warn { display: block; background: #fff6e8; color: #9a6404; border: 1px solid #f5d59a; }
@@ -61,6 +60,7 @@
   tbody tr:hover { background: #f8fafd; }
   td.left, th.left { text-align: left; }
   .script { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .script-file { font-size: 11px; color: #999; margin-top: 2px; }
   .step { display: inline-block; min-width: 64px; padding: 2px 8px; border-radius: 10px;
           background: #eef1f5; color: #5b6572; font-size: 12px; }
   .phase { color: #6b7684; font-size: 12.5px; }
@@ -97,9 +97,26 @@
                border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.06); }
   .batch-bar label { font-size: 13px; font-weight: 600; color: #1a4480; }
   .batch-bar .date-input { width: 140px; }
+  .batch-bar select { width: 150px; border: 1px solid #d0d7de; border-radius: 5px;
+    padding: 5px 8px; font-size: 13px; background: #fff; color: #1f2937; }
+  .batch-bar select:focus { outline: none; border-color: #1a73e8; }
   .batch-bar .btn.primary { background: #1a73e8; color: #fff; }
   .batch-bar .btn.primary:hover { background: #1558b0; }
   .batch-bar .count { font-size: 12.5px; color: #6b7684; }
+  .run-all-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+                 margin-top: 14px; padding: 12px 16px; background: #eaf7f0;
+                 border: 1px solid #b6e3c8; border-radius: 10px;
+                 box-shadow: 0 1px 4px rgba(16,42,72,.06); }
+  .run-all-bar label { font-size: 13px; font-weight: 600; color: #1e7a45; }
+  .run-all-bar .btn.all { background: #159947; border-color: #159947; color: #fff; font-weight: 600; }
+  .run-all-bar .btn.all:hover { background: #11803b; border-color: #11803b; }
+  .run-all-bar .btn.all:disabled { background: #9fcfb4; border-color: #9fcfb4; cursor: not-allowed; }
+  .run-all-state { font-size: 12.5px; color: #3d4752; }
+  .run-all-detail { display: none; width: 100%; margin-top: 8px; }
+  .run-all-detail .detail-head { font-size: 12px; color: #6b7684; margin: 0 0 6px; }
+  .run-all-detail pre { margin: 0; max-height: 360px; overflow: auto; background: #10233a;
+                        color: #d6e2f0; padding: 12px 14px; border-radius: 8px;
+                        font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
   .row-cb { width: 16px; height: 16px; cursor: pointer; }
   .batch-result { margin-top: 8px; font-size: 12.5px; color: #3d4752; }
   tr.detail td { background: #f8fafd; padding: 0; }
@@ -120,11 +137,11 @@
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest">回测结果查询</a>
-    <a href="/cron" class="active">任务运行监控</a>
+    <a href="/backtest">策略回测</a>
     <a href="/market">大盘整体情况</a>
-    <a href="/mri">大盘风险分析报告</a>
+    <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
+    <a href="/cron" class="active">任务运行监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -138,8 +155,6 @@
   <div class="page-head" style="margin-top:18px">
     <h1>任务运行监控</h1>
     <div class="head-tools">
-      <label class="auto"><input type="checkbox" id="autoRefresh" checked> 自动刷新（10秒）</label>
-      <span id="countdown"></span>
       <button class="btn" id="refreshBtn">立即刷新</button>
     </div>
   </div>
@@ -156,14 +171,26 @@
 
   <section class="card">
     <div class="run-meta" id="runMeta"></div>
-    <p class="hint">提示：勾选下方任务列表中的复选框，选择日期范围后点击【批量运行】可在后台执行所有勾选的脚本（日期参数传至后台，不填则默认当天）；执行结果写入 task_run_log_t 表。</p>
+    <p class="hint">提示：可按【所属批次】筛选任务列表；勾选任务复选框，选择日期范围后点击【批量运行】可在后台执行所有勾选的脚本（日期参数传至后台，不填则默认当天）；执行结果写入 task_run_log_t 表。</p>
   </section>
+
+  <div class="run-all-bar">
+    <label>整体单次执行：</label>
+    <button class="btn all" id="runAllBtn">▶ 一键执行全部任务（run_daily_stock_tasks.sh）</button>
+    <span class="run-all-state" id="runAllState"></span>
+    <div class="run-all-detail" id="runAllDetail">
+      <p class="detail-head"></p>
+      <pre></pre>
+    </div>
+  </div>
 
   <div class="batch-bar">
     <label>批量操作：</label>
     <input type="date" class="date-input" id="batchStart" placeholder="开始日期">
     <span class="date-sep">~</span>
     <input type="date" class="date-input" id="batchEnd" placeholder="结束日期">
+    <label for="batchPhase">所属批次</label>
+    <select id="batchPhase"><option value="">全部批次</option></select>
     <button class="btn primary" id="batchRunBtn">批量运行</button>
     <button class="btn" id="selectAllBtn">全选</button>
     <button class="btn" id="clearAllBtn">清空</button>
@@ -193,8 +220,6 @@
 </main>
 
 <script>
-const POLL_MS = 10000;
-let timer = null, left = 0;
 const expanded = new Set();   // 保持刷新后展开状态：任务脚本名
 
 function esc(s) {
@@ -332,11 +357,12 @@ function render(d) {
     + '<span>编排日志：<b>cron_logs/' + esc(d.log_file) + '</b></span>';
 
   document.getElementById('taskBody').innerHTML = d.tasks.map((t, i) =>
-    '<tr data-idx="' + i + '">'
-    + '<td><input type="checkbox" class="row-cb" data-idx="' + i + '"'
+    '<tr data-idx="' + i + '" data-phase="' + esc(t.phase || '') + '">'
+    + '<td><input type="checkbox" class="row-cb" data-idx="' + i + '" data-script="' + esc(t.name || '') + '"'
     + (t.manual && t.manual.status === 'running' ? ' disabled' : '') + '></td>'
     + '<td><span class="step">' + esc(t.step) + '</span></td>'
-    + '<td class="left"><span class="script">' + esc(t.name) + '</span></td>'
+    + '<td class="left"><span class="script">' + esc(t.task_name || t.name) + '</span>'
+    + (t.task_name ? '<div class="script-file">' + esc(t.name) + '</div>' : '') + '</td>'
     + '<td><span class="phase">' + esc(t.phase || '-') + '</span></td>'
     + '<td>' + statusBadge(t.status) + '</td>'
     + '<td>' + clock(t.start) + '</td>'
@@ -367,6 +393,18 @@ function render(d) {
       loadLog(task.manual.log, dr.querySelector('.detail-box'), 'manual');
     });
   });
+
+  // 所属批次筛选下拉选项（保留当前选择）
+  var sel = document.getElementById('batchPhase');
+  var cur = sel.value;
+  var phases = [];
+  d.tasks.forEach(function(t) { if (t.phase && phases.indexOf(t.phase) < 0) phases.push(t.phase); });
+  sel.innerHTML = '<option value="">全部批次</option>' + phases.map(function(p) {
+    return '<option value="' + esc(p) + '">' + esc(p) + '</option>';
+  }).join('');
+  sel.value = cur;
+  if (sel.value !== cur) sel.value = '';
+  applyPhaseFilter();
 
   // 恢复之前展开的定时批次明细
   if (expanded.size) {
@@ -400,25 +438,17 @@ async function refresh() {
     notice.className = 'notice err';
     notice.textContent = '加载任务数据失败：' + e.message;
   }
-  left = POLL_MS / 1000;
-}
-
-function tick() {
-  document.getElementById('countdown').textContent =
-    document.getElementById('autoRefresh').checked ? left + ' 秒后刷新' : '自动刷新已暂停';
-  if (left <= 0) { refresh(); return; }
-  left--;
 }
 
 document.getElementById('refreshBtn').addEventListener('click', refresh);
-document.getElementById('autoRefresh').addEventListener('change', function () {
-  clearInterval(timer);
-  if (this.checked) { left = 0; timer = setInterval(tick, 1000); }
-});
 
 // 全选/清空
 document.getElementById('selectAllBtn').addEventListener('click', function() {
-  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => { if (!cb.disabled) cb.checked = true; });
+  document.querySelectorAll('#taskBody tr[data-idx]').forEach(tr => {
+    if (tr.style.display === 'none') return;   // 被批次筛选隐藏的行不参与全选
+    var cb = tr.querySelector('.row-cb');
+    if (cb && !cb.disabled) cb.checked = true;
+  });
   updateBatchCount();
 });
 document.getElementById('clearAllBtn').addEventListener('click', function() {
@@ -444,17 +474,35 @@ function updateBatchCount() {
   document.getElementById('batchCount').textContent = '已勾选 ' + n + ' 项';
 }
 
+// 所属批次筛选：隐藏不匹配批次所在行（同时取消其勾选），全选/批量运行只作用于可见行
+function applyPhaseFilter() {
+  var v = document.getElementById('batchPhase').value;
+  document.querySelectorAll('#taskBody tr[data-idx]').forEach(function(tr) {
+    var show = !v || tr.dataset.phase === v;
+    tr.style.display = show ? '' : 'none';
+    if (!show) {
+      var cb = tr.querySelector('.row-cb');
+      if (cb && cb.checked) cb.checked = false;
+    }
+    var next = tr.nextElementSibling;
+    if (next && next.classList.contains('detail')) next.style.display = show ? '' : 'none';
+  });
+  updateBatchCount();
+}
+document.getElementById('batchPhase').addEventListener('change', applyPhaseFilter);
+
 // 批量运行
 document.getElementById('batchRunBtn').addEventListener('click', async function() {
   var checked = document.querySelectorAll('.row-cb[data-idx]:checked');
   if (!checked.length) { alert('请先勾选至少一个任务'); return; }
   var scripts = [];
   checked.forEach(cb => {
-    var idx = Number(cb.dataset.idx);
-    var name = document.querySelector('tr[data-idx="' + idx + '"] .script');
-    if (name) scripts.push(name.textContent);
+    var tr = cb.closest('tr');
+    if (tr && tr.style.display === 'none') return;   // 被批次筛选隐藏的行不参与提交
+    var s = cb.dataset.script;   // 脚本文件名（data-script），而非中文任务名
+    if (s) scripts.push(s);
   });
-  if (!scripts.length) return;
+  if (!scripts.length) { alert('未获取到脚本文件名，请刷新页面后重试'); return; }
 
   var sd = document.getElementById('batchStart').value;
   var ed = document.getElementById('batchEnd').value;
@@ -476,26 +524,146 @@ document.getElementById('batchRunBtn').addEventListener('click', async function(
       body: JSON.stringify(body)
     });
     var d = await r.json();
-    var ok = (d.results || []).filter(function(x) { return x.ok; }).length;
-    var fail = (d.results || []).length - ok;
-    resultBox.innerHTML = '✅ 已启动 ' + ok + ' 个' + (fail ? '，❌ 跳过 ' + fail + ' 个' : '')
-      + ' — 等待执行完成后自动刷新查看结果';
+    if (!r.ok || d.error) {
+      resultBox.textContent = '❌ 提交失败：' + (d.error || ('HTTP ' + r.status));
+      return;
+    }
+    var okList = (d.results || []).filter(function(x) { return x.ok; });
+    var noList = (d.results || []).filter(function(x) { return !x.ok; });
+    var html = '✅ 已启动 ' + okList.length + ' 个';
+    if (noList.length)
+      html += '，⏸ 未启动 ' + noList.length + ' 个（'
+            + noList.map(function(x) { return x.script + '：' + (x.error || '未知原因'); }).join('；') + '）';
+    html += okList.length ? ' — 执行完成后请点击“立即刷新”查看结果' : ' — 没有任何任务被启动';
+    resultBox.innerHTML = html;
+    // 仅在确有任务启动时才清空勾选
+    if (okList.length) {
+      document.querySelectorAll('.row-cb[data-idx]').forEach(cb => cb.checked = false);
+      document.getElementById('cbAll').checked = false;
+      updateBatchCount();
+    }
   } catch (e) {
     resultBox.textContent = '❌ 请求失败：' + e.message;
   } finally {
     btn.disabled = false;
     btn.textContent = '批量运行';
   }
-  // 清空勾选
-  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => cb.checked = false);
-  document.getElementById('cbAll').checked = false;
-  updateBatchCount();
   // 立即刷新
   await refresh();
 });
 
+// ---- 整体单次执行 run_daily_stock_tasks.sh ----
+var runAllTimer = null;
+var runAllLogShown = false;
+
+function renderRunAll(st) {
+  var btn = document.getElementById('runAllBtn');
+  var box = document.getElementById('runAllState');
+  if (!st || st.status === 'idle') {
+    btn.disabled = false;
+    btn.textContent = '▶ 一键执行全部任务（run_daily_stock_tasks.sh）';
+    box.textContent = '';
+    return;
+  }
+  var html = '';
+  if (st.status === 'running') {
+    btn.disabled = true;
+    btn.textContent = '全量任务执行中…';
+    html = '<span class="ms-running">执行中…</span> 开始于 ' + esc((st.start || '').slice(11))
+      + '（19 个步骤按序执行，进度可看下表）';
+  } else {
+    btn.disabled = false;
+    btn.textContent = '▶ 一键执行全部任务（run_daily_stock_tasks.sh）';
+    var ok = st.status === 'success';
+    html = '<span class="' + (ok ? 'ms-success' : 'ms-failed') + '">'
+      + (ok ? '✅ 全部执行成功' : '❌ 执行失败') + '</span>'
+      + ' 耗时 ' + fmtDuration(st.duration)
+      + (st.rc ? '（退出码 ' + st.rc + '）' : '')
+      + '，结束于 ' + esc((st.end || '').slice(11));
+  }
+  if (st.log) {
+    html += ' <a class="log-link" id="runAllLogLink" title="整体执行编排日志">查看日志</a>';
+  }
+  box.innerHTML = html;
+  var link = document.getElementById('runAllLogLink');
+  if (link) link.addEventListener('click', toggleRunAllLog);
+}
+
+async function loadRunAllLog(logName) {
+  var detail = document.getElementById('runAllDetail');
+  detail.querySelector('.detail-head').textContent = 'manual_logs/' + logName + '（加载中…）';
+  try {
+    var r = await fetch('/api/cron_log?src=manual&file=' + encodeURIComponent(logName) + '&tail=500');
+    var d = await r.json();
+    if (!r.ok) {
+      detail.querySelector('pre').textContent = '读取失败：' + (d.error || r.status);
+      return;
+    }
+    detail.querySelector('.detail-head').textContent =
+      'manual_logs/' + d.file + (d.truncated ? '（仅显示末尾 500 行）' : '（全部内容）');
+    var pre = detail.querySelector('pre');
+    var atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+    pre.textContent = d.content || '（日志为空）';
+    if (atBottom) pre.scrollTop = pre.scrollHeight;   // 跟随输出
+  } catch (e) {
+    detail.querySelector('pre').textContent = '读取失败：' + e.message;
+  }
+}
+
+async function toggleRunAllLog() {
+  var detail = document.getElementById('runAllDetail');
+  runAllLogShown = !runAllLogShown;
+  detail.style.display = runAllLogShown ? 'block' : 'none';
+  if (runAllLogShown) {
+    var st = await fetch('/api/cron_run_all_status').then(function(r){return r.json();});
+    if (st.log) loadRunAllLog(st.log);
+  }
+}
+
+function pollRunAll() {
+  if (runAllTimer) clearInterval(runAllTimer);
+  runAllTimer = setInterval(async function () {
+    try {
+      var r = await fetch('/api/cron_run_all_status');
+      var st = await r.json();
+      renderRunAll(st);
+      if (runAllLogShown && st.log) loadRunAllLog(st.log);
+      if (st.status !== 'running') {
+        clearInterval(runAllTimer);
+        runAllTimer = null;
+        refresh();   // 结束后立即刷新任务表（cron_logs 解析结果）
+      }
+    } catch (e) { /* 轮询失败忽略，下个周期重试 */ }
+  }, 3000);
+}
+
+document.getElementById('runAllBtn').addEventListener('click', async function () {
+  if (!confirm('将在后台按顺序执行全部 19 个定时任务（run_daily_stock_tasks.sh）。\n\n'
+    + '注意：脚本启动时会清空并重建 cron_logs 目录，整体耗时较长。\n确定立即执行？')) return;
+  var btn = document.getElementById('runAllBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    var r = await fetch('/api/cron_run_all', { method: 'POST' });
+    var d = await r.json();
+    if (!r.ok) { alert(d.error || '启动失败'); renderRunAll(d.state); return; }
+    renderRunAll(d.state);
+    pollRunAll();
+    refresh();   // 立即刷新一次，展示 cron_logs 被重建后的最新状态
+  } catch (e) {
+    alert('请求失败：' + e.message);
+    btn.disabled = false;
+    btn.textContent = '▶ 一键执行全部任务（run_daily_stock_tasks.sh）';
+  }
+});
+
+// 页面加载时恢复整体执行状态（服务重启后状态丢失，显示为空闲）
+fetch('/api/cron_run_all_status').then(function(r){return r.json();}).then(function(st){
+  renderRunAll(st);
+  if (st.status === 'running') pollRunAll();
+});
+
 refresh();
-timer = setInterval(tick, 1000);
 </script>
 </body>
 </html>

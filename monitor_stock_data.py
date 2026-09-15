@@ -22,10 +22,21 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
+
+
+def _json_default(o):
+    """JSON 序列化兜底：MySQL DECIMAL 字段（如 batch_duration_sec）返回 Decimal，
+    datetime/date 同理统一转换，避免 TypeError。"""
+    if isinstance(o, Decimal):
+        return float(o)
+    if isinstance(o, (datetime, date)):
+        return o.strftime('%Y-%m-%d %H:%M:%S')
+    raise TypeError(f'Object of type {o.__class__.__name__} is not JSON serializable')
 
 
 def get_recent_dates(conn, days=10):
@@ -314,13 +325,13 @@ def main():
     data = collect_data(days=args.days)
 
     if args.stdout:
-        print(json.dumps(data, ensure_ascii=False))
+        print(json.dumps(data, ensure_ascii=False, default=_json_default))
     else:
         out_dir = os.path.dirname(args.json)
         if out_dir and not os.path.exists(out_dir):
             os.makedirs(out_dir)
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         print(f"✅ JSON 已保存: {args.json}")
         print(f"� 交易日: {data['dates']}")
         for k, t in data.get("tables", {}).items():

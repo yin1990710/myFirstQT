@@ -7,12 +7,13 @@ Flask 回测结果查询 Web 应用 (app.py)
 核心功能：
   1. GET /                → 返回 pages/index.html 首页（选股策略导航）；
   2. GET /about           → 返回 pages/关于我们.html 项目介绍页；
-  3. GET /backtest        → 返回 pages/选股策略回测.html 交互式回测查询页面；
+  3. GET /backtest        → 返回 pages/策略选股结果.html 策略选股结果查询页面；
+     GET /backtest_analysis → 返回 pages/策略回测.html 策略回测页面（开发中）；
   4. GET /stock?code=xxx  → 返回 pages/个股详情.html 个股K线详情页；
   5. GET /market          → 返回 pages/大盘整体情况.html 大盘整体情况页（静态模板），
                             GET /api/market_data 返回 JSON 数据
                             （由 report_market_overall_html.py 生成 market_overall_data.json）；
-  6. GET /cron            → 返回 pages/任务调度监控.html 任务运行监控页，
+  6. GET /cron            → 返回 pages/任务运行监控.html 任务运行监控页，
                             /api/cron_tasks 实时解析 cron_logs 编排日志，
                             /api/cron_log 读取单个任务明细日志；
   7. GET /api/strategies  → 返回 strategy_selected_stock_daily_t 表中所有策略名
@@ -124,10 +125,11 @@ def etf_page():
 
 @app.route('/api/etf_data')
 def api_etf_data():
-    """返回 ETF 基础信息 + 最新交易日日线行情，支持按交易所/名称筛选。
+    """返回 ETF 基础信息 + 最新交易日日线行情，支持按交易所/管理人/名称筛选。
 
     查询参数：
       exchange：交易所筛选（SH / SZ / 空为全部）
+      manager ：管理人名称模糊搜索
       keyword ：ETF 简称/跟踪指数名模糊搜索
     响应：
       {trade_date, count, etfs: [{ts_code, csname, index_name, mgr_name,
@@ -136,6 +138,7 @@ def api_etf_data():
     """
     exchange = (request.args.get('exchange') or '').strip().upper()
     keyword = (request.args.get('keyword') or '').strip()
+    manager = (request.args.get('manager') or '').strip()
 
     conn = get_mysql_connection()
     if not conn:
@@ -168,6 +171,9 @@ def api_etf_data():
                 sql += " AND (b.csname LIKE %s OR b.cname LIKE %s OR b.index_name LIKE %s)"
                 kw = f'%{keyword}%'
                 params += [kw, kw, kw]
+            if manager:
+                sql += " AND b.mgr_name LIKE %s"
+                params.append(f'%{manager}%')
             sql += " ORDER BY (d.amount IS NULL) ASC, d.amount DESC LIMIT 500"
             cur.execute(sql, params)
             rows = cur.fetchall() or []
@@ -184,10 +190,38 @@ def api_etf_data():
         close_connection(conn)
 
 
+@app.route('/api/etf_managers')
+def api_etf_managers():
+    """返回 ETF 管理人去重列表（按旗下 ETF 数量降序），供筛选框下拉提示。"""
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 503
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT mgr_name AS name, COUNT(*) AS cnt
+                FROM etf_basic_t
+                WHERE mgr_name IS NOT NULL AND mgr_name != ''
+                GROUP BY mgr_name ORDER BY cnt DESC, name ASC
+            """)
+            rows = cur.fetchall() or []
+            return jsonify({'managers': rows})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        close_connection(conn)
+
+
 @app.route('/backtest')
 def backtest_page():
-    """回测结果交互式查询页面。"""
-    return send_from_directory(PAGE_DIR, '选股策略回测.html')
+    """策略选股结果查询页面。"""
+    return send_from_directory(PAGE_DIR, '策略选股结果.html')
+
+
+@app.route('/backtest_analysis')
+def backtest_analysis_page():
+    """策略回测页面（开发中）。"""
+    return send_from_directory(PAGE_DIR, '策略回测.html')
 
 
 @app.route('/stock')
@@ -222,7 +256,7 @@ def api_market_data():
 @app.route('/cron')
 def cron_monitor():
     """任务运行监控页：展示当天定时任务（run_daily_stock_tasks.sh）执行情况。"""
-    return send_from_directory(PAGE_DIR, '任务调度监控.html')
+    return send_from_directory(PAGE_DIR, '任务运行监控.html')
 
 
 @app.route('/data-monitor')
@@ -238,35 +272,38 @@ def api_stock_data_monitor():
     可选参数 start_date / end_date（YYYYMMDD），指定时查询日期范围内的交易日。
     """
     try:
-        from monitor_stock_data import collect_data
+        from monitor_stock_data import collect_data, _json_default
         start_date = (request.args.get('start_date') or '').strip()
         end_date = (request.args.get('end_date') or '').strip()
         if start_date and end_date:
             data = collect_data(start_date=start_date, end_date=end_date)
         else:
             data = collect_data(days=10)
-        return jsonify(data)
+        # batch_duration_sec 等 DECIMAL 字段经 _json_default 转为 float
+        return app.response_class(
+            json.dumps(data, ensure_ascii=False, default=_json_default),
+            mimetype='application/json')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/mri')
 def mri_dashboard():
-    """大盘风险分析报告（MRI 实时仪表盘），由 report_market_risk.py 生成。"""
-    path = os.path.join(PAGE_DIR, 'MRI实时仪表盘.html')
+    """A股大盘风险指数（MRI 实时仪表盘），由 report_market_risk.py 生成。"""
+    path = os.path.join(PAGE_DIR, 'A股大盘风险指数MRI.html')
     if not os.path.exists(path):
         return ('<!DOCTYPE html><meta charset="utf-8">'
                 '<title>MRI 仪表盘未生成</title><body style="font-family:sans-serif;padding:40px">'
                 '<h2>MRI 实时仪表盘尚未生成</h2>'
                 '<p>请先运行 <code>python report_market_risk.py</code> 生成报告。</p>'
                 '<p><a href="/">返回首页</a></p></body>'), 404
-    return send_from_directory(PAGE_DIR, 'MRI实时仪表盘.html')
+    return send_from_directory(PAGE_DIR, 'A股大盘风险指数MRI.html')
 
 
 @app.route('/mri/framework')
 def mri_framework():
     """A股大盘风险指标体系说明页。"""
-    return send_from_directory(PAGE_DIR, 'A股大盘风险指标体系.html')
+    return send_from_directory(PAGE_DIR, 'A股大盘风险指标体系说明.html')
 
 
 @app.route('/api/mri_data')
@@ -320,6 +357,49 @@ def api_mri_status():
     """查询 MRI 报告生成状态。"""
     with _mri_lock:
         return jsonify(dict(_mri_state))
+
+
+# 大盘整体情况：重新计算 market_overall_data.json（数据计算层 = report_market_overall_html.py）
+_MARKET_SCRIPT = 'report_market_overall_html.py'
+_market_state = {'status': 'idle'}  # idle | running | success | failed
+_market_lock = threading.Lock()
+
+
+def _reap_market_process(proc, started):
+    rc = proc.wait()
+    ended = datetime.now()
+    with _market_lock:
+        _market_state.update(status='success' if rc == 0 else 'failed',
+                             end=ended.strftime('%Y-%m-%d %H:%M:%S'), rc=rc,
+                             duration=round((ended - started).total_seconds(), 1))
+
+
+@app.route('/api/market_refresh', methods=['POST'])
+def api_market_refresh():
+    """立即刷新大盘整体情况：后台运行 report_market_overall_html.py 重算数据。"""
+    with _market_lock:
+        if _market_state.get('status') == 'running':
+            return jsonify({'error': '数据正在计算中，请勿重复触发',
+                            'state': dict(_market_state)}), 409
+        script_path = os.path.join(BASE_DIR, _MARKET_SCRIPT)
+        if not os.path.isfile(script_path):
+            return jsonify({'error': '脚本不存在'}), 404
+        started = datetime.now()
+        try:
+            proc = subprocess.Popen([sys.executable, script_path], cwd=BASE_DIR)
+        except OSError as e:
+            return jsonify({'error': f'启动失败: {e}'}), 500
+        _market_state.update(status='running', start=started.strftime('%Y-%m-%d %H:%M:%S'),
+                             end=None, rc=None, duration=None, pid=proc.pid)
+    threading.Thread(target=_reap_market_process, args=(proc, started), daemon=True).start()
+    return jsonify({'ok': True, 'state': dict(_market_state)}), 202
+
+
+@app.route('/api/market_refresh_status')
+def api_market_refresh_status():
+    """查询大盘整体情况数据计算状态。"""
+    with _market_lock:
+        return jsonify(dict(_market_state))
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +596,69 @@ def api_cron_run_batch():
         results.append({'script': script, 'ok': True, 'state': state})
 
     return jsonify({'results': results}), 202
+
+
+# ---------------------------------------------------------------------------
+# 整体单次执行：run_daily_stock_tasks.sh（19 步全流程编排，等同定时调度手动跑一次）
+# ---------------------------------------------------------------------------
+
+_RUN_ALL_SCRIPT = 'run_daily_stock_tasks.sh'
+_run_all_state = {'status': 'idle'}   # idle | running | success | failed
+_run_all_lock = threading.Lock()
+
+
+def _reap_run_all_process(proc, started, log_fp):
+    """后台等待全量编排脚本结束并回写状态。"""
+    rc = proc.wait()
+    log_fp.close()
+    ended = datetime.now()
+    with _run_all_lock:
+        _run_all_state.update(status='success' if rc == 0 else 'failed',
+                              end=ended.strftime('%Y-%m-%d %H:%M:%S'), rc=rc,
+                              duration=round((ended - started).total_seconds(), 1))
+
+
+@app.route('/api/cron_run_all', methods=['POST'])
+def api_cron_run_all():
+    """后台整体单次执行 run_daily_stock_tasks.sh（19 步全流程）。
+
+    脚本自身将各步骤日志写入 cron_logs/，并清空重建该目录；
+    包装层 stdout（编排日志 tee 输出）额外落盘到 manual_logs/ 便于在线查看。
+    """
+    with _run_all_lock:
+        if _run_all_state.get('status') == 'running':
+            return jsonify({'error': '全量任务正在执行中，请勿重复触发',
+                            'state': dict(_run_all_state)}), 409
+        script_path = os.path.join(BASE_DIR, _RUN_ALL_SCRIPT)
+        if not os.path.isfile(script_path):
+            return jsonify({'error': '编排脚本不存在'}), 404
+
+        os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
+        started = datetime.now()
+        log_name = 'manual_run_all_%s.log' % started.strftime('%Y%m%d_%H%M%S')
+        log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
+        try:
+            proc = subprocess.Popen(['/bin/bash', script_path], cwd=BASE_DIR,
+                                    stdout=log_fp, stderr=subprocess.STDOUT)
+        except OSError as e:
+            log_fp.close()
+            return jsonify({'error': f'启动失败: {e}'}), 500
+        _run_all_state.clear()
+        _run_all_state.update(status='running',
+                              start=started.strftime('%Y-%m-%d %H:%M:%S'),
+                              end=None, rc=None, duration=None,
+                              log=log_name, pid=proc.pid)
+
+    threading.Thread(target=_reap_run_all_process,
+                     args=(proc, started, log_fp), daemon=True).start()
+    return jsonify({'ok': True, 'state': dict(_run_all_state)}), 202
+
+
+@app.route('/api/cron_run_all_status')
+def api_cron_run_all_status():
+    """查询全量编排脚本的执行状态。"""
+    with _run_all_lock:
+        return jsonify(dict(_run_all_state))
 
 
 # ---------------------------------------------------------------------------
@@ -727,7 +870,8 @@ def api_results():
 
     sql = """
         SELECT ts_code, stock_name, trade_date, strategy, selected,
-               max_gain_10d, max_down_10d, max_gain_20d, max_down_20d
+               max_gain_10d, max_down_10d, max_gain_20d, max_down_20d,
+               max_gain_to_date, max_down_to_date
         FROM strategy_selected_stock_daily_t
         WHERE 1=1
     """
@@ -749,10 +893,24 @@ def api_results():
 
     # Decimal → float，便于前端 JSON 序列化
     for r in rows:
-        for k in ('max_gain_10d', 'max_down_10d', 'max_gain_20d', 'max_down_20d'):
+        for k in ('max_gain_10d', 'max_down_10d', 'max_gain_20d', 'max_down_20d',
+                  'max_gain_to_date', 'max_down_to_date'):
             if r[k] is not None:
                 r[k] = float(r[k])
     return jsonify({'rows': rows, 'total': len(rows)})
+
+
+@app.route('/api/backtest_analysis', methods=['POST'])
+def api_backtest_analysis():
+    """策略回测分析：按策略名 + 日期范围计算聚合回测评价指标。"""
+    data = request.get_json(silent=True) or {}
+    strategy = (data.get('strategy') or '').strip() or None
+    start_date = (data.get('start_date') or '').strip() or None
+    end_date = (data.get('end_date') or '').strip() or None
+
+    from backtest_backend import run_backtest
+    result = run_backtest(strategy, start_date, end_date)
+    return jsonify(result)
 
 
 def _fmt_date(d):

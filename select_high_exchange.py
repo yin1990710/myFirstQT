@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-高换手率选股策略 (select_high_exchange.py)
+选股策略: 高换手率选股策略
 
 选股条件（对齐 prompt#L302-315）：
 1. 读取 stock_daily_t + stock_daily_basic_info_t 最近 10 个交易日，按 ts_code + trade_date 关联
@@ -28,7 +28,7 @@ import tushare as ts
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
-from insert_strategy_selected_record import record_selected_stocks
+from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
@@ -309,7 +309,7 @@ def main():
 
         # 选股结果入库（便于回测）
         record_selected_stocks(
-            'high_exchange',
+            '高换手率选股策略',
             [{'ts_code': s['ts_code'], 'selected': 1} for s in selected],
             end_date)
     else:

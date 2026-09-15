@@ -36,7 +36,7 @@ def rate_limit():
 # 引用自定义模块
 from mysql_connection import get_mysql_connection, close_connection
 from read_stocks_csv import read_multiple_stock_files
-from tushare_get_daily import get_stock_daily
+from module_tushare_api import get_stock_daily
 
 def get_stock_filter_info(conn, stock_codes: list) -> dict:
     """

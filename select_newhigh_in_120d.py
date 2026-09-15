@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-120日区间新高选股策略 (select_newhigh_in_120d.py)
+选股策略: 120日区间新高选股策略
 
 从 stock_daily_t 表查出最近 120 天股票交易数据，从 stock_info_t 表查询股票基本信息，
 通过 ts_code 关联，选出符合以下条件的股票：
@@ -19,7 +19,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from mysql_connection import get_mysql_connection, close_connection
-from insert_strategy_selected_record import record_selected_stocks
+from module_insert_strategy_selected_record import record_selected_stocks
 
 
 def get_date_170_days_ago() -> str:
@@ -209,7 +209,7 @@ def main():
     # 步骤5: 选股结果入库（便于回测）
     if results:
         record_selected_stocks(
-            'newhigh_in_120d',
+            '120日区间新高选股策略',
             [{'ts_code': r['ts_code'], 'selected': 1} for r in results],
             str(df['trade_date'].max()))
 

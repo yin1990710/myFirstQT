@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-选股结果入库公共模块（insert_strategy_selected_record.py）
+选股结果入库公共模块（module_insert_strategy_selected_record.py）
 
 功能：
   将各选股程序（select_*.py / find_*.py）的选股结果统一写入
@@ -16,10 +16,10 @@
   4. stock_name 为股票名称：优先取 rows 中显式传入的 'stock_name'，
      未传时按 ts_code 从 stock_info_t 表自动解析；历史缺失名称会在迁移时回填。
   5. max_gain_10d / max_down_10d / max_down_20d / max_gain_20d 字段预留
-     （回测程序 backtest.py 另行回填），本模块不计算。
+     （回测程序 strategy_results.py 另行回填），本模块不计算。
 
 用法：
-  from insert_strategy_selected_record import record_selected_stocks
+  from module_insert_strategy_selected_record import record_selected_stocks
   record_selected_stocks('turn_bottom',
                          [{'ts_code': '600000.SH', 'selected': 1}, ...],
                          '20260914')

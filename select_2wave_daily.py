@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-二浪日线选股策略 (select_2wave_daily.py)
+选股策略: 二浪日线选股策略
 
 识别「第一波放量上涨 → 缩量回调 → 再次启动」的二浪结构。
 选股条件：
@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
-from insert_strategy_selected_record import record_selected_stocks
+from module_insert_strategy_selected_record import record_selected_stocks
 
 
 def get_target_date():
@@ -320,7 +320,7 @@ def generate_csv_file(stocks, folder_path):
     return csv_path
 
 
-STRATEGY_NAME = '2wave_daily'
+STRATEGY_NAME = '二浪日线选股策略'
 
 
 def main():

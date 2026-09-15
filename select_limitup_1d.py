@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-当日涨停选股策略 (select_limitup_1d.py)
+选股策略: 当日涨停选股策略
 
 读取 stock_daily_t 最近 10 个交易日数据，选出最近一个交易日涨停的股票。
 选股条件：
@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
-from insert_strategy_selected_record import record_selected_stocks
+from module_insert_strategy_selected_record import record_selected_stocks
 
 def get_target_date():
     now = datetime.now()
@@ -187,7 +187,7 @@ def main():
 
         # 选股结果入库（便于回测）
         record_selected_stocks(
-            'limitup_1d',
+            '当日涨停选股策略',
             [{'ts_code': s['ts_code'], 'selected': 1} for s in selected_stocks],
             max(r['trade_date'] for r in data))
     else:

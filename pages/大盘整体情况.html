@@ -31,6 +31,12 @@
   .page-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   .page-head h1 { font-size: 22px; margin: 0; }
   .page-head .meta { color: #6b7684; font-size: 13px; }
+  .page-head .head-right { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .head-right .btn { border: 1px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 6px;
+                     padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .head-right .btn:hover:not(:disabled) { background: #eef4ff; }
+  .head-right .btn:disabled { background: #fff; color: #bbb; border-color: #ccc; cursor: not-allowed; }
+  .head-right .refresh-state { font-size: 13px; color: #555; }
 
   .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
           padding: 18px 20px; margin-top: 18px; }
@@ -64,11 +70,11 @@
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest">回测结果查询</a>
-    <a href="/cron">任务运行监控</a>
+    <a href="/backtest">策略回测</a>
     <a href="/market" class="active">大盘整体情况</a>
-    <a href="/mri">大盘风险分析报告</a>
+    <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -76,7 +82,11 @@
 <main class="wrap">
   <div class="page-head">
     <h1>大盘风险监测</h1>
-    <div class="meta">报告日期：<b id="targetDate"></b>　｜　页面生成时间：<b id="generatedAt"></b></div>
+    <div class="head-right">
+      <div class="meta">报告日期：<b id="targetDate"></b>　｜　页面生成时间：<b id="generatedAt"></b></div>
+      <span id="refreshState" class="refresh-state"></span>
+      <button class="btn" id="refreshBtn" onclick="refreshData()">立即刷新</button>
+    </div>
   </div>
 
   <section class="card">
@@ -138,6 +148,48 @@ async function loadData() {
     errBox.textContent = '❌ ' + err.message + '，请先运行 .venv/bin/python report_market_overall_html.py 生成数据';
     errBox.style.display = 'block';
   }
+}
+
+// ---- 立即刷新：触发后端重算数据，完成后重新拉取渲染 ----
+let _refreshTimer = null;
+
+async function refreshData() {
+  const btn = document.getElementById('refreshBtn');
+  const state = document.getElementById('refreshState');
+  btn.disabled = true; btn.textContent = '刷新中…';
+  state.textContent = '';
+  try {
+    const r = await fetch('/api/market_refresh', {method: 'POST'});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || '触发失败');
+  } catch (err) {
+    state.textContent = '❌ ' + err.message;
+    btn.disabled = false; btn.textContent = '立即刷新';
+    return;
+  }
+  pollRefreshStatus();
+}
+
+function pollRefreshStatus() {
+  if (_refreshTimer) clearInterval(_refreshTimer);
+  const poll = async () => {
+    const state = document.getElementById('refreshState');
+    try {
+      const st = await fetch('/api/market_refresh_status').then(r => r.json());
+      if (st.status === 'running') { state.textContent = '⏳ 数据计算中…'; return; }
+      clearInterval(_refreshTimer); _refreshTimer = null;
+      if (st.status === 'success') {
+        state.textContent = `✅ 计算完成（${st.duration}s），已更新`;
+        await loadData();
+      } else if (st.status === 'failed') {
+        state.textContent = `❌ 计算失败（退出码 ${st.rc}），请查看服务日志`;
+      }
+    } catch (e) { /* 状态查询失败，等待下一轮重试 */ return; }
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = false; btn.textContent = '立即刷新';
+  };
+  poll();
+  _refreshTimer = setInterval(poll, 1500);
 }
 
 function render(D) {
@@ -258,6 +310,15 @@ if (typeof echarts === 'undefined') {
 }
 }
 loadData();
+
+// 页面加载时若后端正在重算数据，恢复按钮状态并继续轮询
+fetch('/api/market_refresh_status').then(r => r.json()).then(st => {
+  if (st.status === 'running') {
+    document.getElementById('refreshBtn').disabled = true;
+    document.getElementById('refreshBtn').textContent = '刷新中…';
+    pollRefreshStatus();
+  }
+}).catch(() => {});
 </script>
 </body>
 </html>

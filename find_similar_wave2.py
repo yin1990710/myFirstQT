@@ -40,7 +40,7 @@ from select_wave2 import (
     MIN_SCORE, TOP_N,
     get_target_date, get_last_n_trade_dates, read_stock_data, add_mas,
 )
-from insert_strategy_selected_record import record_selected_stocks
+from module_insert_strategy_selected_record import record_selected_stocks
 
 WEIGHT_MA = 0.5            # MA5 相似度权重
 WEIGHT_VOL = 0.5           # 成交量相似度权重

@@ -36,8 +36,23 @@ MANUAL_LOG_DIR = os.path.join(BASE_DIR, 'manual_logs')
 DAILY_SH_PATH = os.path.join(BASE_DIR, 'run_daily_stock_tasks.sh')
 
 _CRON_TS_LINE = re.compile(r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(?P<body>.*)$')
-_CRON_START = re.compile(r'^\[(?P<step>[^\]]+)\]\s?开始执行\s?(?P<script>[\w.]+\.py)\s?\.\.\.$')
-_CRON_END = re.compile(r'^\[(?P<step>[^\]]+)\]\s?[✅❌]\s?(?P<script>[\w.]+\.py)\s?执行(?P<result>成功|失败)')
+# 新格式：[步骤1/19] 开始执行 指数日交易数据 (update_stock_index_daily.py)...
+_CRON_START = re.compile(
+    r'^\[(?P<step>[^\]]+)\]\s?开始执行\s?(?P<task_name>[^\(]+?)\s?\((?P<script>[\w.]+\.py)\)\s?\.\.\.$'
+)
+# [步骤1/19] ✅ 指数日交易数据 (update_stock_index_daily.py) 执行成功
+_CRON_END = re.compile(
+    r'^\[(?P<step>[^\]]+)\]\s?[✅❌]\s?(?P<task_name>[^\(]+?)\s?\((?P<script>[\w.]+\.py)\)\s?执行(?P<result>成功|失败)'
+)
+# 批次横幅：========== 第一批任务：数据更新 ==========
+# 兼容 log "..." 源码行（结尾带引号）与日志正文（结尾为 = 号）两种形式
+_BATCH_MARK = re.compile(
+    r'第(?P<num>[一二三四五六七八九十\d]+)批任务[：:]\s*(?P<name>[^=\n]+?)\s*(?:=+\s*)?"?\s*$'
+)
+# 批次切换：========== 第一批任务完成，开始第二批任务 ==========
+_BATCH_TRANSITION = re.compile(
+    r'第[一二三四五六七八九十\d]+批任务完成，\s*开始第(?P<next>[一二三四五六七八九十\d]+)批任务'
+)
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +72,87 @@ def get_allowed_scripts():
     except OSError:
         pass
     return allowed
+
+
+# 从 shell 脚本注释中提取的 脚本名 → 任务名 映射缓存
+_task_name_cache = None
+
+
+def _load_task_names():
+    """从 run_daily_stock_tasks.sh 注释行提取 脚本名 → 任务名 的映射。
+
+    注释格式：# 步骤N：任务名称
+    后续非注释行包含脚本名：... script_name.py ...
+    """
+    global _task_name_cache
+    if _task_name_cache is not None:
+        return _task_name_cache
+
+    _task_name_cache = {}
+    current_name = None
+    try:
+        with open(DAILY_SH_PATH, encoding='utf-8') as f:
+            for line in f:
+                stripped = line.strip()
+                # 注释行：# 步骤N：任务名称
+                m = re.match(r'^#\s*步骤\d+[：:]\s*(.+)$', stripped)
+                if m:
+                    current_name = m.group(1).strip()
+                    continue
+                # 非注释行：查找脚本名
+                if current_name:
+                    scripts = re.findall(r'([A-Za-z0-9_]+\.py)', stripped)
+                    for s in scripts:
+                        if s not in _task_name_cache:
+                            _task_name_cache[s] = current_name
+    except OSError:
+        pass
+    return _task_name_cache
+
+
+def _lookup_task_name(script):
+    """根据脚本名查任务名，未找到时返回 None。"""
+    return _load_task_names().get(script)
+
+
+# 从 shell 脚本中提取的 批次序号 → 批次名称 映射缓存
+_batch_name_cache = None
+
+
+def _load_batch_names():
+    """从 run_daily_stock_tasks.sh 提取 批次序号 → 批次名称 的映射。
+
+    优先取脚本中 log 行的批次横幅（实际运行时输出到日志，如
+    log "========== 第一批任务：数据更新 =========="），
+    注释行（如 `# 第一批任务：数据更新（按顺序执行）`）仅作补充，
+    并去掉名称尾部的（...）说明后缀；log 行的优先级高于注释行。
+    """
+    global _batch_name_cache
+    if _batch_name_cache is not None:
+        return _batch_name_cache
+
+    _batch_name_cache = {}
+    try:
+        with open(DAILY_SH_PATH, encoding='utf-8') as f:
+            for line in f:
+                stripped = line.strip()
+                m = _BATCH_MARK.search(stripped)
+                if not m:
+                    continue
+                num = m.group('num')
+                if stripped.startswith('#'):
+                    name = re.sub(r'（[^）]*）\s*$', '', m.group('name').strip()).strip()
+                    _batch_name_cache.setdefault(num, name)
+                else:
+                    _batch_name_cache[num] = m.group('name').strip()
+    except OSError:
+        pass
+    return _batch_name_cache
+
+
+def _batch_name(num):
+    """根据批次序号（如 '二'）查批次名称，未找到时返回 None。"""
+    return _load_batch_names().get(num)
 
 
 # ---------------------------------------------------------------------------
@@ -137,11 +233,15 @@ def parse_cron_run():
                 continue
             ts, body = mm.group('ts'), mm.group('body').strip()
 
-            if '第一批任务：数据更新' in body:
-                phase = '数据更新'
+            # 批次横幅：========== 第N批任务：名称 ==========（名称直接取自日志）
+            mb = _BATCH_MARK.search(body)
+            if mb:
+                phase = mb.group('name').strip()
                 continue
-            if '第一批任务完成，开始第二批任务' in body:
-                phase = '选股分析与报告'
+            # 批次切换行不带名称（第N批任务完成，开始第M批任务），名称从 shell 脚本映射取
+            mt = _BATCH_TRANSITION.search(body)
+            if mt:
+                phase = _batch_name(mt.group('next')) or f'第{mt.group("next")}批任务'
                 continue
             if body == '开始执行每日股票分析任务':
                 batch_start = ts
@@ -156,6 +256,7 @@ def parse_cron_run():
                 tasks.append({
                     'step': ms.group('step'),
                     'name': ms.group('script'),
+                    'task_name': ms.group('task_name').strip(),
                     'phase': phase,
                     'status': 'running',
                     'start': ts,
@@ -256,13 +357,14 @@ def write_run_log(data=None):
 
     sql = """
         INSERT INTO task_run_log_t
-            (run_id, run_date, batch_phase, step, script_name, status,
+            (run_id, run_date, batch_phase, step, script_name, task_name, status,
              start_time, end_time, duration_sec, detail_log,
              batch_status, batch_start, batch_end, batch_duration_sec,
              total_tasks, success_tasks, failed_tasks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
+            task_name=VALUES(task_name), batch_phase=VALUES(batch_phase),
             status=VALUES(status), start_time=VALUES(start_time),
             end_time=VALUES(end_time), duration_sec=VALUES(duration_sec),
             detail_log=VALUES(detail_log), batch_status=VALUES(batch_status),
@@ -281,7 +383,8 @@ def write_run_log(data=None):
             for t in data['tasks']:
                 cursor.execute(sql, (
                     run_id, run_date,
-                    t.get('phase'), t.get('step'), t['name'], t['status'],
+                    t.get('phase'), t.get('step'), t['name'], t.get('task_name'),
+                    t['status'],
                     t.get('start'), t.get('end'), t.get('duration'), t.get('detail_log'),
                     batch_status, batch_start, batch_end, batch_duration,
                     total, success, failed,
@@ -293,17 +396,19 @@ def write_run_log(data=None):
     return rows_written
 
 
-def write_manual_run_log(script, status, start, end, duration, rc=None, log=None):
+def write_manual_run_log(script, status, start, end, duration, rc=None, log=None,
+                         task_name=None):
     """将手动执行的任务记录写入 task_run_log_t 表。
 
     参数：
-      script:   脚本名（如 'update_stock_daily.py'）
-      status:   'running' | 'success' | 'failed'
-      start:    开始时间字符串 'YYYY-MM-DD HH:MM:SS'
-      end:      结束时间字符串（可 None）
-      duration: 耗时秒（可 None）
-      rc:       退出码（可 None）
-      log:      手动日志文件名（可 None）
+      script:    脚本名（如 'update_stock_daily.py'）
+      status:    'running' | 'success' | 'failed'
+      start:     开始时间字符串 'YYYY-MM-DD HH:MM:SS'
+      end:       结束时间字符串（可 None）
+      duration:  耗时秒（可 None）
+      rc:        退出码（可 None）
+      log:       手动日志文件名（可 None）
+      task_name: 任务名称（如 '指数日交易数据'，可 None 时从 shell 脚本提取）
 
     使用 run_id='manual_<YYYYMMDD>_<script_stem>' 区分定时批次与手动执行。
     """
@@ -313,15 +418,20 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
     run_id = 'manual_' + now.strftime('%Y%m%d') + '_' + script[:-3]
     run_date = now.strftime('%Y-%m-%d')
 
+    # 若未传入 task_name，尝试从 shell 脚本注释中提取
+    if not task_name:
+        task_name = _lookup_task_name(script)
+
     sql = """
         INSERT INTO task_run_log_t
-            (run_id, run_date, batch_phase, step, script_name, status,
+            (run_id, run_date, batch_phase, step, script_name, task_name, status,
              start_time, end_time, duration_sec, detail_log,
              batch_status, batch_start, batch_end, batch_duration_sec,
              total_tasks, success_tasks, failed_tasks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
+            task_name=VALUES(task_name), batch_phase=VALUES(batch_phase),
             status=VALUES(status), start_time=VALUES(start_time),
             end_time=VALUES(end_time), duration_sec=VALUES(duration_sec),
             detail_log=VALUES(detail_log), batch_status=VALUES(batch_status),
@@ -338,7 +448,7 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
         with conn.cursor() as cursor:
             cursor.execute(sql, (
                 run_id, run_date,
-                '手动执行', '-', script, status,
+                '手动执行', '-', script, task_name, status,
                 start, end, duration, log,
                 batch_status, start, end, duration,
                 1,

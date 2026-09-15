@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>策略回测 - 力矩量化选股平台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  /* 与首页一致的导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; margin: -24px -24px 20px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .page-tabs { display: flex; gap: 0; margin: 0 0 20px; border-bottom: 2px solid #e0e0e0; }
+  .page-tabs a {
+    padding: 10px 24px; text-decoration: none; font-size: 15px; color: #666;
+    border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s;
+  }
+  .page-tabs a:hover { color: #1a1a1a; }
+  .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #fff;
+         padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+         margin-bottom: 14px; }
+  .bar label { font-size: 13px; color: #555; display: flex; align-items: center; gap: 6px; }
+  .bar select, .bar input[type="date"] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+  .bar input[type="date"] { width: 145px; font-family: inherit; cursor: pointer; }
+  .bar button { padding: 6px 14px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
+                font-size: 13px; cursor: pointer; }
+  .bar button:hover { background: #1558b0; }
+  .bar button.reset { background: #888; }
+  .bar button.reset:hover { background: #777; }
+
+  .summary-bar { display: flex; gap: 24px; font-size: 13px; color: #666; margin-bottom: 14px; }
+  .summary-bar span { font-weight: 600; color: #222; }
+
+  .section-title { font-size: 16px; font-weight: 600; margin: 24px 0 12px; color: #222;
+                   border-left: 4px solid #1a73e8; padding-left: 10px; }
+  .section-title.risk { border-left-color: #d93025; }
+
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                  gap: 14px; margin-bottom: 20px; }
+  .metric-card { background: #fff; border-radius: 8px; padding: 18px 20px;
+                box-shadow: 0 1px 3px rgba(0,0,0,.08); border-left: 4px solid #1a73e8; }
+  .metric-card.risk { border-left-color: #d93025; }
+  .metric-card .label { font-size: 13px; color: #888; margin-bottom: 8px; }
+  .metric-card .value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+  .metric-card .value.positive { color: #d93025; }
+  .metric-card .value.negative { color: #0f9d58; }
+  .metric-card .value.neutral { color: #222; }
+  .metric-card .sub { font-size: 12px; color: #aaa; margin-top: 4px; }
+
+  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px; }
+  thead th:first-child { border-top-left-radius: 8px; }
+  thead th:last-child { border-top-right-radius: 8px; }
+  th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  thead th { background: #1a73e8; color: #fff; }
+  th.left, td.left { text-align: left; }
+  tbody tr:hover { background: #eef4ff; }
+  .pos { color: #d93025; }
+  .neg { color: #0f9d58; }
+
+  .empty { text-align: center; padding: 60px 20px; color: #999; background: #fff;
+           border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .empty .icon { font-size: 48px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest" class="active">策略回测</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="page-tabs">
+  <a href="/backtest">策略选股结果</a>
+  <a href="/backtest_analysis" class="active">策略回测</a>
+</div>
+
+<h1>📊 策略回测分析</h1>
+
+<div class="bar">
+  <label>策略
+    <select id="strategy">
+      <option value="">全部策略</option>
+    </select>
+  </label>
+  <label>起始日期 <input id="startDate" type="date"></label>
+  <label>结束日期 <input id="endDate" type="date"></label>
+  <button onclick="runAnalysis()">开始回测</button>
+  <button class="reset" onclick="resetForm()">重置</button>
+</div>
+
+<div id="resultArea">
+  <div class="empty">
+    <div class="icon">📊</div>
+    <p>选定策略和日期范围后将自动开始回测</p>
+  </div>
+</div>
+
+<script>
+function fmtPct(v) {
+  if (v === null || v === undefined) return '—';
+  return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+}
+function cls(v) {
+  if (v === null || v === undefined) return 'neutral';
+  return v >= 0 ? 'positive' : 'negative';
+}
+
+function loadStrategies() {
+  fetch('/api/strategies')
+    .then(r => r.json())
+    .then(data => {
+      const sel = document.getElementById('strategy');
+      (data.strategies || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {});
+}
+
+function resetForm() {
+  document.getElementById('strategy').value = '';
+  document.getElementById('startDate').value = '';
+  document.getElementById('endDate').value = '';
+}
+
+let _running = false;   // 请求进行中标志，防止自动触发+手动点击造成重复提交
+
+function runAnalysis() {
+  const strategy = document.getElementById('strategy').value;
+  const startDate = document.getElementById('startDate').value.replace(/-/g, '');
+  const endDate = document.getElementById('endDate').value.replace(/-/g, '');
+
+  // YYYY-MM-DD 为定长 ISO 格式，可直接按字符串字典序比较
+  if (startDate && endDate && startDate > endDate) {
+    document.getElementById('resultArea').innerHTML =
+      '<div class="empty"><div class="icon">⚠️</div><p>起始日期不能晚于结束日期</p></div>';
+    return;
+  }
+  if (_running) return;
+  _running = true;
+
+  const area = document.getElementById('resultArea');
+  area.innerHTML = '<div class="empty"><div class="icon">⏳</div><p>回测计算中...</p></div>';
+
+  fetch('/api/backtest_analysis', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({strategy, start_date: startDate, end_date: endDate})
+  })
+    .then(r => r.json())
+    .then(data => renderResult(data))
+    .catch(() => {
+      area.innerHTML = '<div class="empty"><div class="icon">❌</div><p>请求失败，请重试</p></div>';
+    })
+    .finally(() => { _running = false; });
+}
+
+// 选定策略和日期范围后自动触发回测：起止日期齐备即执行（策略未选时按全部策略），
+// 之后任一条件变化都会重新执行，无需点击「开始回测」按钮
+function maybeAutoRun() {
+  const s = document.getElementById('startDate').value;
+  const e = document.getElementById('endDate').value;
+  if (s && e) runAnalysis();
+}
+['strategy', 'startDate', 'endDate'].forEach(id =>
+  document.getElementById(id).addEventListener('change', maybeAutoRun));
+
+function renderResult(data) {
+  const area = document.getElementById('resultArea');
+
+  if (data.error) {
+    area.innerHTML = '<div class="empty"><div class="icon">❌</div><p>' + data.error + '</p></div>';
+    return;
+  }
+  if (data.total_stocks === 0) {
+    area.innerHTML = '<div class="empty"><div class="icon">📭</div><p>' + (data.message || '未找到符合条件的选股记录') + '</p></div>';
+    return;
+  }
+
+  const m = data.metrics || {};
+  let html = '';
+
+  html += '<div class="summary-bar">';
+  html += '选股次数 <span>' + data.total_stocks + '</span> 条';
+  html += ' · 有效回测 <span>' + data.valid_stocks + '</span> 条';
+  html += ' · 涉及交易日 <span>' + data.total_dates + '</span> 个';
+  html += '</div>';
+
+  html += '<div class="section-title">收益类指标</div>';
+  html += '<div class="metrics-grid">';
+  html += metricCard('10日最大收益率', m.avg_gain_10d, '选中股票 T+1~T+10 窗口最大涨幅均值');
+  html += metricCard('20日最大收益率', m.avg_gain_20d, '选中股票 T+1~T+20 窗口最大涨幅均值');
+  html += metricCard('相对上证指数超额收益', m.excess_sh, '上证指数同期收益 ' + fmtPct(m.sh_index_10d));
+  html += metricCard('相对创业板指超额收益', m.excess_sz, '创业板指同期收益 ' + fmtPct(m.sz_index_10d));
+  html += '</div>';
+
+  html += '<div class="section-title risk">风险类指标</div>';
+  html += '<div class="metrics-grid">';
+  html += metricCard('10日最大跌幅', m.avg_down_10d, '选中股票 T+1~T+10 窗口最大跌幅均值', true);
+  html += metricCard('20日最大跌幅', m.avg_down_20d, '选中股票 T+1~T+20 窗口最大跌幅均值', true);
+  html += metricCard('夏普比率（核心评分）', m.sharpe, '基于10日最大收益序列，年化', false, true);
+  html += '</div>';
+
+  if (data.detail && data.detail.length > 0) {
+    html += '<div class="section-title">明细数据</div>';
+    html += '<table><thead><tr>';
+    html += '<th class="left">股票代码</th><th class="left">名称</th><th>选股日期</th><th class="left">策略</th>';
+    html += '<th>10日最大涨幅</th><th>10日最大跌幅</th><th>20日最大涨幅</th><th>20日最大跌幅</th>';
+    html += '</tr></thead><tbody>';
+    data.detail.forEach(r => {
+      html += '<tr>';
+      html += '<td class="left">' + r.ts_code + '</td>';
+      html += '<td class="left">' + (r.stock_name || '') + '</td>';
+      html += '<td>' + r.trade_date + '</td>';
+      html += '<td class="left">' + (r.strategy || '') + '</td>';
+      html += '<td class="pos">' + fmtPct(r.max_gain_10d) + '</td>';
+      html += '<td class="neg">' + fmtPct(r.max_down_10d) + '</td>';
+      html += '<td class="pos">' + fmtPct(r.max_gain_20d) + '</td>';
+      html += '<td class="neg">' + fmtPct(r.max_down_20d) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  area.innerHTML = html;
+}
+
+function metricCard(label, value, sub, isRisk, isScore) {
+  let v, vcls;
+  if (value === null || value === undefined) {
+    v = '—'; vcls = 'neutral';
+  } else if (isScore) {
+    v = value.toFixed(2);
+    vcls = value >= 1 ? 'positive' : (value >= 0 ? 'neutral' : 'negative');
+  } else {
+    v = fmtPct(value);
+    vcls = cls(value);
+  }
+  return '<div class="metric-card' + (isRisk ? ' risk' : '') + '">'
+    + '<div class="label">' + label + '</div>'
+    + '<div class="value ' + vcls + '">' + v + '</div>'
+    + '<div class="sub">' + (sub || '') + '</div>'
+    + '</div>';
+}
+
+loadStrategies();
+</script>
+</body>
+</html>
