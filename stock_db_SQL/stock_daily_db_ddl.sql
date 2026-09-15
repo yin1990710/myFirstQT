@@ -21,7 +21,58 @@ SET @@SESSION.SQL_LOG_BIN= 0;
 -- GTID state at the beginning of the backup 
 --
 
-SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-397666';
+SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-399525';
+
+--
+-- Table structure for table `etf_basic_t`
+--
+
+DROP TABLE IF EXISTS `etf_basic_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `etf_basic_t` (
+  `ts_code` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'ETF代码',
+  `csname` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ETF简称',
+  `extname` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ETF扩展简称',
+  `cname` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ETF全称',
+  `index_code` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '跟踪指数代码',
+  `index_name` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '跟踪指数名称',
+  `setup_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '成立日期',
+  `list_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '上市日期',
+  `list_status` varchar(4) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '上市状态：L上市 D退市 P暂停',
+  `exchange` varchar(4) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '交易所：SH上交所 SZ深交所',
+  `mgr_name` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '管理人',
+  `custod_name` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '托管人',
+  `mgt_fee` decimal(6,3) DEFAULT NULL COMMENT '管理费(%)',
+  `etf_type` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ETF类型',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
+  PRIMARY KEY (`ts_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ETF基础信息表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `etf_daily_t`
+--
+
+DROP TABLE IF EXISTS `etf_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `etf_daily_t` (
+  `ts_code` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'ETF代码',
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期',
+  `pre_close` decimal(10,4) DEFAULT NULL COMMENT '前收盘价',
+  `open` decimal(10,4) DEFAULT NULL COMMENT '开盘价',
+  `high` decimal(10,4) DEFAULT NULL COMMENT '最高价',
+  `low` decimal(10,4) DEFAULT NULL COMMENT '最低价',
+  `close` decimal(10,4) DEFAULT NULL COMMENT '收盘价',
+  `change` decimal(10,4) DEFAULT NULL COMMENT '涨跌额',
+  `pct_chg` decimal(8,3) DEFAULT NULL COMMENT '涨跌幅(%)',
+  `vol` decimal(20,4) DEFAULT NULL COMMENT '成交量(手)',
+  `amount` decimal(20,4) DEFAULT NULL COMMENT '成交额(千元)',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
+  PRIMARY KEY (`ts_code`,`trade_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ETF日线行情表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `index_daily_t`
@@ -173,37 +224,6 @@ CREATE TABLE `stock_daily_factor_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `stock_daily_qfq_t`
---
-
-DROP TABLE IF EXISTS `stock_daily_qfq_t`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `stock_daily_qfq_t` (
-  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `ts_code` varchar(20) NOT NULL COMMENT '股票代码',
-  `trade_date` varchar(8) NOT NULL COMMENT '交易日期',
-  `open` float DEFAULT NULL COMMENT '开盘价',
-  `high` float DEFAULT NULL COMMENT '最高价',
-  `low` float DEFAULT NULL COMMENT '最低价',
-  `close` float DEFAULT NULL COMMENT '收盘价',
-  `pre_close` float DEFAULT NULL COMMENT '昨收价',
-  `change` float DEFAULT NULL COMMENT '涨跌额',
-  `pct_chg` float DEFAULT NULL COMMENT '涨跌幅',
-  `vol` float DEFAULT NULL COMMENT '成交量',
-  `amount` float DEFAULT NULL COMMENT '成交额',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `turning_point` varchar(10) DEFAULT NULL COMMENT '波峰、波谷、波中',
-  `qfq_adj_factor` float(4,2) DEFAULT NULL COMMENT '当日前复权因子',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
-  KEY `idx_ts_code` (`ts_code`),
-  KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=1871482 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票前复权日交易数据表';
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Table structure for table `stock_daily_t`
 --
 
@@ -234,7 +254,7 @@ CREATE TABLE `stock_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
   KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=41080892 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=41100648 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -348,6 +368,8 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
   `max_down_10d` float DEFAULT NULL COMMENT '10个交易日中最大跌幅(%,T+1~T+10最低close/T日close)',
   `max_down_20d` float DEFAULT NULL COMMENT '20个交易日中最大跌幅(%,T+1~T+20最低close/T日close)',
   `max_gain_20d` float DEFAULT NULL COMMENT '20个交易日中最大涨幅(%,T+1~T+20最高close/T日close)',
+  `max_gain_to_date` decimal(8,2) DEFAULT NULL COMMENT '至今区间最大涨幅(%)',
+  `max_down_to_date` decimal(8,2) DEFAULT NULL COMMENT '至今区间最大跌幅(%)',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`ts_code`,`trade_date`)
@@ -375,30 +397,38 @@ CREATE TABLE `szse_market_summary_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `ths_industry_daily_t`
+-- Table structure for table `task_run_log_t`
 --
 
-DROP TABLE IF EXISTS `ths_industry_daily_t`;
+DROP TABLE IF EXISTS `task_run_log_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ths_industry_daily_t` (
+CREATE TABLE `task_run_log_t` (
   `id` bigint NOT NULL AUTO_INCREMENT,
-  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期',
-  `ts_code` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块代码',
-  `name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '板块名称',
-  `lead_stock` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '领涨股票名称',
-  `close_price` decimal(10,2) DEFAULT NULL COMMENT '最新价',
-  `pct_change` decimal(10,2) DEFAULT NULL COMMENT '行业涨跌幅',
-  `industry_index` decimal(12,2) DEFAULT NULL COMMENT '行业指数',
-  `company_num` int DEFAULT NULL COMMENT '公司数量',
-  `pct_change_stock` decimal(10,2) DEFAULT NULL COMMENT '领涨股涨跌幅',
-  `net_buy_amount` decimal(20,2) DEFAULT NULL COMMENT '流入资金(元)',
-  `net_sell_amount` decimal(20,2) DEFAULT NULL COMMENT '流出资金(元)',
-  `net_amount` decimal(20,2) DEFAULT NULL COMMENT '净额(元)',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `run_id` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `run_date` date NOT NULL COMMENT '运行日期',
+  `batch_phase` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '批次阶段(数据更新/选股分析与报告)',
+  `step` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '步骤序号(如 2/18)',
+  `script_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务脚本名(如 update_stock_daily.py)',
+  `task_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '任务名称(如 指数日交易数据)',
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT '任务状态(success/failed/running/pending)',
+  `start_time` datetime DEFAULT NULL COMMENT '任务开始时间',
+  `end_time` datetime DEFAULT NULL COMMENT '任务结束时间',
+  `duration_sec` decimal(10,1) DEFAULT NULL COMMENT '运行耗时(秒)',
+  `detail_log` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '明细日志文件名(cron_logs内)',
+  `batch_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '批次整体状态(success/failed/running)',
+  `batch_start` datetime DEFAULT NULL COMMENT '批次开始时间',
+  `batch_end` datetime DEFAULT NULL COMMENT '批次结束时间',
+  `batch_duration_sec` decimal(10,1) DEFAULT NULL COMMENT '批次总耗时(秒)',
+  `total_tasks` int DEFAULT NULL COMMENT '批次任务总数',
+  `success_tasks` int DEFAULT NULL COMMENT '批次成功数',
+  `failed_tasks` int DEFAULT NULL COMMENT '批次失败数',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=35564 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='同花顺行业板块日线数据表';
+  UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
+  KEY `idx_run_date` (`run_date`),
+  KEY `idx_script` (`script_name`)
+) ENGINE=InnoDB AUTO_INCREMENT=5576 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
 /*!40101 SET character_set_client = @saved_cs_client */;
 SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -411,4 +441,4 @@ SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-14 23:13:44
+-- Dump completed on 2026-09-16  0:31:47
