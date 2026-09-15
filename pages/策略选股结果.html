@@ -42,8 +42,9 @@
   thead th:first-child { border-top-left-radius: 8px; }
   thead th:last-child { border-top-right-radius: 8px; }
   th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
-  th:nth-child(1), td:nth-child(1), th:nth-child(2), td:nth-child(2),
-  th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4) { text-align: left; }
+  th:nth-child(1), td:nth-child(1) { text-align: center; color: #888; }
+  th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3),
+  th:nth-child(4), td:nth-child(4), th:nth-child(5), td:nth-child(5) { text-align: left; }
   thead th { background: #1a73e8; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 56px; z-index: 50; }
   thead th:hover { background: #1558b0; }
   thead th .arrow { font-size: 10px; margin-left: 4px; color: #bbb; }
@@ -193,10 +194,10 @@ document.getElementById('body').addEventListener('click', e => {
   if (a) sessionStorage.setItem(NAV_KEY, JSON.stringify({list: buildNavList()}));
 });
 
-// 初始化：加载策略下拉框，点击表头排序
-document.getElementById('headRow').innerHTML = COLS.map(c =>
+// 初始化：加载策略下拉框，点击表头排序（序号列不参与排序）
+document.getElementById('headRow').innerHTML = '<th>序号</th>' + COLS.map(c =>
   `<th data-key="${c.key}">${c.label}<span class="arrow"></span></th>`).join('');
-document.querySelectorAll('th').forEach(th => th.onclick = () => {
+document.querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
   const k = th.dataset.key;
   if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === 'ts_code' || k === 'trade_date') ? -1 : 1; }
   render();
@@ -451,8 +452,9 @@ function render() {
   const th = document.querySelector(`th[data-key="${sortKey}"] .arrow`);
   if (th) { th.textContent = sortDir === 1 ? '▲' : '▼'; th.classList.add('active'); }
   document.getElementById('count').textContent = `共 ${rows.length} 条记录`;
-  document.getElementById('body').innerHTML = pageRows.map(r => '<tr>' + COLS.map(c =>
-    renderCell(r, c)).join('') + '</tr>').join('');
+  document.getElementById('body').innerHTML = pageRows.map((r, i) => '<tr>'
+    + `<td>${(currentPage - 1) * PAGE_SIZE + i + 1}</td>`
+    + COLS.map(c => renderCell(r, c)).join('') + '</tr>').join('');
   renderPager(currentPage, totalPages);
 }
 </script>
