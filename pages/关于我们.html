@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>关于我们 - 力矩量化选股平台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0;
+         background: #f7f8fa; color: #222; }
+  a { text-decoration: none; }
+
+  /* 顶部导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600;
+                               white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .container { max-width: 1080px; margin: 0 auto; padding: 28px 24px 60px; }
+
+  /* 页头横幅 */
+  .hero { background: linear-gradient(135deg, #1a73e8, #4a9af5); color: #fff;
+          border-radius: 12px; padding: 36px 32px; margin-bottom: 28px;
+          box-shadow: 0 2px 10px rgba(26,115,232,.25); }
+  .hero h1 { margin: 0 0 10px; font-size: 26px; }
+  .hero p { margin: 0; font-size: 14px; line-height: 1.8; color: rgba(255,255,255,.92); }
+
+  h2.section { font-size: 19px; margin: 30px 0 14px; padding-left: 10px;
+               border-left: 4px solid #1a73e8; }
+
+  /* 关于我们卡片 */
+  .about-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                 gap: 14px; }
+  .about-card { background: #fff; border-radius: 8px; padding: 18px 20px;
+                box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .about-card .k { font-size: 13px; color: #888; margin-bottom: 6px; }
+  .about-card .v { font-size: 15px; color: #222; word-break: break-all; }
+  .about-card .v a { color: #1a73e8; }
+  .about-intro { background: #fff; border-radius: 8px; padding: 20px 24px; margin-top: 14px;
+                 box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 14px; line-height: 1.9;
+                 color: #444; }
+
+  /* 功能特性 */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+              gap: 16px; }
+  .feature-card { background: #fff; border-radius: 8px; padding: 20px 22px;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .feature-card .icon { font-size: 28px; margin-bottom: 10px; }
+  .feature-card h3 { font-size: 15px; margin: 0 0 8px; color: #1a4480; }
+  .feature-card p { font-size: 13px; color: #666; line-height: 1.7; margin: 0; }
+
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e0e0e0;
+           text-align: center; font-size: 13px; color: #aaa; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about" class="active">关于力矩量化</a>
+  </nav>
+</header>
+
+<main class="container">
+
+  <div class="hero">
+    <h1>关于力矩量化选股平台</h1>
+    <p>一个基于 Python 框架的量化选股 Web 应用，用户可以自定义模型策略并检查策略的回测结果。</p>
+  </div>
+
+  <h2 class="section">项目信息</h2>
+  <div class="about-cards">
+    <div class="about-card">
+      <div class="k">作者</div>
+      <div class="v">luckboy</div>
+    </div>
+    <div class="about-card">
+      <div class="k">联系邮箱</div>
+      <div class="v"><a href="mailto:714829836@qq.com">714829836@qq.com</a></div>
+    </div>
+    <div class="about-card">
+      <div class="k">技术栈</div>
+      <div class="v">Python · Flask · MySQL · ECharts</div>
+    </div>
+    <div class="about-card">
+      <div class="k">源代码</div>
+      <div class="v"><a href="https://github.com/yin1990710/myFirstQT" target="_blank">GitHub 仓库</a></div>
+    </div>
+  </div>
+  <div class="about-intro">
+    系统每日定时更新行情数据、运行全部选股策略并将结果统一入库，随后自动计算各策略选中股票
+    未来 10 / 20 个交易日的最大涨幅与最大跌幅，供策略复盘与迭代。欢迎来信交流。
+  </div>
+
+  <h2 class="section">功能特性</h2>
+  <div class="features">
+    <div class="feature-card">
+      <div class="icon">📊</div>
+      <h3>多策略选股</h3>
+      <p>内置十余种选股策略（涨停、二浪趋势、V 形反转、底部反弹等），支持策略组合与自定义扩展。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">📈</div>
+      <h3>回测结果查询</h3>
+      <p>按策略与日期范围交互式查询选股结果，自动计算选中股票未来 10/20 日最大涨跌幅，便于复盘。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">⏰</div>
+      <h3>定时任务监控</h3>
+      <p>每日自动更新指数、期货、融资融券、个股日线等数据并运行策略，任务执行状态全程可视化。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">📉</div>
+      <h3>大盘风险监测</h3>
+      <p>涵盖期现差走势、融资融券趋势、极端涨跌统计与 A 股大盘风险指数（MRI）仪表盘。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🔍</div>
+      <h3>个股 K 线详情</h3>
+      <p>前复权日 K 线图叠加策略选中标记，直观展示策略触发点位与后续走势。</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🗄️</div>
+      <h3>数据完整性监控</h3>
+      <p>按日期范围检查各数据表的记录数与更新时间，保障回测数据的准确性与完整性。</p>
+    </div>
+  </div>
+
+  <footer>© 2026 luckboy · 量化选股平台 · 仅供学习研究，不构成投资建议</footer>
+</main>
+
+</body>
+</html>

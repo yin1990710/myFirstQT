@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>A股大盘风险指数 MRI</title>
+<style>
+*{box-sizing:border-box;}
+body{margin:0;background:#eef1f5;color:#1f2430;line-height:1.7;
+     font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;}
+.navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;
+        gap:16px;padding:0 20px;height:56px;background:#1a73e8;
+        box-shadow:0 2px 6px rgba(0,0,0,.15);}
+.navbar .brand{display:flex;align-items:center;gap:10px;margin-right:8px;text-decoration:none;}
+.navbar .brand img{height:40px;width:auto;border-radius:7px;
+                   box-shadow:0 1px 4px rgba(0,0,0,.3);background:#0b2545;}
+.navbar .brand .brand-text{color:#fff;font-size:17px;font-weight:600;white-space:nowrap;}
+.navbar nav{display:flex;gap:0;height:100%;}
+.navbar nav a{display:flex;align-items:center;padding:0 12px;height:100%;
+              white-space:nowrap;color:rgba(255,255,255,.88);font-size:14px;text-decoration:none;}
+.navbar nav a:hover{background:#1558b0;color:#fff;}
+.navbar nav a.active{background:#1558b0;color:#fff;font-weight:600;}
+.page{max-width:960px;margin:24px auto;background:#fff;padding:40px 48px;
+      box-shadow:0 2px 14px rgba(0,0,0,.07);}
+h1{font-size:24px;margin:4px 0;}
+h1 a{text-decoration:none;color:#1f2430;}
+.sub{color:#5a6472;font-size:13px;border-bottom:3px double #1f2430;padding-bottom:12px;}
+.hero{text-align:center;margin:26px 0;}
+.hero .num{font-size:58px;font-weight:700;line-height:1;}
+.hero .lv{font-size:17px;font-weight:600;margin-top:6px;}
+.hero .act{color:#5a6472;font-size:13.5px;}
+.grid{display:flex;gap:10px;margin:20px 0;}
+.card{flex:1;border-radius:12px;padding:14px 8px;text-align:center;border:2px solid;}
+.card h4{margin:0 0 6px;font-size:13px;font-weight:700;}
+.card .val{font-size:24px;font-weight:700;}
+.card .note{font-size:11px;margin-top:4px;}
+.note{color:#5a6472;font-size:12px;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+th{background:#1f2430;color:#fff;padding:7px 8px;text-align:left;font-size:12px;}
+td{border:1px solid #d9dee6;padding:5px 8px;vertical-align:top;}
+tr:nth-child(even) td{background:#fafbfd;}
+.warn{background:#fdf6ec;border-left:4px solid #b07d2b;padding:10px 14px;
+      font-size:12.5px;margin-top:20px;}
+.regen-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.regen-btn{border:1px solid #1a73e8;background:#1a73e8;color:#fff;border-radius:6px;
+           padding:8px 20px;font-size:13px;cursor:pointer;}
+.regen-btn:hover{background:#1558b0;border-color:#1558b0;}
+.regen-btn:disabled{background:#b4c6e3;border-color:#b4c6e3;cursor:not-allowed;}
+.regen-state{font-size:12.5px;color:#5a6472;}
+.regen-state .ok{color:#1e7a4f;font-weight:600;}
+.regen-state .err{color:#c0392b;font-weight:600;}
+.regen-state .run{color:#1a73e8;font-weight:600;}
+.loading{text-align:center;padding:60px 0;color:#8a94a6;font-size:15px;}
+.empty{text-align:center;padding:40px 0;color:#8a94a6;font-size:14px;}
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">回测结果查询</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri" class="active">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+<div class="page">
+<div class="regen-bar">
+  <button class="regen-btn" id="regenBtn" onclick="regenerate()">重新生成报告</button>
+  <span class="regen-state" id="regenState"></span>
+</div>
+<h1><a href="/mri/framework" title="点击查看指标体系说明">A股大盘风险指数（MRI）</a></h1>
+<div id="content"><div class="loading">加载中…</div></div>
+</div>
+<script>
+var BOOL_KEYS = {"ma_trend_broken":1, "breadth_div":1};
+var DIM_WEIGHTS = {"估值":15,"情绪":25,"资金":20,"技术":15,"宏观":10,"结构":15};
+var DIM_COLORS = {
+  "估值":   {border:"#2563a8", bg:"#eaf3fc", label:"#2563a8"},
+  "情绪":   {border:"#b07d2b", bg:"#fdf4e6", label:"#b07d2b"},
+  "资金":   {border:"#0d7d6c", bg:"#e6f5f2", label:"#0d7d6c"},
+  "技术":   {border:"#7b3fa0", bg:"#f3ecf8", label:"#7b3fa0"},
+  "宏观":   {border:"#8b5e34", bg:"#f5ede5", label:"#8b5e34"},
+  "结构":   {border:"#475569", bg:"#f1f3f6", label:"#475569"}
+};
+var pollTimer = null;
+
+function color(i) {
+  if (i === null || i === undefined) return "#8a94a6";
+  return i >= 70 ? "#c0392b" : (i >= 50 ? "#b07d2b" : "#1e7a4f");
+}
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function fmtValue(r) {
+  if (r.value === null || r.value === undefined) return "N/A";
+  if (BOOL_KEYS[r.key]) return parseFloat(r.value) >= 1 ? "是" : "否";
+  return r.value + r.unit;
+}
+
+function render(d) {
+  var c = document.getElementById('content');
+  if (d.error) {
+    c.innerHTML = '<div class="empty">' + esc(d.error) + '</div>';
+    return;
+  }
+
+  var dims = '';
+  for (var dim in d.dim_scores) {
+    var s = d.dim_scores[dim];
+    var dc = DIM_COLORS[dim] || {border:"#d9dee6", bg:"#fcfdff", label:"#5a6472"};
+    dims += '<div class="card" style="border-color:' + dc.border + ';background:' + dc.bg + '">'
+      + '<h4 style="color:' + dc.label + '">' + esc(dim) + '</h4>'
+      + '<div class="val" style="color:' + color(s) + '">'
+      + (s === null ? 'N/A' : s) + '</div>'
+      + '<div class="note">权重 ' + (DIM_WEIGHTS[dim]||0) + '%</div></div>';
+  }
+
+  var rows = '';
+  d.rows.forEach(function(r) {
+    rows += '<tr><td>' + esc(r.dim) + '</td><td>' + esc(r.name) + '</td>'
+      + '<td style="text-align:right">' + esc(fmtValue(r)) + '</td>'
+      + '<td style="text-align:center">' + (r.score === null ? '-' : r.score) + '</td>'
+      + '<td class="note">' + (r.auto ? '自动' : '手工') + '</td>'
+      + '<td class="note">' + esc(r.rule) + '</td></tr>';
+  });
+
+  var idxVal = d.index === null ? 'N/A' : d.index;
+  var idxColor = color(d.index);
+
+  c.innerHTML =
+    '<div class="sub">六维合成 · 生成时间 ' + esc(d.ts) + ' · 数据覆盖 ' + esc(d.coverage) + '</div>'
+    + '<div class="hero"><div class="num" style="color:' + idxColor + '">' + idxVal + '</div>'
+    + '<div class="lv" style="color:' + idxColor + '">' + esc(d.level) + '</div>'
+    + '<div class="act">' + esc(d.action) + '</div></div>'
+    + '<div class="grid">' + dims + '</div>'
+    + '<table><tr><th>维度</th><th>指标</th><th>取值</th><th>分</th><th>数据源</th><th>风险读法</th></tr>'
+    + rows + '</table>'
+    + '<div class="warn"><b>说明：</b>风险指数衡量的是<b>赔率恶化程度与潜在回撤深度</b>，不是「明天涨跌」的时点预测。'
+    + '请作为<b>仓位管理工具</b>使用：慢变量（估值/宏观）定仓位中枢，快变量（情绪/资金/结构）做微调。'
+    + '缺数据指标未纳入合成，覆盖率为 ' + esc(d.coverage) + '，未纳入项见下表「N/A」行。</div>';
+}
+
+async function loadData() {
+  var c = document.getElementById('content');
+  c.innerHTML = '<div class="loading">加载中…</div>';
+  try {
+    var r = await fetch('/api/mri_data');
+    var d = await r.json();
+    if (!r.ok) { c.innerHTML = '<div class="empty">' + esc(d.error || '加载失败') + '</div>'; return; }
+    render(d);
+  } catch(e) {
+    c.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+function setRegenState(s) {
+  var b = document.getElementById('regenBtn'), st = document.getElementById('regenState');
+  if (s.status === 'running') {
+    b.disabled = true; b.textContent = '生成中…';
+    st.innerHTML = '<span class="run">⏳ 正在生成</span>（开始 ' + (s.start||'').slice(11) + '）';
+    if (!pollTimer) pollTimer = setInterval(checkRegen, 3000);
+  } else if (s.status === 'success') {
+    b.disabled = false; b.textContent = '重新生成报告';
+    st.innerHTML = '<span class="ok">✅ 生成成功</span> ' + (s.duration||0) + '秒';
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; loadData(); }
+  } else if (s.status === 'failed') {
+    b.disabled = false; b.textContent = '重新生成报告';
+    st.innerHTML = '<span class="err">❌ 生成失败</span>（退出码 ' + (s.rc||'') + '）';
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  } else {
+    b.disabled = false; b.textContent = '重新生成报告'; st.innerHTML = '';
+  }
+}
+
+function checkRegen() {
+  fetch('/api/mri_status').then(function(r){return r.json();}).then(setRegenState).catch(function(){});
+}
+
+function regenerate() {
+  var b = document.getElementById('regenBtn');
+  b.disabled = true; b.textContent = '启动中…';
+  fetch('/api/mri_regenerate', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(d) {
+      if (d.state) setRegenState(d.state);
+      if (d.error) { alert(d.error); b.disabled = false; b.textContent = '重新生成报告'; }
+    })
+    .catch(function(e) {
+      alert('请求失败：' + e.message);
+      b.disabled = false; b.textContent = '重新生成报告';
+    });
+}
+
+// 初始化：先加载已有数据，再检查是否有正在运行的生成任务
+loadData();
+checkRegen();
+</script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股大盘风险评估指标体系（六维度全景框架）</title>
+<style>
+  :root { --ink:#1f2430; --sub:#5a6472; --line:#d9dee6; --panel:#f6f8fb;
+          --red:#c0392b; --gold:#b07d2b; --blue:#2563a8; --green:#1e7a4f; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#eef1f5;color:var(--ink);line-height:1.75;
+       font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;}
+  .navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;
+          gap:16px;padding:0 20px;height:56px;background:#1a73e8;
+          box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  .navbar .brand{display:flex;align-items:center;gap:10px;margin-right:8px;text-decoration:none;}
+  .navbar .brand img{height:40px;width:auto;border-radius:7px;
+                     box-shadow:0 1px 4px rgba(0,0,0,.3);background:#0b2545;}
+  .navbar .brand .brand-text{color:#fff;font-size:17px;font-weight:600;white-space:nowrap;}
+  .navbar nav{display:flex;gap:0;height:100%;}
+  .navbar nav a{display:flex;align-items:center;padding:0 12px;height:100%;
+                white-space:nowrap;color:rgba(255,255,255,.88);font-size:14px;text-decoration:none;}
+  .navbar nav a:hover{background:#1558b0;color:#fff;}
+  .navbar nav a.active{background:#1558b0;color:#fff;font-weight:600;}
+  .page{max-width:960px;margin:24px auto;background:#fff;padding:48px 56px;
+        box-shadow:0 2px 14px rgba(0,0,0,.07);}
+  .kicker{color:var(--gold);font-size:13px;letter-spacing:3px;font-weight:600;}
+  h1{font-size:26px;margin:8px 0 6px;}
+  .subtitle{color:var(--sub);font-size:14px;}
+  .meta{color:var(--sub);font-size:12.5px;border-bottom:3px double var(--ink);
+        padding-bottom:14px;margin:8px 0 20px;}
+  h2{font-size:18px;margin:34px 0 12px;padding-left:12px;border-left:5px solid var(--gold);}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--blue);}
+  p{margin:8px 0;font-size:14.5px;}
+  .abstract{background:var(--panel);border:1px solid var(--line);padding:16px 20px;font-size:14px;}
+  .abstract b{color:var(--red);}
+  table{width:100%;border-collapse:collapse;margin:12px 0 18px;font-size:13px;}
+  th{background:var(--ink);color:#fff;padding:8px 9px;text-align:left;font-weight:600;font-size:12.5px;}
+  td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;}
+  tr:nth-child(even) td{background:#fafbfd;}
+  .tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11.5px;font-weight:600;white-space:nowrap;}
+  .t-lead{background:#e9f5ef;color:var(--green);}   /* 领先 */
+  .t-sync{background:#eaf1fa;color:var(--blue);}    /* 同步 */
+  .t-lag{background:#f3ecf6;color:#6b3fa0;}         /* 滞后 */
+  .hot{color:var(--red);font-weight:700;}
+  .warn{background:#fdf6ec;border-left:4px solid var(--gold);padding:10px 16px;font-size:13.5px;margin:14px 0;}
+  .note{color:var(--sub);font-size:12.5px;}
+  ul,ol{margin:6px 0;padding-left:22px;font-size:14.5px;}
+  li{margin:4px 0;}
+  code{background:var(--panel);padding:1px 6px;border-radius:4px;font-size:13px;
+       font-family:"SF Mono",Menlo,monospace;}
+  .disclaimer{margin-top:36px;border-top:1px solid var(--line);padding-top:12px;
+              color:var(--sub);font-size:12px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;}
+  .card{border:1px solid var(--line);border-radius:8px;padding:12px 15px;background:#fcfdff;}
+  .card h4{margin:0 0 6px;font-size:14px;color:var(--ink);}
+  .card p{margin:0;font-size:13px;color:var(--sub);}
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">回测结果查询</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri" class="active">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+<div class="page">
+
+  <div class="kicker">市场风险监测 · 方法论框架</div>
+  <h1>A 股大盘风险评估指标体系</h1>
+  <div class="subtitle">六维度全景框架：估值 · 情绪 · 资金流动性 · 技术 · 宏观基本面 · 市场结构</div>
+  <div class="meta">报告日期：2026 年 9 月 15 日 ｜ 性质：指标方法论梳理（阈值均为历史经验参考值，非实时数据）<br>
+  配套工具：<code>market_risk_index.py</code>（六维 21 指标自动打分脚本）｜ <code>MRI实时仪表盘.html</code>（实测输出示例）</div>
+
+  <div class="abstract">
+    <b>一句话结论：</b>单一指标无法判断大盘风险，有效的做法是构建<b>「估值定空间 + 情绪定热度 + 资金定流动性 + 技术定位置 + 宏观定周期 + 结构定拥挤」</b>的六维监测体系，
+    将 20 个左右指标标准化为 0–100 分风险指数。<b>高风险的典型共振组合是：估值分位 &gt;80% + 融资余额占流通市值比创阶段新高 + 基金仓位 &gt;88% + 指数远离年线 &gt;30% + 成交额天量滞涨。</b>
+  </div>
+
+  <h2>一、估值维度：决定"下跌空间"（慢变量、长周期锚）</h2>
+  <p>估值是最可靠的<b>左侧</b>风险刻度，不预测何时跌，但决定跌下去有多少缓冲。</p>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b>全A / 沪深300 PE-TTM 历史分位</b></td><td>近 10 年分位 &gt;80% 高风险、&lt;30% 低风险</td><td>Wind / 中证指数 / 理杏仁</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>PB 分位</b></td><td>分位 &gt;80% 或全A PB &gt;2.5–3 倍需警惕；PB 对周期股更有效</td><td>中证指数 / AkShare</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>股权风险溢价 ERP</b><br><span class="note">= 1/PE − 10年期国债收益率（百分点）</span></td><td>ERP &lt;1% 股票性价比差、风险高；ERP &gt;4% 接近底部区域（2018Q4、2022Q4、2024Q3 均触发）</td><td>Wind / 中债 / AkShare</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>破净率</b>（破净个股占比）</td><td>&gt;10% 时市场中长期底部特征；&lt;1% 通常对应情绪高点（免费源不稳定，建议手工跟踪）</td><td>Wind / 交易所</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>市值/GDP</b>（巴菲特指标）</td><td>证券化率 &gt;90%–100%（含港股中概更高）风险偏高</td><td>统计局 + 交易所</td><td>季</td><td><span class="tag t-lag">滞后</span></td></tr>
+    <tr><td><b>行业估值离散度</b></td><td>行业间 PE 极差扩大 = 结构极端（如 2020 消费、2023 AI），均值回归风险上升</td><td>Wind</td><td>周</td><td><span class="tag t-sync">同步</span></td></tr>
+  </table>
+
+  <h2>二、情绪维度：决定"过热程度"（快变量、反向指标集中营）</h2>
+  <p>情绪类指标多为<b>反向指标</b>——市场越亢奋，风险越大。这是判断短期顶部最灵敏的一组。</p>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b class="hot">融资余额 / 流通市值</b></td><td>占比 &gt;2.5%（历史高位阈值约 2.5%–3%）需警惕；2015 年 6 月峰值约 4.7%</td><td>沪深交易所</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>融资买入额 / 成交额</b></td><td>&gt;11%–12% 属杠杆过热（2015 年 6 月约 19%）</td><td>交易所</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>全A 换手率</b>（或自由流通市值换手）</td><td>周均换手率创 1 年新高并持续 3 周以上 = 过热</td><td>Wind / AkShare</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>成交额绝对水平与萎缩速度</b></td><td>天量滞涨（指数不涨而成交额创新高）= 顶部特征；缩量至峰值 40% 以下 = 情绪冰点</td><td>交易所</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>基金发行份额 / 爆款基金</b></td><td>单月权益基金发行破千亿、一日售罄频现 = 典型反向信号</td><td>Wind / 中国基金报</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>股票型基金仓位</b></td><td>&gt;88%（"88 魔咒"）普遍视为过热；&lt;80% 相对安全</td><td>Wind 测算</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>涨跌停家数比、连板高度、封板率</b></td><td>涨停 &gt;100 家且连板高度 &gt;5 板 = 投机过热；跌停潮 = 恐慌</td><td>行情终端 / AkShare</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>隐含波动率</b>（50ETF/300ETF 期权 IV、iVX 中国波指）</td><td>IV 快速抬升 = 避险需求激增；IV 极低 = 自满情绪（"低波动陷阱"）</td><td>上交所 / 期权数据</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>新增开户数 / 搜索热度</b></td><td>开户数脉冲式增长、股票关键词搜索指数创新高 = 散户入场尾声</td><td>中国结算 / 百度指数</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+  </table>
+
+  <h2>三、资金与流动性维度：决定"资金能不能接得住"</h2>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b>沪深港通（北向）净流入</b></td><td>连续 3 周以上净流出 = 外部资金撤离；单日流出 &gt;100 亿为情绪冲击</td><td>交易所 / Wind</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>宽基 ETF 申赎</b></td><td>大跌中 ETF 净申购放量 = 国家队/机构托底（底部信号）；指数高位 ETF 净赎回放量 = 见顶信号</td><td>基金公司 / Wind</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>产业资本增减持 / 回购</b></td><td>月度净减持规模骤增、回购金额萎缩 = 内部人看空</td><td>公告 / Wind</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>解禁市值</b>（未来 3 个月）</td><td>解禁高峰叠加行业景气下行 = 供给冲击风险</td><td>Wind</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>IPO / 再融资节奏</b></td><td>发行节奏显著加快、超募频现 = 监管态度转松、抽血加剧</td><td>证监会 / 交易所</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>银行间资金价格</b>（DR007、SHIBOR 3M）</td><td>DR007 持续高于 7 天逆回购利率、季末资金面异常紧张 = 流动性收紧信号</td><td>中国货币网</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>社融增速 / M1-M2 剪刀差</b></td><td>社融增速连续回落、M1 增速低于 M2 = 资金活化不足（真正流入股市的活水偏弱）</td><td>央行</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>两融平均维持担保比例</b></td><td>接近 130% 平仓线 = 强平踩踏风险</td><td>交易所</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+  </table>
+
+  <h2>四、技术维度：决定"当前处在什么位置"</h2>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b>指数与年线（MA250）关系</b></td><td>跌破年线并无法快速收回 = 趋势转熊的最强确认</td><td>行情数据</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>年线偏离度（BIAS250）</b></td><td>&gt;+30% 严重超买（2015 年 6 月、2007 年 10 月均 &gt;40%）；&lt;-20% 超跌</td><td>行情数据</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>均线排列与死叉</b></td><td>MA20 下穿 MA60、MA60 下穿 MA120 = 中期趋势破坏的层级递进</td><td>行情数据</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>顶背离</b>（价新高 + MACD/RSI 不新高）</td><td>日线级别背离 = 短期警报；周线/月线背离 = 中期级别风险</td><td>行情数据</td><td>日/周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>长周期动量</b>（月线 RSI、周线 MACD 状态）</td><td>月线 RSI &gt;80 以上属历史极值区（A 股 30 年来仅数次）</td><td>行情数据</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>波动率</b>（20 日 / 60 日年化）</td><td>60 日年化波动率 &lt;12% = 低波自满（后续常伴波动率放大）；&gt;35% = 恐慌释放中</td><td>行情数据</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>市场宽度</b>（腾落指标 ADL、新高新低差 NH-NL、上涨家数占比）</td><td>指数新高但 ADL/上涨家数不配合 = 普涨结束、结构性风险；NH-NL 转负 = 内部走弱</td><td>行情数据</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>成交量价配合</b></td><td>指数高位量价背离、突破日缩量 = 上攻动能衰竭</td><td>行情数据</td><td>日</td><td><span class="tag t-sync">同步</span></td></tr>
+  </table>
+
+  <h2>五、宏观与基本面维度：决定"周期方向"</h2>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b>PMI（制造业/非制造业）</b></td><td>连续 3 个月低于 50 = 经济下行确认；新订单-库存缺口转负为提前信号</td><td>统计局</td><td>月</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>全A（非金融）盈利增速与 ROE 趋势</b></td><td>盈利增速由正转负、ROE 见顶回落 = 分母端支撑消失（戴维斯双杀风险）</td><td>Wind / 财报</td><td>季</td><td><span class="tag t-lag">滞后</span></td></tr>
+    <tr><td><b>CPI / PPI</b></td><td>PPI 深度负增长 = 工业通缩、企业利润承压；CPI 快速上行 = 政策收紧压力</td><td>统计局</td><td>月</td><td><span class="tag t-lag">滞后</span></td></tr>
+    <tr><td><b>10 年期国债收益率</b></td><td>收益率快速上行 = 流动性收紧/复苏预期（短期压制估值）；持续下行 = 避险或宽松</td><td>中债</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>人民币汇率（USDCNY）</b></td><td>快速贬值（如 1 个月 &gt;3%）通常伴随外资流出与风险偏好下降</td><td>外汇交易中心</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>美债 10Y / 美元指数 / 中美利差</b></td><td>美债利率与美元指数快速上行 = 全球流动性收紧、新兴市场承压</td><td>Wind</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>政策变量</b>（印花税、汇金增持、IPO 节奏、退市/减持新规）</td><td>政策底通常领先市场底 1–2 个季度；收紧型政策（加税、限制交易）为直接风险</td><td>证监会 / 国常会</td><td>事件</td><td><span class="tag t-lead">领先</span></td></tr>
+  </table>
+
+  <h2>六、市场结构与风险传导维度：决定"脆弱性有多高"</h2>
+  <table>
+    <tr><th style="width:20%">指标</th><th style="width:34%">风险读法（经验阈值）</th><th style="width:14%">数据来源</th><th style="width:12%">频率</th><th style="width:10%">属性</th></tr>
+    <tr><td><b>个股相关性 / 同涨同跌程度</b></td><td>相关系数抬升 = 系统性风险主导（分散化失效），常伴随流动性冲击</td><td>行情数据</td><td>周</td><td><span class="tag t-sync">同步</span></td></tr>
+    <tr><td><b>赛道拥挤度</b>（如 TMT 成交额占比、前 5% 个股成交额占比）</td><td>单一赛道成交占比 &gt;40%–45% = 极度拥挤，均值回归风险大</td><td>行情数据</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>龙头集中度</b>（前 10% 市值个股成交/涨幅贡献）</td><td>"二八分化"极致 = 指数虚涨、赚钱效应差，回调时跌幅更大</td><td>行情数据</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>大小盘风格极致分化</b></td><td>微盘股/小盘指数相对大盘的超额达历史极值（如 2024 年初、2015 年）→ 风格反转踩踏风险</td><td>中证指数</td><td>周</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>股指期货基差</b>（IF/IC/IM 升贴水）</td><td>贴水大幅走阔 = 对冲需求激增、机构悲观</td><td>中金所</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>期权 PCR</b>（认沽/认购比）</td><td>PCR 极端高（恐慌）常对应短期底部；极端低（乐观）对应顶部</td><td>上交所/深交所</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>信用利差 / 中资美元债</b></td><td>利差走阔 = 信用风险上升，风险偏好收缩（股债联动风险）</td><td>中债 / Bloomberg</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+    <tr><td><b>全球风险偏好</b>（VIX、原油、黄金/比特币）</td><td>VIX 跳升、避险资产大涨 = 外部冲击传染</td><td>Wind</td><td>日</td><td><span class="tag t-lead">领先</span></td></tr>
+  </table>
+
+  <h2>七、核心 10 指标速查表（日常跟踪用）</h2>
+  <p>实务中不必每天看 40 个指标。下表 10 个指标覆盖六维度，可快速给出大盘风险的温度计读数。</p>
+  <table>
+    <tr><th style="width:6%">#</th><th style="width:26%">指标</th><th style="width:38%">高风险区（减仓信号）</th><th style="width:30%">低风险区（加仓信号）</th></tr>
+    <tr><td>1</td><td>全A PE-TTM 十年分位</td><td>&gt;80%</td><td>&lt;30%</td></tr>
+    <tr><td>2</td><td>股权风险溢价 ERP（=1/PE − 10Y国债）</td><td>&lt;1%</td><td>&gt;4%</td></tr>
+    <tr><td>3</td><td>融资余额 / 流通市值</td><td>&gt;2.5% 且上行</td><td>&lt;1.5% 且下行</td></tr>
+    <tr><td>4</td><td>基金仓位（股票型）</td><td>&gt;88%</td><td>&lt;80%</td></tr>
+    <tr><td>5</td><td>成交额与指数配合</td><td>天量滞涨 / 高位量价背离</td><td>缩量至峰值 40% 以下</td></tr>
+    <tr><td>6</td><td>指数年线偏离度 BIAS250</td><td>&gt;+30%</td><td>&lt;-20%</td></tr>
+    <tr><td>7</td><td>市场宽度（NH-NL / ADL）</td><td>指数新高但宽度不配合</td><td>指数下跌但宽度改善（底背离）</td></tr>
+    <tr><td>8</td><td>赛道拥挤度（热门赛道成交占比）</td><td>&gt;40%–45%</td><td>&lt;20%</td></tr>
+    <tr><td>9</td><td>社融增速 / M1-M2 剪刀差</td><td>社融增速连续回落</td><td>社融企稳回升、剪刀差收窄</td></tr>
+    <tr><td>10</td><td>期权 IV 与 PCR</td><td>IV 极低（自满）/ PCR 极低</td><td>IV 冲高回落 / PCR 极值</td></tr>
+  </table>
+
+  <h2>八、如何合成为"大盘风险指数"</h2>
+  <h3>Step 1 标准化</h3>
+  <p>所有指标统一转换为 0–100 的<b>风险分位</b>：对正向风险指标（如融资占比）直接用历史分位；对反向指标（如 ERP、破净率）取 <code>100 - 分位</code>。分位窗口建议 5 年（快变量）与 10 年（慢变量）并用。</p>
+  <h3>Step 2 加权合成</h3>
+  <div class="grid">
+    <div class="card"><h4>方案 A：等权合成（推荐起步）</h4><p>六维度各自内部等权，维度间等权。简单、不易过拟合，适合个人投资者。</p></div>
+    <div class="card"><h4>方案 B：IC/ICIR 加权</h4><p>用历史数据测算各指标对未来 3–6 个月指数收益的预测能力（信息系数），按 ICIR 加权。需至少 10 年样本。</p></div>
+    <div class="card"><h4>方案 C：PCA 提取主成分</h4><p>降维求第一主成分作为"系统性风险因子"，可解释 40%–60% 方差，但经济含义较难解读。</p></div>
+    <div class="card"><h4>方案 D：分位数打分卡（实务首选）</h4><p>每个指标按阈值给 0/1/2 分，加总后归一。透明、可回溯、便于人工干预。</p></div>
+  </div>
+  <h3>Step 3 输出与使用</h3>
+  <table>
+    <tr><th style="width:20%">风险指数区间</th><th style="width:22%">风险等级</th><th>建议动作（示例）</th></tr>
+    <tr><td>0–30</td><td>低风险（偏冷）</td><td>可提高仓位，进攻性配置</td></tr>
+    <tr><td>30–50</td><td>中性</td><td>均衡持仓，做结构</td></tr>
+    <tr><td>50–70</td><td>偏高</td><td>降低仓位 / 提高对冲比例，收紧止损</td></tr>
+    <tr><td>70–100</td><td>高风险（过热）</td><td>显著减仓、保留现金、规避高拥挤赛道</td></tr>
+  </table>
+
+  <h2>九、使用注意事项（避免误用）</h2>
+  <div class="warn">
+    <b>① 区分领先 / 同步 / 滞后：</b>估值与宏观是慢变量，情绪与拥挤度是快变量。用慢变量择时会"太早"，用快变量择时会"太频繁"。建议：慢变量定仓位中枢，快变量做微调。<br>
+    <b>② 阈值会漂移：</b>注册制、机构化、外资持股比例变化使历史阈值失效（如两融占比峰值已不可比）。所有阈值须用滚动窗口动态校准。<br>
+    <b>③ 警惕指标共线性：</b>估值分位、ERP、PB 高度相关，等权合成时会隐性放大估值维度权重。建议维度内先合成再跨维度等权。<br>
+    <b>④ 反向指标不可单独使用：</b>情绪指标能标出"过热区域"，但过热可以持续数月（如 2014Q4–2015Q5）。必须与趋势确认（跌破关键均线）结合才可执行。<br>
+    <b>⑤ "风险指数高"不等于"明天跌"：</b>它衡量的是赔率恶化程度与潜在回撤深度，而非时点。定位为<b>仓位管理工具</b>而非择时工具。
+  </div>
+
+  <h2>十、可落地的数据源清单（免费 / 易获取优先）</h2>
+  <ul>
+    <li><b>行情与估值</b>：AkShare（PE/PB/成交额/均线/涨跌停家数）、中证指数官网、理杏仁、Wind（付费）</li>
+    <li><b>两融与资金</b>：沪深交易所官网（每日融资融券汇总）、AkShare 相关接口、沪深港通资金流</li>
+    <li><b>宏观</b>：国家统计局、央行官网、中国货币网（DR007/SHIBOR）、中债估值中心</li>
+    <li><b>情绪与衍生品</b>：上交所期权每日数据（IV、PCR）、中金所股指期货基差、中国结算开户数据</li>
+    <li><b>基金</b>：Wind / 中国基金业协会（月度发行份额、仓位测算）</li>
+  </ul>
+  <h2>十一、落地实现：指标可获取性对照（2026-09 实测）</h2>
+  <p>本框架已实现为可运行脚本 <code>market_risk_index.py</code>（六维 21 指标、0/1/2 打分卡、权重加权合成、优雅降级）。下表为各指标在<b>免费数据源</b>上的实际可获取性，便于安排人工补数。</p>
+  <table>
+    <tr><th style="width:8%">状态</th><th style="width:30%">指标</th><th style="width:62%">数据源与说明</th></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>全A PE-TTM 十年分位</td><td>AkShare <code>stock_a_ttm_lyr</code>，取全A等权 PE 序列自算滚动十年分位</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>全A PB 十年分位</td><td>AkShare <code>stock_a_all_pb</code>，直接返回分位字段，最稳定</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>股权风险溢价 ERP</td><td>PE 倒数 − 10Y 国债收益率（<code>bond_zh_us_rate</code>）</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>期权隐含波动率</td><td>AkShare <code>index_option_50etf_qvix</code>（50ETF QVIX）</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>涨停家数</td><td>AkShare <code>stock_market_activity_legu</code>（乐咕乐股实时活跃度）</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>M1-M2 剪刀差</td><td>AkShare <code>macro_china_money_supply</code>（注意原始数据为倒序）</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>BIAS250 / 均线破坏 / 60日波动率</td><td>沪深300 日线 <code>stock_zh_index_daily</code></td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>市场宽度背离</td><td>活跃度上涨家数占比 ＋ 指数是否近 60 日新高</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>PMI 连续低于 50 月数</td><td>AkShare <code>macro_china_pmi</code>（统计局官方制造业 PMI，更新至最新月）；备选 <code>macro_china_pmi_yearly</code>（金十源，仅更新至 2025-08，已降级为兜底）。<b>脚本内置新鲜度检查，滞后超 75 天即提示复核</b></td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>人民币汇率近 1 月变动</td><td>AkShare <code>currency_boc_sina</code>（中行折算价）</td></tr>
+    <tr><td><span class="tag t-lead">自动</span></td><td>10Y 国债收益率近 1 月变动</td><td>AkShare <code>bond_zh_us_rate</code></td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>融资余额 / 流通市值</td><td>分子可取（交易所两融汇总），分母需沪深两市流通市值，免费源不稳定 → 建议手工</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>股票型基金仓位</td><td>第三方测算数据，无稳定免费接口</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>DR007 偏离</td><td>中国货币网接口不稳定，可手工填入</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>北向/互联互通净流入</td><td><b>2024 年 8 月起停止披露实时数据</b>，只能用季度持股变动替代</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>赛道拥挤度</td><td>需行业成交额占比，建议从行情终端读取</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>股指期货年化贴水</td><td>需期货与现货配对，建议从终端读取</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>期权 PCR</td><td>需期权成交/持仓明细，建议从交易所数据读取</td></tr>
+    <tr><td><span class="tag t-sync">手工</span></td><td>个股平均相关系数</td><td>计算量大，建议每周更新一次</td></tr>
+  </table>
+  <div class="warn">
+    <b>数据源陷阱（实测踩坑）：</b>免费接口的<b>“能取到”不等于“是最新的”</b>。例如 <code>macro_china_pmi_yearly</code>（金十源）
+    返回 250 行数据看似完整，实际最新一条仅到 <b>2025-08-31</b>——若直接使用，宏观维度会基于一年前的经济状况打分，
+    并把指数从 28.4 误抬到 30.4，<b>导致风险等级从“低风险”跳到“中性”</b>。
+    因此脚本对月度宏观数据增加<b>新鲜度检查</b>：最新观测滞后超过 75 天即打印 <code>[复核提示]</code>，并要求改用
+    <code>macro_china_pmi</code>（统计局官方源，已更新至 2026-08）。<b>使用任何宏观指标前，先确认最后一个观测的日期。</b>
+  </div>
+  <h3>脚本用法</h3>  <ul>
+    <li><code>python market_risk_index.py</code> —— 自动取数并打印风险指数与明细（实测可覆盖 13/21 项）</li>
+    <li><code>python market_risk_index.py --init-manual</code> —— 生成 8 项手工补数模板 <code>mri_manual.json</code></li>
+    <li><code>python market_risk_index.py --input mri_manual.json --html out.html</code> —— 手工值与自动值<b>合并</b>（手填优先）并输出 HTML 仪表盘</li>
+    <li><code>python market_risk_index.py --selftest</code> —— 离线自检（过热/偏冷/缺数降级/合并优先级，共 4 项）</li>
+  </ul>
+  <div class="warn">
+    <b>降级原则：</b>取数失败的指标标记为 N/A，<b>不按 0 分计入</b>，合成指数按"有数据的维度"重新归一化权重。
+    理由：把缺失当作"低风险"会系统性低估风险。因此务必同时关注<b>覆盖率</b>（如 13/21），覆盖率过低时指数仅供参考。
+  </div>
+
+  <div class="disclaimer">
+    本报告仅供研究参考，不构成个人投资建议。文中所有阈值均为历史经验参考值，随市场结构变化可能失效，使用前请以滚动窗口重新校准。
+  </div>
+</div>
+</body>
+</html>

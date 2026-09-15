@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据完整性监控 - 力矩量化选股平台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f7fa; color: #1f2933; }
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .wrap { max-width: 1200px; margin: 24px auto 48px; padding: 0 24px; }
+  .page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .page-head h1 { font-size: 22px; margin: 0; }
+  .head-tools { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #6b7684; }
+  .btn { border: 1px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 6px;
+         padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn:hover { background: #eef4ff; }
+  .btn.primary { background: #1a73e8; color: #fff; }
+  .btn.primary:hover { background: #1558b0; }
+  .date-input { width: 140px; border: 1px solid #d0d7de; border-radius: 6px;
+                padding: 6px 10px; font-size: 13px; color: #3d4752; }
+  .date-input:focus { outline: none; border-color: #1a73e8; }
+  .date-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+              padding: 12px 16px; background: #fff; border-radius: 10px;
+              box-shadow: 0 1px 4px rgba(16,42,72,.08); }
+  .date-sep { font-size: 13px; color: #8a94a3; }
+
+  /* Tab 切换 */
+  .tabs { display: flex; gap: 0; margin-top: 18px; border-bottom: 2px solid #e0e6ed; }
+  .tab { padding: 10px 24px; font-size: 14px; font-weight: 500; color: #6b7684;
+         cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+         text-decoration: none; }
+  .tab:hover { color: #1a73e8; }
+  .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+
+  .sub { font-size: 13px; color: #6b7684; margin-top: 8px; }
+
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
+          padding: 18px 20px; margin-top: 18px; overflow-x: auto; }
+  .card h3 { margin: 0 0 12px; font-size: 15px; color: #1a4480; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #edf0f4; white-space: nowrap; }
+  th { background: #f0f5ff; color: #1a4480; font-weight: 600; }
+  tbody tr:hover { background: #f8fafd; }
+  td.left, th.left { text-align: left; }
+  .ok { color: #159947; font-weight: 600; }
+  .zero { color: #d83a3a; font-weight: 600; }
+  .muted { color: #b4bdc8; }
+  .loading { text-align: center; padding: 60px 0; color: #8a94a3; font-size: 15px; }
+  .empty { text-align: center; color: #8a94a3; padding: 60px 0; font-size: 15px; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">回测结果查询</a>
+    <a href="/cron" class="active">任务运行监控</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="tabs">
+    <a class="tab" href="/cron">任务运行监控</a>
+    <a class="tab active" href="/data-monitor">数据完整性监控</a>
+  </div>
+
+  <div class="page-head" style="margin-top:18px">
+    <h1>数据完整性监控</h1>
+    <div class="head-tools">
+      <span id="genInfo"></span>
+      <button class="btn" id="refreshBtn">立即刷新</button>
+    </div>
+  </div>
+
+  <div class="date-bar">
+    <span style="font-size:13px;color:#3d4752;font-weight:600;">日期范围：</span>
+    <input type="date" class="date-input" id="startDate">
+    <span class="date-sep">~</span>
+    <input type="date" class="date-input" id="endDate">
+    <button class="btn primary" id="queryBtn">查询</button>
+    <button class="btn" id="resetBtn">重置（最近10日）</button>
+  </div>
+
+  <div id="content">
+    <div class="loading">加载中…</div>
+  </div>
+</main>
+
+<script>
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function valClass(v) {
+  if (v === 0) return 'zero';
+  if (v > 0) return 'ok';
+  return 'muted';
+}
+
+function renderTable(tbl, dates) {
+  if (!tbl || !tbl.rows) return '';
+  var head = tbl.rows[0];
+  var body = tbl.rows.slice(1);
+  var html = '<div class="card"><h3>' + esc(tbl.title) + '</h3><table>';
+  html += '<thead><tr>' + head.map(function(h) {
+    return '<th>' + esc(h) + '</th>';
+  }).join('') + '</tr></thead><tbody>';
+  body.forEach(function(row) {
+    html += '<tr>';
+    row.forEach(function(cell, i) {
+      if (i === 0) {
+        html += '<td class="left">' + esc(cell) + '</td>';
+      } else {
+        var cls = valClass(cell);
+        html += '<td class="' + cls + '">' + esc(cell) + '</td>';
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function render(d) {
+  var c = document.getElementById('content');
+  if (d.error) {
+    c.innerHTML = '<div class="card"><div class="empty">加载失败：' + esc(d.error) + '</div></div>';
+    return;
+  }
+  if (!d.tables || Object.keys(d.tables).length === 0) {
+    c.innerHTML = '<div class="card"><div class="empty">暂无数据（数据库可能为空）</div></div>';
+    return;
+  }
+  document.getElementById('genInfo').textContent =
+    '生成时间 ' + esc(d.generated_at) +
+    (d.date_range
+      ? ' · 范围 ' + d.date_range.start + ' ~ ' + d.date_range.end + '（共 ' + d.dates.length + ' 个交易日）'
+      : ' · 最近 ' + d.days + ' 个交易日');
+
+  var html = '';
+  var order = ['ts_code', 'turning_point', 'ma', 'qfq', 'basic_info', 'task_runs'];
+  for (var i = 0; i < order.length; i++) {
+    var key = order[i];
+    if (d.tables[key]) {
+      html += renderTable(d.tables[key], d.dates);
+    }
+  }
+  c.innerHTML = html;
+}
+
+async function loadData() {
+  var url = '/api/stock_data_monitor';
+  var sd = document.getElementById('startDate').value;
+  var ed = document.getElementById('endDate').value;
+  if (sd && ed) {
+    url += '?start_date=' + sd.replace(/-/g, '') + '&end_date=' + ed.replace(/-/g, '');
+  }
+  try {
+    var r = await fetch(url);
+    var d = await r.json();
+    render(d);
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      '<div class="card"><div class="empty">加载失败：' + esc(e.message) + '</div></div>';
+  }
+}
+
+document.getElementById('queryBtn').addEventListener('click', function() {
+  var sd = document.getElementById('startDate').value;
+  var ed = document.getElementById('endDate').value;
+  if (!sd || !ed) {
+    alert('请同时选择开始日期和结束日期');
+    return;
+  }
+  if (sd > ed) {
+    alert('结束日期不能早于开始日期');
+    return;
+  }
+  loadData();
+});
+
+document.getElementById('resetBtn').addEventListener('click', function() {
+  document.getElementById('startDate').value = '';
+  document.getElementById('endDate').value = '';
+  loadData();
+});
+
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+loadData();
+</script>
+</body>
+</html>

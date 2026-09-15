@@ -53,12 +53,12 @@ else
     exit 1
 fi
 
-# 步骤4: 执行 update_rzrq_daily.py（融资融券数据）
-log "[步骤4/18] 开始执行 update_rzrq_daily.py..."
-if ${VENV_PYTHON} update_rzrq_daily.py >> "${LOG_DIR}/update_rzrq_daily_${DATE}.log" 2>&1; then
-    log "[步骤4/18] ✅ update_rzrq_daily.py 执行成功"
+# 步骤4: 执行 update_rzrq_ye_daily.py（融资融券数据）
+log "[步骤4/18] 开始执行 update_rzrq_ye_daily.py..."
+if ${VENV_PYTHON} update_rzrq_ye_daily.py >> "${LOG_DIR}/update_rzrq_ye_daily_${DATE}.log" 2>&1; then
+    log "[步骤4/18] ✅ update_rzrq_ye_daily.py 执行成功"
 else
-    log "[步骤4/18] ❌ update_rzrq_daily.py 执行失败，停止任务"
+    log "[步骤4/18] ❌ update_rzrq_ye_daily.py 执行失败，停止任务"
     exit 1
 fi
 
@@ -80,30 +80,30 @@ else
     exit 1
 fi
 
-# 步骤7: 执行 update_stock_daily_basic_info.py（日基本交易指标数据）
-log "[步骤7/18] 开始执行 update_stock_daily_basic_info.py..."
-if ${VENV_PYTHON} update_stock_daily_basic_info.py >> "${LOG_DIR}/update_stock_daily_basic_info_${DATE}.log" 2>&1; then
-    log "[步骤7/18] ✅ update_stock_daily_basic_info.py 执行成功"
+# 步骤7: 执行 update_stock_daily_basic_info_daily.py（日基本交易指标数据）
+log "[步骤7/18] 开始执行 update_stock_daily_basic_info_daily.py..."
+if ${VENV_PYTHON} update_stock_daily_basic_info_daily.py >> "${LOG_DIR}/update_stock_daily_basic_info_daily_${DATE}.log" 2>&1; then
+    log "[步骤7/18] ✅ update_stock_daily_basic_info_daily.py 执行成功"
 else
-    log "[步骤7/18] ❌ update_stock_daily_basic_info.py 执行失败，停止任务"
+    log "[步骤7/18] ❌ update_stock_daily_basic_info_daily.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤8: 执行 update_stock_ma5_ma30.py（MA5/MA30 打标）
-log "[步骤8/18] 开始执行 update_stock_ma5_ma30.py..."
-if ${VENV_PYTHON} update_stock_ma5_ma30.py >> "${LOG_DIR}/update_stock_ma5_ma30_${DATE}.log" 2>&1; then
-    log "[步骤8/18] ✅ update_stock_ma5_ma30.py 执行成功"
+# 步骤8: 执行 update_stock_daily_ma5_ma30.py（MA5/MA30 打标）
+log "[步骤8/18] 开始执行 update_stock_daily_ma5_ma30.py..."
+if ${VENV_PYTHON} update_stock_daily_ma5_ma30.py >> "${LOG_DIR}/update_stock_daily_ma5_ma30_${DATE}.log" 2>&1; then
+    log "[步骤8/18] ✅ update_stock_daily_ma5_ma30.py 执行成功"
 else
-    log "[步骤8/18] ❌ update_stock_ma5_ma30.py 执行失败，停止任务"
+    log "[步骤8/18] ❌ update_stock_daily_ma5_ma30.py 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤9: 执行 update_stock_turning_point_tag.py（turning_point 打标）
-log "[步骤9/18] 开始执行 update_stock_turning_point_tag.py..."
-if ${VENV_PYTHON} update_stock_turning_point_tag.py >> "${LOG_DIR}/update_stock_turning_point_tag_${DATE}.log" 2>&1; then
-    log "[步骤9/18] ✅ update_stock_turning_point_tag.py 执行成功"
+# 步骤9: 执行 update_stock_daily_turning_point.py（turning_point 打标）
+log "[步骤9/18] 开始执行 update_stock_daily_turning_point.py..."
+if ${VENV_PYTHON} update_stock_daily_turning_point.py >> "${LOG_DIR}/update_stock_daily_turning_point_${DATE}.log" 2>&1; then
+    log "[步骤9/18] ✅ update_stock_daily_turning_point.py 执行成功"
 else
-    log "[步骤9/18] ❌ update_stock_turning_point_tag.py 执行失败，停止任务"
+    log "[步骤9/18] ❌ update_stock_daily_turning_point.py 执行失败，停止任务"
     exit 1
 fi
 

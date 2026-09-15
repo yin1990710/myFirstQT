@@ -90,6 +90,7 @@ def create_index_daily_table(connection):
         vol BIGINT COMMENT '成交量(手)',
         amount DECIMAL(18,2) COMMENT '成交额(千元)',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
         UNIQUE KEY uk_ts_date (ts_code, trade_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数日线数据表';
     """

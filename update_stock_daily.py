@@ -4,7 +4,7 @@
 """
 更新数据库 stock_daily_t 表中的股票日线数据（全市场批量版）。
 
-参考 update_stock_daily_basic_info_t.py 的批量获取方式：
+参考 update_stock_daily_basic_info_daily.py 的批量获取方式：
 按 trade_date 一次拉取全市场日线与前复权因子（每交易日 2 次 tushare API 调用），
 合并、过滤后用 executemany + INSERT ... ON DUPLICATE KEY UPDATE 批量入库，
 以 (ts_code, trade_date) 为主键，存在则更新（可刷新复权因子），不存在则新增。

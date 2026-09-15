@@ -9,9 +9,9 @@
 更新策略：存在则更新（INSERT ... ON DUPLICATE KEY UPDATE），不存在则新增。
 
 用法:
-    python update_stock_daily_basic_info_t.py              # 默认更新最近一个交易日
-    python update_stock_daily_basic_info_t.py 20260901      # 更新指定交易日
-    python update_stock_daily_basic_info_t.py 20260901 20260902  # 更新日期区间
+    python update_stock_daily_basic_info_daily.py              # 默认更新最近一个交易日
+    python update_stock_daily_basic_info_daily.py 20260901      # 更新指定交易日
+    python update_stock_daily_basic_info_daily.py 20260901 20260902  # 更新日期区间
 """
 
 import sys
@@ -125,6 +125,7 @@ def create_table_if_not_exists(conn):
             free_share       DOUBLE       DEFAULT NULL COMMENT '自由流通股本(万股)',
             total_mv         DOUBLE       DEFAULT NULL COMMENT '总市值(万元)',
             circ_mv          DOUBLE       DEFAULT NULL COMMENT '流通市值(万元)',
+            update_time      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
             PRIMARY KEY (ts_code, trade_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票每日基本交易指标'
     """

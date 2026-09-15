@@ -2,29 +2,30 @@
 # -*- coding: utf-8 -*-
 
 """
-监控stock_daily_t表中数据的更新情况。
-1. 最近10个交易日，每日ts_code数量（表格1）
-2. 最近10个交易日，每日turning_point分布（表格2）
-3. 最近10个交易日，每日ma5和ma30大于0的记录数（表格3）
-4. 最近10个交易日qfq_adj_factor大于0的记录数（表格4）
-5. 最近10个交易日stock_daily_basic_info_t每日记录数（表格5）
-6. 将以上图表保存为monitor_stock_data.png
-7. 放入monitor_stock_data+当日日期后缀的文件夹下
+监控 stock_daily_t 表中数据的更新情况（数据计算层，不含 UI）。
+架构：本脚本只负责查询数据库 → 计算 → 输出 JSON，前端页面通过 API 读取 JSON 动态渲染。
+
+5 张监控表：
+1. 最近10个交易日，每日 ts_code 数量
+2. 最近10个交易日，每日 turning_point 分布
+3. 最近10个交易日，每日 ma5>0 和 ma30>0 的记录数
+4. 最近10个交易日，qfq_adj_factor>0 的记录数
+5. 最近10个交易日，stock_daily_basic_info_t 每日记录数
+
+用法：
+  python monitor_stock_data.py                          # 输出到 pages/data_monitor.json
+  python monitor_stock_data.py --json out.json          # 指定输出路径
+  python monitor_stock_data.py --stdout                 # 输出到终端（供 API 调用）
 """
 
+import argparse
+import json
 import os
 import sys
-import shutil
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from mysql_connection import get_mysql_connection, close_connection
-
-plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
 
 
 def get_recent_dates(conn, days=10):
@@ -43,8 +44,22 @@ def get_recent_dates(conn, days=10):
     return dates
 
 
+def get_dates_in_range(conn, start_date, end_date):
+    """获取指定日期范围内的交易日列表（含首尾）"""
+    sql = """
+        SELECT DISTINCT trade_date
+        FROM stock_daily_t
+        WHERE trade_date >= %s AND trade_date <= %s
+        ORDER BY trade_date ASC
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql, (start_date, end_date))
+        rows = cursor.fetchall()
+    return [row['trade_date'] for row in rows]
+
+
 def get_ts_code_count(conn, dates):
-    """每日ts_code数量"""
+    """每日 ts_code 数量"""
     results = []
     for d in dates:
         sql = """
@@ -60,7 +75,7 @@ def get_ts_code_count(conn, dates):
 
 
 def get_turning_point_distribution(conn, dates):
-    """每日turning_point分布"""
+    """每日 turning_point 分布"""
     all_tags = []
     data = {}
     for d in dates:
@@ -81,13 +96,12 @@ def get_turning_point_distribution(conn, dates):
                 all_tags.append(tag)
         data[d] = dist
 
-    # 构建表格行：每行是一个turning_point类型，每列是一个日期
     all_tags.sort()
     return all_tags, data
 
 
 def get_ma_count(conn, dates):
-    """每日ma5>0和ma30>0的记录数"""
+    """每日 ma5>0 和 ma30>0 的记录数"""
     ma5_counts = []
     ma30_counts = []
     for d in dates:
@@ -107,7 +121,7 @@ def get_ma_count(conn, dates):
 
 
 def get_qfq_factor_count(conn, dates):
-    """每日qfq_adj_factor>0的记录数"""
+    """每日 qfq_adj_factor>0 的记录数"""
     qfq_counts = []
     for d in dates:
         sql = """
@@ -124,7 +138,7 @@ def get_qfq_factor_count(conn, dates):
 
 
 def get_basic_info_count(conn, dates):
-    """stock_daily_basic_info_t 每日记录数（表格5）"""
+    """stock_daily_basic_info_t 每日记录数"""
     counts = []
     for d in dates:
         sql = """
@@ -139,172 +153,180 @@ def get_basic_info_count(conn, dates):
     return counts
 
 
-def create_folder():
-    """创建文件夹"""
-    today = datetime.now().strftime('%Y%m%d')
-    folder_name = f"monitor_stock_data{today}"
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    folder_path = os.path.join(script_dir, folder_name)
+def get_task_run_history(conn, dates):
+    """查询 task_run_log_t 表，返回每个交易日的任务运行汇总。
 
-    if os.path.exists(folder_path):
-        shutil.rmtree(folder_path)
-        print(f"🗑️ 已删除旧文件夹: {folder_name}")
+    返回 dict: {date: {total, success, failed, running, batch_status, batch_duration}}
+    """
+    if not dates:
+        return {}
+    placeholders = ','.join(['%s'] * len(dates))
+    sql = f"""
+        SELECT run_date,
+               MAX(batch_status)   AS batch_status,
+               MAX(batch_duration_sec) AS batch_duration,
+               MAX(total_tasks)    AS total,
+               MAX(success_tasks)  AS success,
+               MAX(failed_tasks)   AS failed
+        FROM task_run_log_t
+        WHERE run_date IN ({placeholders})
+        GROUP BY run_date
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql, dates)
+        rows = cursor.fetchall()
+    result = {}
+    for row in rows:
+        d = str(row['run_date']).replace('-', '')
+        result[d] = {
+            'total': row['total'] or 0,
+            'success': row['success'] or 0,
+            'failed': row['failed'] or 0,
+            'batch_status': row['batch_status'] or '-',
+            'batch_duration': float(row['batch_duration']) if row['batch_duration'] else None,
+        }
+    return result
 
-    os.makedirs(folder_path)
-    print(f"📁 创建文件夹: {folder_name}")
-    return folder_path
 
+def collect_data(days=10, start_date=None, end_date=None):
+    """执行全部查询，返回结构化 dict（可序列化为 JSON）。
 
-def plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, qfq_counts, basic_counts, output_path):
-    """绘制监控图表"""
-    n_dates = len(dates)
-    n_tags = len(tp_tags)
+    参数：
+      days: 最近 N 个交易日（当 start_date/end_date 未指定时使用）
+      start_date: 起始日期 YYYYMMDD（可选）
+      end_date: 结束日期 YYYYMMDD（可选）
 
-    # 计算总行数：表格1(2行) + 表格2(n_tags+1行) + 表格3(3行) + 表格4(2行) + 表格5(2行) + 4段空行+5个标题行
-    fig_height = 4 + n_dates * 0.35 + n_tags * 0.35 + n_dates * 0.35 * 3
-    fig, ax = plt.subplots(figsize=(max(14, n_dates * 1.5), fig_height))
-    ax.axis('off')
+    返回结构：
+      {
+        "generated_at": "2026-09-15 10:30:00",
+        "days": 10,
+        "dates": ["20260912", ...],
+        "date_range": {"start": "20260901", "end": "20260914"} 或 null,
+        "tables": { ... }
+      }
+    """
+    conn = get_mysql_connection()
+    if not conn:
+        raise RuntimeError("数据库连接失败")
 
-    y_cursor = 1.0
-    row_height = 0.06
+    try:
+        if start_date and end_date:
+            dates = get_dates_in_range(conn, start_date, end_date)
+            date_range = {"start": start_date, "end": end_date}
+        else:
+            dates = get_recent_dates(conn, days=days)
+            date_range = None
 
-    # ===== 表格1：每日ts_code数量 =====
-    ax.text(0.5, y_cursor, '表格1：每日ts_code数量', fontsize=14, fontweight='bold',
-            ha='center', va='top', transform=ax.transAxes)
-    y_cursor -= row_height * 1.5
+        if not dates:
+            return {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "days": days, "dates": [], "date_range": date_range, "tables": {}}
 
-    table1_data = [['交易日期'] + dates]
-    table1_data.append(['ts_code数量'] + [str(c) for c in ts_counts])
+        # 表格1
+        ts_counts = get_ts_code_count(conn, dates)
+        # 表格2
+        tp_tags, tp_data = get_turning_point_distribution(conn, dates)
+        # 表格3
+        ma5_counts, ma30_counts = get_ma_count(conn, dates)
+        # 表格4
+        qfq_counts = get_qfq_factor_count(conn, dates)
+        # 表格5
+        basic_counts = get_basic_info_count(conn, dates)
+        # 表格6：任务运行监控
+        task_history = get_task_run_history(conn, dates)
 
-    table1 = ax.table(cellText=table1_data, loc='upper center',
-                      bbox=[0.0, y_cursor - row_height * 2, 1.0, row_height * 2])
-    table1.auto_set_font_size(False)
-    table1.set_fontsize(9)
-    y_cursor -= row_height * 2.5
+        # 构建 JSON 结构
+        tp_rows = []
+        for tag in tp_tags:
+            row = [tag]
+            for d in dates:
+                row.append(tp_data.get(d, {}).get(tag, 0))
+            tp_rows.append(row)
 
-    # ===== 表格2：每日turning_point分布 =====
-    ax.text(0.5, y_cursor, '表格2：每日turning_point分布', fontsize=14, fontweight='bold',
-            ha='center', va='top', transform=ax.transAxes)
-    y_cursor -= row_height * 1.5
-
-    table2_data = [['turning_point'] + dates]
-    for tag in tp_tags:
-        row = [tag]
-        for d in dates:
-            row.append(str(tp_data.get(d, {}).get(tag, 0)))
-        table2_data.append(row)
-
-    table2_height = row_height * (len(tp_tags) + 1)
-    table2 = ax.table(cellText=table2_data, loc='upper center',
-                      bbox=[0.0, y_cursor - table2_height, 1.0, table2_height])
-    table2.auto_set_font_size(False)
-    table2.set_fontsize(9)
-    y_cursor -= table2_height + row_height * 0.5
-
-    # ===== 表格3：每日ma5>0和ma30>0记录数 =====
-    ax.text(0.5, y_cursor, '表格3：每日ma5>0和ma30>0记录数', fontsize=14, fontweight='bold',
-            ha='center', va='top', transform=ax.transAxes)
-    y_cursor -= row_height * 1.5
-
-    table3_data = [
-        ['交易日期'] + dates,
-        ['ma5>0记录数'] + [str(c) for c in ma5_counts],
-        ['ma30>0记录数'] + [str(c) for c in ma30_counts],
-    ]
-
-    table3_height = row_height * 3
-    table3 = ax.table(cellText=table3_data, loc='upper center',
-                      bbox=[0.0, y_cursor - table3_height, 1.0, table3_height])
-    table3.auto_set_font_size(False)
-    table3.set_fontsize(9)
-    y_cursor -= table3_height + row_height * 0.5
-
-    # ===== 表格4：每日qfq_adj_factor>0记录数 =====
-    ax.text(0.5, y_cursor, '表格4：最近10个交易日qfq_adj_factor>0记录数', fontsize=14, fontweight='bold',
-            ha='center', va='top', transform=ax.transAxes)
-    y_cursor -= row_height * 1.5
-
-    table4_data = [
-        ['交易日期'] + dates,
-        ['qfq_adj_factor>0记录数'] + [str(c) for c in qfq_counts],
-    ]
-
-    table4_height = row_height * 2
-    table4 = ax.table(cellText=table4_data, loc='upper center',
-                      bbox=[0.0, y_cursor - table4_height, 1.0, table4_height])
-    table4.auto_set_font_size(False)
-    table4.set_fontsize(9)
-    y_cursor -= table4_height + row_height * 0.5
-
-    # ===== 表格5：stock_daily_basic_info_t 每日记录数 =====
-    ax.text(0.5, y_cursor, '表格5：stock_daily_basic_info_t最近10个交易日每日记录数', fontsize=14, fontweight='bold',
-            ha='center', va='top', transform=ax.transAxes)
-    y_cursor -= row_height * 1.5
-
-    table5_data = [
-        ['交易日期'] + dates,
-        ['basic_info记录数'] + [str(c) for c in basic_counts],
-    ]
-
-    table5_height = row_height * 2
-    table5 = ax.table(cellText=table5_data, loc='upper center',
-                      bbox=[0.0, y_cursor - table5_height, 1.0, table5_height])
-    table5.auto_set_font_size(False)
-    table5.set_fontsize(9)
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"✅ 图片已保存: {output_path}")
+        return {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "days": days,
+            "dates": dates,
+            "date_range": date_range,
+            "tables": {
+                "ts_code": {
+                    "title": "每日 ts_code 数量",
+                    "rows": [
+                        ["交易日期"] + dates,
+                        ["ts_code数量"] + ts_counts,
+                    ],
+                },
+                "turning_point": {
+                    "title": "每日 turning_point 分布",
+                    "tags": tp_tags,
+                    "rows": tp_rows,
+                },
+                "ma": {
+                    "title": "每日 ma5>0 和 ma30>0 记录数",
+                    "rows": [
+                        ["交易日期"] + dates,
+                        ["ma5>0记录数"] + ma5_counts,
+                        ["ma30>0记录数"] + ma30_counts,
+                    ],
+                },
+                "qfq": {
+                    "title": "每日 qfq_adj_factor>0 记录数",
+                    "rows": [
+                        ["交易日期"] + dates,
+                        ["qfq_adj_factor>0记录数"] + qfq_counts,
+                    ],
+                },
+                "basic_info": {
+                    "title": "stock_daily_basic_info_t 每日记录数",
+                    "rows": [
+                        ["交易日期"] + dates,
+                        ["basic_info记录数"] + basic_counts,
+                    ],
+                },
+                "task_runs": {
+                    "title": "每日任务运行监控",
+                    "rows": [
+                        ["交易日期"] + dates,
+                        ["批次状态"] + [task_history.get(d, {}).get('batch_status', '-') for d in dates],
+                        ["任务总数"] + [task_history.get(d, {}).get('total', 0) for d in dates],
+                        ["成功"] + [task_history.get(d, {}).get('success', 0) for d in dates],
+                        ["失败"] + [task_history.get(d, {}).get('failed', 0) for d in dates],
+                        ["批次耗时(秒)"] + [task_history.get(d, {}).get('batch_duration', 0) for d in dates],
+                    ],
+                },
+            },
+        }
+    finally:
+        close_connection(conn)
 
 
 def main():
+    parser = argparse.ArgumentParser(description="stock_daily_t 数据完整性监控（输出 JSON）")
+    parser.add_argument("--json", default="pages/data_monitor.json",
+                        help="JSON 输出路径（默认 pages/data_monitor.json）")
+    parser.add_argument("--stdout", action="store_true", help="输出到终端而非文件")
+    parser.add_argument("--days", type=int, default=10, help="最近 N 个交易日（默认 10）")
+    args = parser.parse_args()
+
     print("=" * 60)
-    print("📊 stock_daily_t 数据更新监控")
+    print("📊 stock_daily_t 数据完整性监控")
     print("=" * 60)
 
-    conn = get_mysql_connection()
-    if not conn:
-        print("❌ 数据库连接失败")
-        return
+    data = collect_data(days=args.days)
 
-    try:
-        # 获取最近10个交易日
-        dates = get_recent_dates(conn, days=10)
-        print(f"📅 最近10个交易日: {dates}")
+    if args.stdout:
+        print(json.dumps(data, ensure_ascii=False))
+    else:
+        out_dir = os.path.dirname(args.json)
+        if out_dir and not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        with open(args.json, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"✅ JSON 已保存: {args.json}")
+        print(f"� 交易日: {data['dates']}")
+        for k, t in data.get("tables", {}).items():
+            print(f"  - {t['title']}")
 
-        # 表格1：每日ts_code数量
-        ts_counts = get_ts_code_count(conn, dates)
-        print(f"✅ 每日ts_code数量: {ts_counts}")
-
-        # 表格2：每日turning_point分布
-        tp_tags, tp_data = get_turning_point_distribution(conn, dates)
-        print(f"✅ turning_point类型: {tp_tags}")
-
-        # 表格3：每日ma5>0和ma30>0记录数
-        ma5_counts, ma30_counts = get_ma_count(conn, dates)
-        print(f"✅ ma5>0记录数: {ma5_counts}")
-        print(f"✅ ma30>0记录数: {ma30_counts}")
-
-        # 表格4：每日qfq_adj_factor>0记录数
-        qfq_counts = get_qfq_factor_count(conn, dates)
-        print(f"✅ qfq_adj_factor>0记录数: {qfq_counts}")
-
-        # 表格5：stock_daily_basic_info_t 每日记录数
-        basic_counts = get_basic_info_count(conn, dates)
-        print(f"✅ basic_info每日记录数: {basic_counts}")
-
-        # 创建文件夹并保存图片
-        folder_path = create_folder()
-        output_path = os.path.join(folder_path, "monitor_stock_data.png")
-        plot_monitor(dates, ts_counts, tp_tags, tp_data, ma5_counts, ma30_counts, qfq_counts, basic_counts, output_path)
-
-        print("\n🎉 监控完成！")
-        print(f"📁 文件夹路径: {folder_path}")
-        print(f"📄 图片路径: {output_path}")
-
-    finally:
-        close_connection(conn)
+    print("\n🎉 监控完成！")
 
 
 if __name__ == "__main__":

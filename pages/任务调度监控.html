@@ -79,6 +79,11 @@
              padding: 5px 16px; font-size: 12.5px; cursor: pointer; }
   .run-btn:hover { background: #1558b0; border-color: #1558b0; }
   .run-btn:disabled { background: #b4c6e3; border-color: #b4c6e3; cursor: not-allowed; }
+  .date-input { width: 130px; border: 1px solid #d0d7de; border-radius: 5px;
+                padding: 4px 8px; font-size: 12px; color: #3d4752; }
+  .date-input:focus { outline: none; border-color: #1a73e8; }
+  .date-row { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+  .date-sep { font-size: 11px; color: #8a94a3; }
   .manual-state { margin-top: 5px; font-size: 11.5px; color: #6b7684; line-height: 1.55; }
   .ms-running { color: #1a73e8; font-weight: 600; }
   .ms-running::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
@@ -87,6 +92,16 @@
   .ms-success { color: #159947; font-weight: 600; }
   .ms-failed { color: #d83a3a; font-weight: 600; }
   .hint { margin: 10px 0 0; font-size: 12.5px; color: #8a94a3; }
+  .batch-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+               margin-top: 14px; padding: 12px 16px; background: #f0f5ff;
+               border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.06); }
+  .batch-bar label { font-size: 13px; font-weight: 600; color: #1a4480; }
+  .batch-bar .date-input { width: 140px; }
+  .batch-bar .btn.primary { background: #1a73e8; color: #fff; }
+  .batch-bar .btn.primary:hover { background: #1558b0; }
+  .batch-bar .count { font-size: 12.5px; color: #6b7684; }
+  .row-cb { width: 16px; height: 16px; cursor: pointer; }
+  .batch-result { margin-top: 8px; font-size: 12.5px; color: #3d4752; }
   tr.detail td { background: #f8fafd; padding: 0; }
   .detail-box { text-align: left; padding: 10px 16px; }
   .detail-box pre { margin: 0; max-height: 320px; overflow: auto; background: #10233a;
@@ -107,13 +122,20 @@
     <a href="/#strategies">选股策略</a>
     <a href="/backtest">回测结果查询</a>
     <a href="/cron" class="active">任务运行监控</a>
-    <a href="/market">大盘风险监控</a>
-    <a href="/#about">关于我们</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 
 <main class="wrap">
-  <div class="page-head">
+  <div class="tabs" style="display:flex;gap:0;margin-top:18px;border-bottom:2px solid #e0e6ed;">
+    <a href="/cron" style="padding:10px 24px;font-size:14px;font-weight:600;color:#1a73e8;border-bottom:3px solid #1a73e8;margin-bottom:-2px;text-decoration:none;">任务运行监控</a>
+    <a href="/data-monitor" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">数据完整性监控</a>
+  </div>
+
+  <div class="page-head" style="margin-top:18px">
     <h1>任务运行监控</h1>
     <div class="head-tools">
       <label class="auto"><input type="checkbox" id="autoRefresh" checked> 自动刷新（10秒）</label>
@@ -134,12 +156,25 @@
 
   <section class="card">
     <div class="run-meta" id="runMeta"></div>
-    <p class="hint">提示：点击每行【运行】可在后台手动执行对应脚本（与定时批次互不影响，输出写入项目 manual_logs/ 目录）；任务执行期间按钮锁定，页面每 10 秒自动刷新状态。</p>
+    <p class="hint">提示：勾选下方任务列表中的复选框，选择日期范围后点击【批量运行】可在后台执行所有勾选的脚本（日期参数传至后台，不填则默认当天）；执行结果写入 task_run_log_t 表。</p>
   </section>
+
+  <div class="batch-bar">
+    <label>批量操作：</label>
+    <input type="date" class="date-input" id="batchStart" placeholder="开始日期">
+    <span class="date-sep">~</span>
+    <input type="date" class="date-input" id="batchEnd" placeholder="结束日期">
+    <button class="btn primary" id="batchRunBtn">批量运行</button>
+    <button class="btn" id="selectAllBtn">全选</button>
+    <button class="btn" id="clearAllBtn">清空</button>
+    <span class="count" id="batchCount">已勾选 0 项</span>
+    <div class="batch-result" id="batchResult"></div>
+  </div>
 
   <section class="card">
     <table>
       <thead><tr>
+        <th style="width:40px"><input type="checkbox" id="cbAll" class="row-cb"></th>
         <th style="width:90px">步骤</th>
         <th class="left">任务名称</th>
         <th style="width:120px">所属批次</th>
@@ -148,10 +183,10 @@
         <th style="width:160px">结束时间</th>
         <th style="width:100px">运行时间</th>
         <th style="width:90px">明细日志</th>
-        <th style="width:150px">操作</th>
+        <th style="width:180px">手动执行结果</th>
       </tr></thead>
       <tbody id="taskBody">
-        <tr><td colspan="9" class="empty">加载中…</td></tr>
+        <tr><td colspan="10" class="empty">加载中…</td></tr>
       </tbody>
     </table>
   </section>
@@ -205,7 +240,7 @@ function toggleDetail(tr, task) {
   expanded.add(task.name);
   const dr = document.createElement('tr');
   dr.className = 'detail';
-  dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+  dr.innerHTML = '<td colspan="10"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
   tr.after(dr);
   if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'), 'cron');
   else dr.querySelector('pre').textContent = '未找到该任务的定时批次明细日志文件';
@@ -224,13 +259,24 @@ function manualStateHtml(m) {
     + (m.log ? ' <a class="log-link manual-log-link" title="手动执行日志">日志</a>' : '') + '</div>';
 }
 
-async function runTask(btn, name) {
+async function runTask(btn, name, idx) {
   btn.disabled = true;
   btn.textContent = '启动中…';
+  // 读取日期范围（HTML date 格式 YYYY-MM-DD → 转为 YYYYMMDD）
+  var sd = '', ed = '';
+  var sInp = document.querySelector('.date-input[data-role="start"][data-idx="' + idx + '"]');
+  var eInp = document.querySelector('.date-input[data-role="end"][data-idx="' + idx + '"]');
+  if (sInp && sInp.value) sd = sInp.value.replace(/-/g, '');
+  if (eInp && eInp.value) ed = eInp.value.replace(/-/g, '');
+  // 如果只填了结束日期没填开始日期，交换
+  if (!sd && ed) { sd = ed; ed = ''; }
   try {
+    var body = { script: name };
+    if (sd) body.start_date = sd;
+    if (ed) body.end_date = ed;
     const r = await fetch('/api/cron_run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: name })
+      body: JSON.stringify(body)
     });
     const d = await r.json();
     if (!r.ok) {
@@ -248,14 +294,14 @@ function render(d) {
 
   if (d.log_dir_exists === false) {
     document.getElementById('taskBody').innerHTML =
-      '<tr><td colspan="9" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
+      '<tr><td colspan="10" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
     setKpis('-','-','-','-','-');
     document.getElementById('runMeta').textContent = '';
     return;
   }
   if (!d.has_run) {
     document.getElementById('taskBody').innerHTML =
-      '<tr><td colspan="9" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
+      '<tr><td colspan="10" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
     setKpis('-','-','-','-','-');
     document.getElementById('runMeta').textContent = '';
     return;
@@ -287,6 +333,8 @@ function render(d) {
 
   document.getElementById('taskBody').innerHTML = d.tasks.map((t, i) =>
     '<tr data-idx="' + i + '">'
+    + '<td><input type="checkbox" class="row-cb" data-idx="' + i + '"'
+    + (t.manual && t.manual.status === 'running' ? ' disabled' : '') + '></td>'
     + '<td><span class="step">' + esc(t.step) + '</span></td>'
     + '<td class="left"><span class="script">' + esc(t.name) + '</span></td>'
     + '<td><span class="phase">' + esc(t.phase || '-') + '</span></td>'
@@ -297,22 +345,13 @@ function render(d) {
     + '<td>' + (t.detail_log
         ? '<a class="log-link cron-log-link">查看</a>'
         : '<span class="muted">-</span>') + '</td>'
-    + '<td><button class="run-btn"'
-        + (t.manual && t.manual.status === 'running' ? ' disabled' : '') + '>'
-        + (t.manual && t.manual.status === 'running' ? '执行中…' : '运行') + '</button>'
-        + manualStateHtml(t.manual) + '</td>'
+    + '<td>' + manualStateHtml(t.manual) + '</td>'
     + '</tr>').join('');
 
   document.querySelectorAll('.cron-log-link').forEach(a => {
     a.addEventListener('click', () => {
       const tr = a.closest('tr');
       toggleDetail(tr, d.tasks[Number(tr.dataset.idx)]);
-    });
-  });
-  document.querySelectorAll('.run-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tr = btn.closest('tr');
-      runTask(btn, d.tasks[Number(tr.dataset.idx)].name);
     });
   });
   document.querySelectorAll('.manual-log-link').forEach(a => {
@@ -323,7 +362,7 @@ function render(d) {
       if (next && next.classList.contains('detail')) { next.remove(); return; }
       const dr = document.createElement('tr');
       dr.className = 'detail';
-      dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+      dr.innerHTML = '<td colspan="10"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
       tr.after(dr);
       loadLog(task.manual.log, dr.querySelector('.detail-box'), 'manual');
     });
@@ -336,7 +375,7 @@ function render(d) {
       if (expanded.has(task.name)) {
         const dr = document.createElement('tr');
         dr.className = 'detail';
-        dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+        dr.innerHTML = '<td colspan="10"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
         tr.after(dr);
         if (task.detail_log) loadLog(task.detail_log, dr.querySelector('.detail-box'), 'cron');
       }
@@ -375,6 +414,84 @@ document.getElementById('refreshBtn').addEventListener('click', refresh);
 document.getElementById('autoRefresh').addEventListener('change', function () {
   clearInterval(timer);
   if (this.checked) { left = 0; timer = setInterval(tick, 1000); }
+});
+
+// 全选/清空
+document.getElementById('selectAllBtn').addEventListener('click', function() {
+  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => { if (!cb.disabled) cb.checked = true; });
+  updateBatchCount();
+});
+document.getElementById('clearAllBtn').addEventListener('click', function() {
+  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => cb.checked = false);
+  updateBatchCount();
+});
+// 表头全选
+document.getElementById('cbAll').addEventListener('change', function() {
+  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => {
+    if (!cb.disabled) cb.checked = this.checked;
+  });
+  updateBatchCount();
+});
+// 单行勾选变化
+document.getElementById('taskBody').addEventListener('change', function(e) {
+  if (e.target.classList.contains('row-cb') && e.target.dataset.idx !== undefined) {
+    updateBatchCount();
+  }
+});
+
+function updateBatchCount() {
+  var n = document.querySelectorAll('.row-cb[data-idx]:checked').length;
+  document.getElementById('batchCount').textContent = '已勾选 ' + n + ' 项';
+}
+
+// 批量运行
+document.getElementById('batchRunBtn').addEventListener('click', async function() {
+  var checked = document.querySelectorAll('.row-cb[data-idx]:checked');
+  if (!checked.length) { alert('请先勾选至少一个任务'); return; }
+  var scripts = [];
+  checked.forEach(cb => {
+    var idx = Number(cb.dataset.idx);
+    var name = document.querySelector('tr[data-idx="' + idx + '"] .script');
+    if (name) scripts.push(name.textContent);
+  });
+  if (!scripts.length) return;
+
+  var sd = document.getElementById('batchStart').value;
+  var ed = document.getElementById('batchEnd').value;
+  if (sd && ed && sd > ed) { alert('结束日期不能早于开始日期'); return; }
+
+  var body = { scripts: scripts };
+  if (sd) body.start_date = sd.replace(/-/g, '');
+  if (ed) body.end_date = ed.replace(/-/g, '');
+
+  var btn = document.getElementById('batchRunBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  var resultBox = document.getElementById('batchResult');
+  resultBox.textContent = '正在提交 ' + scripts.length + ' 个任务…';
+
+  try {
+    var r = await fetch('/api/cron_run_batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    var d = await r.json();
+    var ok = (d.results || []).filter(function(x) { return x.ok; }).length;
+    var fail = (d.results || []).length - ok;
+    resultBox.innerHTML = '✅ 已启动 ' + ok + ' 个' + (fail ? '，❌ 跳过 ' + fail + ' 个' : '')
+      + ' — 等待执行完成后自动刷新查看结果';
+  } catch (e) {
+    resultBox.textContent = '❌ 请求失败：' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '批量运行';
+  }
+  // 清空勾选
+  document.querySelectorAll('.row-cb[data-idx]').forEach(cb => cb.checked = false);
+  document.getElementById('cbAll').checked = false;
+  updateBatchCount();
+  // 立即刷新
+  await refresh();
 });
 
 refresh();

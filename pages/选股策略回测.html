@@ -51,6 +51,31 @@
   .null { color: #bbb; }
   td a.stocklink { color: #1a73e8; text-decoration: none; }
   td a.stocklink:hover { text-decoration: underline; }
+  /* 策略执行面板 */
+  .run-panel { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+               padding: 14px 16px; margin-bottom: 14px; }
+  .run-panel .head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .run-panel .head label { font-size: 13px; color: #555; }
+  .run-panel .head input[type="date"] { padding: 6px 8px; border: 1px solid #ccc;
+                                         border-radius: 6px; font-size: 13px; width: 145px;
+                                         font-family: inherit; cursor: pointer; }
+  .run-panel .head button { padding: 6px 14px; border: none; border-radius: 6px;
+                             background: #1a73e8; color: #fff; font-size: 13px; cursor: pointer; }
+  .run-panel .head button.run-all { background: #0f9d58; }
+  .run-panel .head button:disabled { background: #bbb; cursor: not-allowed; }
+  .run-panel .head #selCount { font-size: 13px; color: #666; }
+  .strategy-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                   gap: 6px 16px; }
+  .strategy-list label { display: flex; align-items: center; gap: 6px; font-size: 13px;
+                         cursor: pointer; padding: 4px 0; }
+  .strategy-list input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .strategy-list .sname { font-weight: 500; }
+  .strategy-list .sfile { color: #888; font-size: 12px; }
+  .strategy-list .status { font-size: 12px; margin-left: auto; }
+  .strategy-list .status.running { color: #1a73e8; }
+  .strategy-list .status.success { color: #0f9d58; }
+  .strategy-list .status.failed { color: #d93025; }
+  .strategy-list .status.skipped { color: #e8820c; }
   .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end;
            background: #fff; padding: 10px 16px; border-radius: 8px;
            box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-top: 10px; font-size: 13px; color: #555; }
@@ -73,11 +98,25 @@
     <a href="/#strategies">选股策略</a>
     <a href="/backtest" class="active">回测结果查询</a>
     <a href="/cron">任务运行监控</a>
-    <a href="/market">大盘风险监控</a>
-    <a href="/#about">关于我们</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">大盘风险分析报告</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 <h1>📊 选股策略回测结果查询</h1>
+
+<div class="run-panel">
+  <div class="head">
+    <label>目标日期 <input id="runDate" type="date"></label>
+    <button class="run-all" id="runBtn" onclick="runStrategies()">执行策略</button>
+    <button onclick="selectAllStrategies(true)">全选</button>
+    <button onclick="selectAllStrategies(false)">清空</button>
+    <span id="selCount">已选 0 个</span>
+  </div>
+  <div class="strategy-list" id="strategyList"></div>
+</div>
+
 <div class="bar">
   <label>策略 <select id="strategy"><option value="">全部策略</option></select></label>
   <label>起始日期 <input id="startDate" type="date"></label>
@@ -158,6 +197,92 @@ fetch('/api/strategies').then(r => r.json()).then(d => {
   });
   if (urlStrategy) sel.value = urlStrategy;
 }).finally(() => query());
+
+// ---- 策略执行面板 ----
+let _strategyMeta = [];   // 来自 /api/strategies_meta 的全部策略元数据
+let _statusTimer = null;  // 轮询定时器
+
+// 加载策略复选框列表
+fetch('/api/strategies_meta').then(r => r.json()).then(d => {
+  _strategyMeta = d.strategies || [];
+  const list = document.getElementById('strategyList');
+  list.innerHTML = _strategyMeta.map(s =>
+    `<label title="${(s.doc || '').replace(/"/g, '&quot;')}">
+       <input type="checkbox" value="${s.file}" onchange="updateSelCount()">
+       <span class="sname">${s.title || s.strategy || s.file}</span>
+       <span class="sfile">${s.file}</span>
+       <span class="status" data-script="${s.file}"></span>
+     </label>`).join('');
+});
+
+function updateSelCount() {
+  const n = document.querySelectorAll('#strategyList input:checked').length;
+  document.getElementById('selCount').textContent = '已选 ' + n + ' 个';
+}
+
+function selectAllStrategies(checked) {
+  document.querySelectorAll('#strategyList input[type=checkbox]').forEach(cb => cb.checked = checked);
+  updateSelCount();
+}
+
+function runStrategies() {
+  const checked = Array.from(document.querySelectorAll('#strategyList input:checked'));
+  if (!checked.length) { alert('请至少勾选一个策略'); return; }
+  const scripts = checked.map(cb => cb.value);
+  const runDate = document.getElementById('runDate').value;
+  const body = { scripts };
+  if (runDate) body.target_date = compactDate(runDate);
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = '启动中…';
+  fetch('/api/strategies_run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '执行策略'; return; }
+    // 标记每个策略的启动结果
+    (d.results || []).forEach(r => {
+      const span = document.querySelector(`.status[data-script="${r.script}"]`);
+      if (!span) return;
+      if (r.ok) { span.className = 'status running'; span.textContent = '运行中'; }
+      else { span.className = 'status skipped'; span.textContent = r.error || '跳过'; }
+    });
+    btn.disabled = false; btn.textContent = '执行策略';
+    startStatusPolling(scripts);
+  }).catch(err => {
+    alert('启动失败: ' + err);
+    btn.disabled = false; btn.textContent = '执行策略';
+  });
+}
+
+function startStatusPolling(scripts) {
+  if (_statusTimer) clearInterval(_statusTimer);
+  const queryStr = scripts.join(',');
+  const poll = () => {
+    fetch('/api/strategies_status?scripts=' + encodeURIComponent(queryStr))
+      .then(r => r.json()).then(d => {
+        let allDone = true;
+        const statuses = d.statuses || {};
+        for (const s of scripts) {
+          const span = document.querySelector(`.status[data-script="${s}"]`);
+          if (!span) continue;
+          const st = statuses[s];
+          if (!st) continue;
+          if (st.status === 'running') {
+            span.className = 'status running'; span.textContent = '运行中';
+            allDone = false;
+          } else if (st.status === 'success') {
+            span.className = 'status success'; span.textContent = '✓ 完成';
+          } else if (st.status === 'failed') {
+            span.className = 'status failed'; span.textContent = '✗ 失败';
+          }
+        }
+        if (allDone) { clearInterval(_statusTimer); _statusTimer = null; }
+      }).catch(() => {});
+  };
+  poll();
+  _statusTimer = setInterval(poll, 3000);
+}
 
 function resetFilters() {
   document.getElementById('strategy').value = '';

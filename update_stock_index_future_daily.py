@@ -42,6 +42,7 @@ def create_table(connection):
         amount FLOAT,
         oi FLOAT,
         oi_chg FLOAT,
+        update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
         PRIMARY KEY (ts_code, trade_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """

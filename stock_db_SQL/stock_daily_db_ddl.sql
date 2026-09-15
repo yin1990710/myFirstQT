@@ -44,6 +44,7 @@ CREATE TABLE `index_daily_t` (
   `vol` bigint DEFAULT NULL COMMENT '成交量(手)',
   `amount` decimal(18,2) DEFAULT NULL COMMENT '成交额(千元)',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=10709 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数日线数据表';
@@ -66,6 +67,7 @@ CREATE TABLE `rzrq_ye_t` (
   `rqmcl` decimal(20,2) DEFAULT NULL,
   `rzrqye` decimal(20,2) DEFAULT NULL,
   `rqyl` decimal(20,2) DEFAULT NULL,
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`trade_date`,`exchange_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -118,6 +120,7 @@ CREATE TABLE `stock_daily_basic_info_t` (
   `free_share` double DEFAULT NULL COMMENT '自由流通股本(万股)',
   `total_mv` double DEFAULT NULL COMMENT '总市值(万元)',
   `circ_mv` double DEFAULT NULL COMMENT '流通市值(万元)',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票每日基本交易指标';
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -253,6 +256,7 @@ CREATE TABLE `stock_index_daily_t` (
   `pct_chg` float DEFAULT NULL,
   `vol` float DEFAULT NULL,
   `amount` float DEFAULT NULL,
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -278,6 +282,7 @@ CREATE TABLE `stock_index_future_daily_t` (
   `amount` float DEFAULT NULL,
   `oi` float DEFAULT NULL,
   `oi_chg` float DEFAULT NULL,
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
