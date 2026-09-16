@@ -14,14 +14,37 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-SET @MYSQLDUMP_TEMP_LOG_BIN = @@SESSION.SQL_LOG_BIN;
-SET @@SESSION.SQL_LOG_BIN= 0;
 
 --
--- GTID state at the beginning of the backup 
+-- Table structure for table `backtest_task_t`
 --
 
-SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-399525';
+DROP TABLE IF EXISTS `backtest_task_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `backtest_task_t` (
+  `task_id` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务ID',
+  `account` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '提交账号',
+  `task_name` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '任务名称 账号-策略_日期范围',
+  `strategy` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '策略名称',
+  `strategy_file` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对应策略py文件名',
+  `start_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '回测起始日期YYYYMMDD',
+  `end_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '回测结束日期YYYYMMDD',
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'running' COMMENT 'running/done/failed',
+  `stage` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT 'queued' COMMENT 'queued/scanning/computing/done/failed',
+  `progress_done` int DEFAULT NULL COMMENT '已扫描交易日数',
+  `progress_total` int DEFAULT NULL COMMENT '总交易日数',
+  `progress_current_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '当前扫描交易日',
+  `error` text COLLATE utf8mb4_unicode_ci COMMENT '失败原因',
+  `saved` tinyint NOT NULL DEFAULT '0' COMMENT '结果是否已写入结果表',
+  `start_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '任务开始时间',
+  `end_time` datetime DEFAULT NULL COMMENT '任务结束时间',
+  `duration` decimal(10,1) DEFAULT NULL COMMENT '耗时秒',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`task_id`),
+  KEY `idx_account` (`account`,`start_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略回测任务注册表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `etf_basic_t`
@@ -99,6 +122,29 @@ CREATE TABLE `index_daily_t` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=10709 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数日线数据表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `my_stock_t`
+--
+
+DROP TABLE IF EXISTS `my_stock_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `my_stock_t` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `account` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '账号',
+  `ts_code` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '股票代码',
+  `stock_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '股票名称',
+  `selected_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '入选日期YYYYMMDD',
+  `buy_price` decimal(10,3) DEFAULT NULL COMMENT '买入价格',
+  `strategy_name` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '入选策略名称',
+  `note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_account_stock` (`account`,`ts_code`)
+) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -254,7 +300,7 @@ CREATE TABLE `stock_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
   KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=41100648 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=41105587 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -352,6 +398,45 @@ CREATE TABLE `stock_info_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `strategy_backtest_result_t`
+--
+
+DROP TABLE IF EXISTS `strategy_backtest_result_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `strategy_backtest_result_t` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `strategy_name` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '策略名称',
+  `strategy_file` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '对应策略py文件名',
+  `start_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '回测起始日期YYYYMMDD',
+  `end_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '回测结束日期YYYYMMDD',
+  `ts_code` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '股票代码',
+  `stock_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '股票名称',
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '选股日期YYYYMMDD',
+  `max_gain_10d` decimal(8,2) DEFAULT NULL COMMENT '10日最大涨幅(%)',
+  `max_down_10d` decimal(8,2) DEFAULT NULL COMMENT '10日最大跌幅(%)',
+  `max_gain_20d` decimal(8,2) DEFAULT NULL COMMENT '20日最大涨幅(%)',
+  `max_down_20d` decimal(8,2) DEFAULT NULL COMMENT '20日最大跌幅(%)',
+  `avg_gain_10d` decimal(8,2) DEFAULT NULL COMMENT '平均10日最大涨幅(%)',
+  `avg_gain_20d` decimal(8,2) DEFAULT NULL COMMENT '平均20日最大涨幅(%)',
+  `avg_down_10d` decimal(8,2) DEFAULT NULL COMMENT '平均10日最大跌幅(%)',
+  `avg_down_20d` decimal(8,2) DEFAULT NULL COMMENT '平均20日最大跌幅(%)',
+  `excess_sh` decimal(8,2) DEFAULT NULL COMMENT '相对上证指数超额收益(%)',
+  `excess_sz` decimal(8,2) DEFAULT NULL COMMENT '相对创业板指超额收益(%)',
+  `sharpe` decimal(10,2) DEFAULT NULL COMMENT '夏普比率(年化)',
+  `sh_index_10d` decimal(8,2) DEFAULT NULL COMMENT '上证指数10日收益(%)',
+  `sz_index_10d` decimal(8,2) DEFAULT NULL COMMENT '创业板指10日收益(%)',
+  `total_stocks` int DEFAULT NULL COMMENT '选股总数',
+  `valid_stocks` int DEFAULT NULL COMMENT '有效回测数',
+  `total_dates` int DEFAULT NULL COMMENT '涉及交易日数',
+  `run_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '回测执行时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_run_stock` (`strategy_name`,`start_date`,`end_date`,`ts_code`,`trade_date`)
+) ENGINE=InnoDB AUTO_INCREMENT=6177 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略回测结果表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `strategy_selected_stock_daily_t`
 --
 
@@ -428,9 +513,38 @@ CREATE TABLE `task_run_log_t` (
   UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
   KEY `idx_run_date` (`run_date`),
   KEY `idx_script` (`script_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=5576 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
+) ENGINE=InnoDB AUTO_INCREMENT=6008 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
 /*!40101 SET character_set_client = @saved_cs_client */;
-SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
+
+--
+-- Table structure for table `user_login_t`
+--
+
+DROP TABLE IF EXISTS `user_login_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_login_t` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `account` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '账号',
+  `password` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '密码(SHA256)',
+  `login_status` tinyint NOT NULL DEFAULT '0' COMMENT '登录状态: 0=离线 1=在线',
+  `login_time` datetime DEFAULT NULL COMMENT '最近登录时间',
+  `logout_time` datetime DEFAULT NULL COMMENT '最近登出时间',
+  `valid_from_date` date DEFAULT NULL COMMENT '账号有效期开始日期',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_account` (`account`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录信息表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping events for database 'stock_daily_db'
+--
+
+--
+-- Dumping routines for database 'stock_daily_db'
+--
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -441,4 +555,4 @@ SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-16  0:31:47
+-- Dump completed on 2026-09-17  1:44:16
