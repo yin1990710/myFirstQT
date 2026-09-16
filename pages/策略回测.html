@@ -32,6 +32,23 @@
   }
   .page-tabs a:hover { color: #1a1a1a; }
   .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  /* 页面内并列子卡片页 */
+  .sub-tabs { display: flex; gap: 0; margin: 0 0 18px; border-bottom: 2px solid #e0e0e0; }
+  .sub-tabs a {
+    padding: 10px 26px; text-decoration: none; font-size: 15px; color: #666;
+    border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; transition: all .2s;
+  }
+  .sub-tabs a:hover { color: #1a1a1a; }
+  .sub-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  .sub-pane { animation: fadeIn .15s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  /* 明细数据折叠头 */
+  .detail-toggle { cursor: pointer; user-select: none; padding: 12px 14px; margin-top: 14px;
+                     background: #f1f5ff; border: 1px solid #d7e3fb; border-radius: 8px;
+                     font-size: 14px; font-weight: 600; color: #1a56a8; }
+  .detail-toggle:hover { background: #e6efff; }
+  .detail-toggle .dt-arrow { display: inline-block; margin-right: 6px; transition: transform .15s; }
+  .detail-toggle.expanded .dt-arrow { transform: rotate(90deg); }
 
   .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: #fff;
          padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
@@ -78,6 +95,55 @@
   .empty { text-align: center; padding: 60px 20px; color: #999; background: #fff;
            border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   .empty .icon { font-size: 48px; margin-bottom: 12px; }
+  /* 异步任务进度 */
+  .task-banner { background: #e8f0fe; border: 1px solid #c2d7f7; color: #1a56a8;
+                 border-radius: 8px; padding: 10px 16px; margin-bottom: 14px;
+                 font-size: 13px; display: flex; align-items: center; gap: 10px; }
+  .task-banner .spinner { width: 14px; height: 14px; border: 2px solid #c2d7f7;
+                          border-top-color: #1a73e8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-track { width: 240px; height: 8px; background: #d6e3f7; border-radius: 4px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #1a73e8; border-radius: 4px; transition: width .3s; }
+  .progress-wrap { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .progress-wrap .progress-track { width: 320px; }
+  .progress-text { font-size: 13px; color: #555; }
+  /* 确认对话框 */
+  .mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 200;
+           align-items: center; justify-content: center; }
+  .mask.show { display: flex; }
+  .dlg { background: #fff; border-radius: 10px; width: 460px; max-width: 92vw;
+          box-shadow: 0 8px 32px rgba(0,0,0,.22); overflow: hidden; }
+  .dlg .dlg-title { padding: 14px 20px; font-size: 15px; font-weight: 600;
+                       border-bottom: 1px solid #eee; color: #1a1a1a; }
+  .dlg .dlg-body { padding: 18px 20px; }
+  .dlg .dlg-body label { display: block; font-size: 13px; color: #666; margin-bottom: 6px; }
+  .dlg .dlg-body input { width: 100%; padding: 8px 10px; border: 1px solid #ccc;
+                        border-radius: 6px; font-size: 14px; font-family: inherit; }
+  .dlg .dlg-info { margin-top: 10px; font-size: 12px; color: #888; }
+  .dlg .dlg-btns { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px;
+                           border-top: 1px solid #eee; background: #fafafa; }
+  .dlg .dlg-btns button { padding: 7px 18px; border: none; border-radius: 6px;
+                                     font-size: 13px; cursor: pointer; }
+  .dlg .dlg-btns button.reset { background: #e0e0e0; color: #333; }
+  .dlg .dlg-btns button:not(.reset) { background: #1a73e8; color: #fff; }
+  /* 任务列表 */
+  .task-table tbody tr { cursor: pointer; }
+  .task-table tbody tr:hover { background: #eef4ff; }
+  .task-table .task-name { font-weight: 500; color: #1a1a1a; }
+  .status-tag { display: inline-block; padding: 2px 8px; border-radius: 10px;
+                       font-size: 12px; white-space: nowrap; }
+  .status-tag.running { background: #e8f0fe; color: #1a56a8; }
+  .status-tag.done { background: #e6f4ea; color: #1e7e34; }
+  .status-tag.failed { background: #fce8e6; color: #c5221f; }
+  .status-tag.stopped { background: #f1f3f4; color: #5f6368; }
+  .act-btn { padding: 3px 10px; border: none; border-radius: 5px; font-size: 12px;
+                   cursor: pointer; color: #fff; white-space: nowrap; }
+  .act-btn.stop { background: #d93025; }
+  .act-btn.stop:disabled { background: #bbb; cursor: default; }
+  .act-btn.rerun { background: #1a73e8; }
+  .mini-progress { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+  .mini-progress .track { width: 70px; height: 6px; background: #d6e3f7; border-radius: 3px; overflow: hidden; }
+  .mini-progress .fill { height: 100%; background: #1a73e8; }
 </style>
 </head>
 <body>
@@ -100,26 +166,77 @@
 <div class="page-tabs">
   <a href="/backtest">策略选股结果</a>
   <a href="/backtest_analysis" class="active">策略回测</a>
+  <a href="/my_stocks">我的股票池</a>
 </div>
 
-<h1>📊 策略回测分析</h1>
-
-<div class="bar">
-  <label>策略
-    <select id="strategy">
-      <option value="">全部策略</option>
-    </select>
-  </label>
-  <label>起始日期 <input id="startDate" type="date"></label>
-  <label>结束日期 <input id="endDate" type="date"></label>
-  <button onclick="runAnalysis()">开始回测</button>
-  <button class="reset" onclick="resetForm()">重置</button>
+<div class="sub-tabs">
+  <a href="javascript:void(0)" class="active" data-pane="paneAnalysis" onclick="switchSubTab('paneAnalysis')">策略回测分析</a>
+  <a href="javascript:void(0)" data-pane="paneHistory" onclick="switchSubTab('paneHistory')">历史回测任务</a>
 </div>
 
-<div id="resultArea">
-  <div class="empty">
-    <div class="icon">📊</div>
-    <p>选定策略和日期范围后将自动开始回测</p>
+<!-- ===== 子页1：策略回测分析 ===== -->
+<div id="paneAnalysis" class="sub-pane">
+  <div class="bar">
+    <label>策略
+      <select id="strategy">
+        <option value="">全部策略</option>
+      </select>
+    </label>
+    <label>起始日期 <input id="startDate" type="date"></label>
+    <label>结束日期 <input id="endDate" type="date"></label>
+    <button onclick="runAnalysis()">开始回测（扫描日期范围）</button>
+    <button class="reset" onclick="resetForm()">重置</button>
+  </div>
+
+  <!-- 回测任务确认对话框 -->
+  <div id="taskConfirmMask" class="mask">
+    <div class="dlg">
+      <div class="dlg-title">确认回测任务</div>
+      <div class="dlg-body">
+        <label>回测任务名称（格式：账号-策略名_日期范围，可修改）</label>
+        <input id="dlgTaskName" maxlength="200" placeholder="请输入任务名称">
+        <div class="dlg-info" id="dlgTaskInfo"></div>
+      </div>
+      <div class="dlg-btns">
+        <button class="reset" onclick="closeConfirmDialog()">取消</button>
+        <button onclick="confirmSubmitTask()">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="taskBanner" style="display:none;"></div>
+
+  <div id="resultArea">
+    <div class="empty">
+      <div class="icon">📊</div>
+      <p>选定策略和日期范围后点击「开始回测」</p>
+      <p style="font-size:12px;color:#bbb;margin-top:6px">回测在后台异步执行，切换页面不会中断；完成后结果自动保存，可在历史回测任务中随时查询</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 子页2：历史回测任务 ===== -->
+<div id="paneHistory" class="sub-pane" style="display:none;">
+  <div class="bar">
+    <label>账号
+      <select id="savedAccount"></select>
+    </label>
+    <label>策略
+      <select id="savedStrategy">
+        <option value="">全部策略</option>
+      </select>
+    </label>
+    <label>起始日期 <input id="savedStartDate" type="date"></label>
+    <label>结束日期 <input id="savedEndDate" type="date"></label>
+    <button onclick="loadTaskList()">查询任务</button>
+    <button class="reset" onclick="resetSavedForm()">重置</button>
+  </div>
+
+  <div id="savedRunsArea">
+    <div class="empty">
+      <div class="icon">📋</div>
+      <p>提交的回测任务会展示在这里，点击任务行查看运行进度或回测结果</p>
+    </div>
   </div>
 </div>
 
@@ -134,14 +251,14 @@ function cls(v) {
 }
 
 function loadStrategies() {
-  fetch('/api/strategies')
+  return fetch('/api/backtest_strategies')
     .then(r => r.json())
     .then(data => {
       const sel = document.getElementById('strategy');
       (data.strategies || []).forEach(s => {
         const opt = document.createElement('option');
-        opt.value = s;
-        opt.textContent = s;
+        opt.value = s.name;
+        opt.textContent = s.name;
         sel.appendChild(opt);
       });
     })
@@ -154,47 +271,202 @@ function resetForm() {
   document.getElementById('endDate').value = '';
 }
 
-let _running = false;   // 请求进行中标志，防止自动触发+手动点击造成重复提交
+// ---- 异步回测任务：提交后后台执行，前端轮询进度；切换/刷新页面不中断任务 ----
+let _pollTimer = null;
+let _currentTaskId = null;
+let _starting = false;
+
+function stopPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  const btn = document.querySelector('.bar button[onclick^="runAnalysis"]');
+  if (btn) btn.disabled = false;
+}
+
+function showTaskBanner(task) {
+  const banner = document.getElementById('taskBanner');
+  const pct = task.progress && task.progress.total
+    ? Math.round(task.progress.done / task.progress.total * 100) : 0;
+  const dateInfo = task.progress
+    ? '（' + task.progress.done + '/' + task.progress.total + '，当前 ' + task.progress.current_date + '）'
+    : '';
+  banner.style.display = 'block';
+  banner.innerHTML =
+    '<div class="spinner"></div>'
+    + '<span>回测任务后台执行中：<b>' + task.strategy + '</b> '
+    + task.start_date + '~' + task.end_date + ' ' + dateInfo + '</span>'
+    + '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>'
+    + '<span style="color:#888">切换页面不影响任务执行</span>';
+}
+
+function hideTaskBanner() {
+  document.getElementById('taskBanner').style.display = 'none';
+}
+
+function renderRunningView(task) {
+  showTaskBanner(task);
+  document.querySelector('.bar button[onclick^="runAnalysis"]').disabled = true;
+  const area = document.getElementById('resultArea');
+  const pct = task.progress && task.progress.total
+    ? Math.round(task.progress.done / task.progress.total * 100) : 0;
+  const stageText = task.stage === 'stopping'
+    ? '正在停止任务，等待当前交易日扫描结束…'
+    : (task.stage === 'computing'
+    ? '正在计算回测指标…'
+    : ('正在按交易日扫描符合策略的股票… '
+       + (task.progress ? task.progress.done + '/' + task.progress.total : '')));
+  area.innerHTML =
+    '<div class="empty"><div class="icon">⏳</div>'
+    + '<div class="progress-wrap">'
+    + '<div class="progress-text">' + stageText + '</div>'
+    + '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>'
+    + '<div class="progress-text" style="color:#aaa">任务开始于 ' + task.start
+    + '，可切换到其他页面，完成后结果会自动保存</div>'
+    + '</div></div>';
+}
 
 function runAnalysis() {
   const strategy = document.getElementById('strategy').value;
   const startDate = document.getElementById('startDate').value.replace(/-/g, '');
   const endDate = document.getElementById('endDate').value.replace(/-/g, '');
 
+  if (!strategy) {
+    document.getElementById('resultArea').innerHTML =
+      '<div class="empty"><div class="icon">⚠️</div><p>请选择回测策略</p></div>';
+    return;
+  }
+  if (!startDate || !endDate) {
+    document.getElementById('resultArea').innerHTML =
+      '<div class="empty"><div class="icon">⚠️</div><p>请选择起始日期和结束日期</p></div>';
+    return;
+  }
   // YYYY-MM-DD 为定长 ISO 格式，可直接按字符串字典序比较
-  if (startDate && endDate && startDate > endDate) {
+  if (startDate > endDate) {
     document.getElementById('resultArea').innerHTML =
       '<div class="empty"><div class="icon">⚠️</div><p>起始日期不能晚于结束日期</p></div>';
     return;
   }
-  if (_running) return;
-  _running = true;
 
-  const area = document.getElementById('resultArea');
-  area.innerHTML = '<div class="empty"><div class="icon">⏳</div><p>回测计算中...</p></div>';
+  // 弹出确认对话框，任务名称默认：账号-策略名_起始~结束
+  const defaultName = _account + '-' + strategy + '_' + startDate + '~' + endDate;
+  document.getElementById('dlgTaskName').value = defaultName;
+  document.getElementById('dlgTaskInfo').textContent =
+    strategy + '　' + startDate + ' ~ ' + endDate;
+  document.getElementById('taskConfirmMask').classList.add('show');
+  setTimeout(() => {
+    const inp = document.getElementById('dlgTaskName');
+    inp.focus(); inp.select();
+  }, 50);
+}
+
+function closeConfirmDialog() {
+  document.getElementById('taskConfirmMask').classList.remove('show');
+}
+
+function confirmSubmitTask() {
+  if (_starting) return;
+  const taskName = document.getElementById('dlgTaskName').value.trim();
+  if (!taskName) {
+    document.getElementById('dlgTaskInfo').textContent = '请填写任务名称';
+    return;
+  }
+  const strategy = document.getElementById('strategy').value;
+  const startDate = document.getElementById('startDate').value.replace(/-/g, '');
+  const endDate = document.getElementById('endDate').value.replace(/-/g, '');
+  closeConfirmDialog();
+  _starting = true;
 
   fetch('/api/backtest_analysis', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({strategy, start_date: startDate, end_date: endDate})
+    body: JSON.stringify({strategy, start_date: startDate,
+                          end_date: endDate, task_name: taskName})
   })
     .then(r => r.json())
-    .then(data => renderResult(data))
-    .catch(() => {
-      area.innerHTML = '<div class="empty"><div class="icon">❌</div><p>请求失败，请重试</p></div>';
+    .then(data => {
+      if (data.error) {
+        document.getElementById('resultArea').innerHTML =
+          '<div class="empty"><div class="icon">❌</div><p>' + data.error + '</p></div>';
+        return;
+      }
+      startPolling(data.task_id);
+      // 新任务归属当前账号，账号筛选切回当前账号后再刷新列表
+      const acctSel = document.getElementById('savedAccount');
+      if (_account && acctSel.value !== _account) {
+        acctSel.value = _account;
+      }
+      loadTaskList();
     })
-    .finally(() => { _running = false; });
+    .catch(() => {
+      document.getElementById('resultArea').innerHTML =
+        '<div class="empty"><div class="icon">❌</div><p>请求失败，请重试</p></div>';
+    })
+    .finally(() => { _starting = false; });
 }
 
-// 选定策略和日期范围后自动触发回测：起止日期齐备即执行（策略未选时按全部策略），
-// 之后任一条件变化都会重新执行，无需点击「开始回测」按钮
-function maybeAutoRun() {
-  const s = document.getElementById('startDate').value;
-  const e = document.getElementById('endDate').value;
-  if (s && e) runAnalysis();
+// ESC 关闭对话框
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeConfirmDialog();
+});
+
+function startPolling(taskId) {
+  stopPolling();
+  _currentTaskId = taskId;
+  pollTask();   // 立即查一次
+  _pollTimer = setInterval(pollTask, 2000);
 }
-['strategy', 'startDate', 'endDate'].forEach(id =>
-  document.getElementById(id).addEventListener('change', maybeAutoRun));
+
+function pollTask() {
+  if (!_currentTaskId) return;
+  fetch('/api/backtest_task_status?task_id=' + encodeURIComponent(_currentTaskId))
+    .then(r => r.json())
+    .then(task => {
+      if (task.error) {            // 404：服务重启，任务状态丢失
+        stopPolling();
+        hideTaskBanner();
+        document.getElementById('resultArea').innerHTML =
+          '<div class="empty"><div class="icon">ℹ️</div><p>' + task.error + '</p></div>';
+        return;
+      }
+      if (task.status === 'running') {
+        renderRunningView(task);
+        return;
+      }
+      // 任务结束
+      stopPolling();
+      hideTaskBanner();
+      loadTaskList();   // 刷新下方任务状态
+      if (task.status === 'done') {
+        renderResult(task.result || {});
+      } else if (task.status === 'stopped') {
+        document.getElementById('resultArea').innerHTML =
+          '<div class="empty"><div class="icon">⏹️</div><p>任务已停止</p>'
+          + '<p style="font-size:12px;color:#bbb;margin-top:6px">可在历史回测任务中点击「重新执行」再次发起</p></div>';
+      } else {
+        document.getElementById('resultArea').innerHTML =
+          '<div class="empty"><div class="icon">❌</div><p>回测失败：'
+          + (task.error || '未知错误') + '</p></div>';
+      }
+    })
+    .catch(() => { /* 网络抖动时保留当前进度视图，下次轮询继续 */ });
+}
+
+function fillTaskForm(task) {
+  document.getElementById('strategy').value = task.strategy;
+  if (task.start_date) document.getElementById('startDate').value =
+    task.start_date.slice(0,4) + '-' + task.start_date.slice(4,6) + '-' + task.start_date.slice(6,8);
+  if (task.end_date) document.getElementById('endDate').value =
+    task.end_date.slice(0,4) + '-' + task.end_date.slice(4,6) + '-' + task.end_date.slice(6,8);
+}
+
+// 页面加载后：任务列表里若有运行中的任务，自动接管轮询（刷新/切回页面进度不丢）
+function attachRunningTask() {
+  const running = (_taskList || []).find(t => t.status === 'running');
+  if (running) {
+    fillTaskForm(running);
+    startPolling(running.task_id);
+  }
+}
+// attachRunningTask 在底部策略下拉加载完成后统一调用，避免选项未就绪导致表单回填失败
 
 function renderResult(data) {
   const area = document.getElementById('resultArea');
@@ -215,6 +487,14 @@ function renderResult(data) {
   html += '选股次数 <span>' + data.total_stocks + '</span> 条';
   html += ' · 有效回测 <span>' + data.valid_stocks + '</span> 条';
   html += ' · 涉及交易日 <span>' + data.total_dates + '</span> 个';
+  if (data.strategy_file) {
+    html += ' · 策略文件 <span>' + data.strategy_file + '</span>';
+  }
+  if (data.saved) {
+    html += ' · <span style="color:#0f9d58;">✅ 已保存</span>';
+  } else if (data.save_error) {
+    html += ' · <span style="color:#d93025;">⚠️ 保存失败</span>';
+  }
   html += '</div>';
 
   html += '<div class="section-title">收益类指标</div>';
@@ -233,7 +513,10 @@ function renderResult(data) {
   html += '</div>';
 
   if (data.detail && data.detail.length > 0) {
-    html += '<div class="section-title">明细数据</div>';
+    // 明细数据可收起/展开；数值统一按正负着色：>0 红色，<0 绿色
+    html += '<div class="detail-toggle" id="detailToggle" onclick="toggleDetail()">'
+      + '<span class="dt-arrow">▶</span>明细数据（' + data.detail.length + ' 条，点击展开/收起）</div>';
+    html += '<div id="detailBox" style="display:none;margin-top:8px;">';
     html += '<table><thead><tr>';
     html += '<th class="left">股票代码</th><th class="left">名称</th><th>选股日期</th><th class="left">策略</th>';
     html += '<th>10日最大涨幅</th><th>10日最大跌幅</th><th>20日最大涨幅</th><th>20日最大跌幅</th>';
@@ -244,16 +527,26 @@ function renderResult(data) {
       html += '<td class="left">' + (r.stock_name || '') + '</td>';
       html += '<td>' + r.trade_date + '</td>';
       html += '<td class="left">' + (r.strategy || '') + '</td>';
-      html += '<td class="pos">' + fmtPct(r.max_gain_10d) + '</td>';
-      html += '<td class="neg">' + fmtPct(r.max_down_10d) + '</td>';
-      html += '<td class="pos">' + fmtPct(r.max_gain_20d) + '</td>';
-      html += '<td class="neg">' + fmtPct(r.max_down_20d) + '</td>';
+      html += '<td class="' + cls(r.max_gain_10d) + '">' + fmtPct(r.max_gain_10d) + '</td>';
+      html += '<td class="' + cls(r.max_down_10d) + '">' + fmtPct(r.max_down_10d) + '</td>';
+      html += '<td class="' + cls(r.max_gain_20d) + '">' + fmtPct(r.max_gain_20d) + '</td>';
+      html += '<td class="' + cls(r.max_down_20d) + '">' + fmtPct(r.max_down_20d) + '</td>';
       html += '</tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
   }
 
   area.innerHTML = html;
+}
+
+// 明细数据展开/收起
+function toggleDetail() {
+  const box = document.getElementById('detailBox');
+  const toggle = document.getElementById('detailToggle');
+  if (!box) return;
+  const show = box.style.display === 'none';
+  box.style.display = show ? '' : 'none';
+  toggle.classList.toggle('expanded', show);
 }
 
 function metricCard(label, value, sub, isRisk, isScore) {
@@ -274,7 +567,251 @@ function metricCard(label, value, sub, isRisk, isScore) {
     + '</div>';
 }
 
-loadStrategies();
+// 当前登录账号（用于自动生成任务名称与默认筛选账号）
+let _account = '';
+const _accountReady = fetch('/api/current_user')
+  .then(r => r.json())
+  .then(d => { if (d && d.account) _account = d.account; })
+  .catch(() => {});
+
+// 初始化：等账号就绪 → 策略下拉 + 账号下拉（默认当前账号）→ 任务列表 → 接管在途任务
+_accountReady
+  .then(() => loadStrategies())
+  .then(_fillSavedStrategy)
+  .then(_fillSavedAccounts)
+  .then(() => loadTaskList().then(attachRunningTask));
+
+// ---------------------------------------------------------------------------
+// 已提交回测任务列表（点击任务行：运行中看进度，已完成看结果）
+// ---------------------------------------------------------------------------
+let _taskList = [];
+let _taskListTimer = null;
+let _activeTaskId = null;
+
+function resetSavedForm() {
+  document.getElementById('savedAccount').value = _account;
+  document.getElementById('savedStrategy').value = '';
+  document.getElementById('savedStartDate').value = '';
+  document.getElementById('savedEndDate').value = '';
+  loadTaskList();
+}
+
+function loadTaskList() {
+  const account = document.getElementById('savedAccount').value;
+  const strategy = document.getElementById('savedStrategy').value;
+  const startDate = document.getElementById('savedStartDate').value.replace(/-/g, '');
+  const endDate = document.getElementById('savedEndDate').value.replace(/-/g, '');
+
+  const qs = new URLSearchParams();
+  if (account) qs.set('account', account);
+  if (strategy) qs.set('strategy', strategy);
+  if (startDate) qs.set('start_date', startDate);
+  if (endDate) qs.set('end_date', endDate);
+
+  return fetch('/api/backtest_tasks_recent?' + qs.toString())
+    .then(r => r.json())
+    .then(data => {
+      renderTaskList(data.tasks || (data.error ? [] : []));
+      if (data.error) {
+        document.getElementById('savedRunsArea').innerHTML =
+          '<div class="empty"><div class="icon">❌</div><p>' + data.error + '</p></div>';
+      }
+    })
+    .catch(() => {});
+}
+
+function statusCell(t) {
+  if (t.status === 'running') {
+    const p = t.progress;
+    const pct = p && p.total ? Math.round(p.done / p.total * 100) : 0;
+    const txt = p ? (p.done + '/' + p.total) : '';
+    const stopping = t.stage === 'stopping';
+    const label = stopping ? '⏹ 停止中' : '🔄 运行中';
+    return '<span class="status-tag running">' + label + '</span>'
+      + '<div class="mini-progress"><div class="track"><div class="fill" style="width:'
+      + pct + '%"></div></div>' + txt + '</div>';
+  }
+  if (t.status === 'done') return '<span class="status-tag done">✅ 完成</span>';
+  if (t.status === 'stopped') return '<span class="status-tag stopped">⏹ 已停止</span>';
+  return '<span class="status-tag failed" title="' + (t.error || '') + '">❌ 失败</span>';
+}
+
+// 操作列：运行中→停止；完成/停止/失败→重新执行
+function actionCell(t, i) {
+  if (t.status === 'running') {
+    const stopping = t.stage === 'stopping';
+    return '<button class="act-btn stop" ' + (stopping ? 'disabled' : '')
+      + ' onclick="event.stopPropagation();stopTask(' + i + ')">'
+      + (stopping ? '停止中' : '停止') + '</button>';
+  }
+  return '<button class="act-btn rerun" '
+    + 'onclick="event.stopPropagation();rerunTask(' + i + ')">重新执行</button>';
+}
+
+function renderTaskList(tasks) {
+  _taskList = tasks;
+  const area = document.getElementById('savedRunsArea');
+  if (!tasks.length) {
+    area.innerHTML = '<div class="empty"><div class="icon">📭</div>'
+      + '<p>暂无回测任务，设置策略与日期范围后点击「开始回测」</p></div>';
+  } else {
+    let html = '<table class="task-table"><thead><tr>';
+    html += '<th class="left">任务名称</th><th class="left">策略</th><th>回测区间</th>';
+    html += '<th>状态</th><th>开始时间</th><th>耗时</th><th>操作</th>';
+    html += '</tr></thead><tbody>';
+    tasks.forEach((t, i) => {
+      const active = t.task_id === _activeTaskId ? ' style="background:#e3edff"' : '';
+      const dur = t.duration !== null && t.duration !== undefined
+        ? (t.duration >= 60 ? Math.round(t.duration / 60) + '分'
+                    : Math.round(t.duration) + '秒') : '—';
+      html += '<tr onclick="openTask(' + i + ')"' + active + '>';
+      html += '<td class="left task-name">' + (t.task_name || '') + '</td>';
+      html += '<td class="left">' + (t.strategy || '') + '</td>';
+      html += '<td>' + (t.start_date || '') + ' ~ ' + (t.end_date || '') + '</td>';
+      html += '<td>' + statusCell(t) + '</td>';
+      html += '<td>' + (t.start || '') + '</td>';
+      html += '<td>' + dur + '</td>';
+      html += '<td>' + actionCell(t, i) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    area.innerHTML = html;
+  }
+
+  // 列表中存在运行中任务时，每 5 秒自动刷新列表状态
+  const hasRunning = tasks.some(t => t.status === 'running');
+  if (hasRunning && !_taskListTimer) {
+    _taskListTimer = setInterval(loadTaskList, 5000);
+  } else if (!hasRunning && _taskListTimer) {
+    clearInterval(_taskListTimer);
+    _taskListTimer = null;
+  }
+}
+
+// 子卡片页切换
+function switchSubTab(paneId) {
+  document.querySelectorAll('.sub-tabs a').forEach(a => {
+    a.classList.toggle('active', a.dataset.pane === paneId);
+  });
+  document.getElementById('paneAnalysis').style.display =
+    paneId === 'paneAnalysis' ? '' : 'none';
+  document.getElementById('paneHistory').style.display =
+    paneId === 'paneHistory' ? '' : 'none';
+}
+
+function openTask(i) {
+  const t = _taskList[i];
+  if (!t) return;
+  _activeTaskId = t.task_id;
+  fillTaskForm(t);
+  switchSubTab('paneAnalysis');   // 进度/结果展示在策略回测分析页
+  if (t.status === 'running') {
+    startPolling(t.task_id);
+  } else {
+    // 完成/停止/失败：拉取完整结果（完成含指标明细）并渲染
+    _currentTaskId = t.task_id;
+    pollTask();
+  }
+  renderTaskList(_taskList);   // 刷新选中高亮
+}
+
+// 停止运行中任务
+function stopTask(i) {
+  const t = _taskList[i];
+  if (!t || t.status !== 'running') return;
+  if (!confirm('确定停止任务「' + t.task_name + '」吗？')) return;
+  fetch('/api/backtest_task_stop', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({task_id: t.task_id})
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert(data.error); return; }
+      loadTaskList();
+      // 若当前正在轮询该任务，继续轮询以展示停止中→已停止
+      if (_currentTaskId === t.task_id) {
+        switchSubTab('paneAnalysis');
+        startPolling(t.task_id);
+      }
+    })
+    .catch(() => alert('停止请求失败，请重试'));
+}
+
+// 以原策略+日期范围重新发起一个任务（任务名自动生成）
+function rerunTask(i) {
+  const t = _taskList[i];
+  if (!t) return;
+  if (!confirm('将按相同策略与日期范围重新执行回测：\n' + t.task_name + '？')) return;
+  if (_starting) return;
+  _starting = true;
+  document.getElementById('strategy').value = t.strategy;
+  document.getElementById('startDate').value =
+    t.start_date.slice(0,4) + '-' + t.start_date.slice(4,6) + '-' + t.start_date.slice(6,8);
+  document.getElementById('endDate').value =
+    t.end_date.slice(0,4) + '-' + t.end_date.slice(4,6) + '-' + t.end_date.slice(6,8);
+  const taskName = _account + '-' + t.strategy + '_' + t.start_date + '~' + t.end_date;
+
+  fetch('/api/backtest_analysis', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({strategy: t.strategy, start_date: t.start_date,
+                          end_date: t.end_date, task_name: taskName})
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert(data.error); return; }
+      // 账号筛选切回当前账号并刷新列表，跳到分析页接管进度
+      document.getElementById('savedAccount').value = _account;
+      switchSubTab('paneAnalysis');
+      startPolling(data.task_id);
+      loadTaskList();
+    })
+    .catch(() => alert('请求失败，请重试'))
+    .finally(() => { _starting = false; });
+}
+
+// 填充任务筛选的策略下拉
+function _fillSavedStrategy() {
+  return fetch('/api/backtest_strategies')
+    .then(r => r.json())
+    .then(data => {
+      const sel = document.getElementById('savedStrategy');
+      (data.strategies || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {});
+}
+
+// 填充任务筛选的账号下拉，默认选中当前登录账号
+function _fillSavedAccounts() {
+  return fetch('/api/backtest_accounts')
+    .then(r => r.json())
+    .then(data => {
+      const sel = document.getElementById('savedAccount');
+      const accounts = data.accounts || [];
+      // 确保当前账号在列表中
+      if (_account && !accounts.includes(_account)) accounts.unshift(_account);
+      accounts.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a;
+        opt.textContent = a;
+        sel.appendChild(opt);
+      });
+      sel.value = _account || (accounts[0] || '');
+    })
+    .catch(() => {});
+}
+
+// 账号/策略切换即触发查询
+document.getElementById('savedAccount')
+  .addEventListener('change', () => { stopPolling(); loadTaskList(); });
+document.getElementById('savedStrategy')
+  .addEventListener('change', loadTaskList);
 </script>
 </body>
 </html>

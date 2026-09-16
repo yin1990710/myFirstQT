@@ -6,6 +6,7 @@
 <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <title>策略选股结果</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
@@ -42,9 +43,10 @@
   thead th:first-child { border-top-left-radius: 8px; }
   thead th:last-child { border-top-right-radius: 8px; }
   th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
-  th:nth-child(1), td:nth-child(1) { text-align: center; color: #888; }
-  th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3),
-  th:nth-child(4), td:nth-child(4), th:nth-child(5), td:nth-child(5) { text-align: left; }
+  th:nth-child(1), td:nth-child(1) { text-align: center; }
+  th:nth-child(2), td:nth-child(2) { text-align: center; color: #888; }
+  th:nth-child(3), td:nth-child(3), th:nth-child(4), td:nth-child(4),
+  th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { text-align: left; }
   thead th { background: #1a73e8; color: #fff; cursor: pointer; user-select: none; position: sticky; top: 56px; z-index: 50; }
   thead th:hover { background: #1558b0; }
   thead th .arrow { font-size: 10px; margin-left: 4px; color: #bbb; }
@@ -55,6 +57,18 @@
   .null { color: #bbb; }
   td a.stocklink { color: #1a73e8; text-decoration: none; }
   td a.stocklink:hover { text-decoration: underline; }
+  /* 短线强弱得分列 + hover 展示五维 */
+  .sss-cell { text-align: center; position: relative; cursor: default; }
+  .sss-val { font-weight: 600; }
+  .sss-val.s-strong { color: #1a7f3c; }
+  .sss-val.s-mid { color: #b07d2b; }
+  .sss-val.s-weak { color: #c0392b; }
+  .sss-tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: #1f2430; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px;
+    white-space: nowrap; z-index: 200; box-shadow: 0 2px 8px rgba(0,0,0,.3); line-height: 1.6; }
+  .sss-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: #1f2430; }
+  .sss-cell:hover .sss-tooltip { display: block; }
   /* 策略执行面板 */
   .run-panel { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
                padding: 14px 16px; margin-bottom: 14px; }
@@ -80,6 +94,27 @@
   .strategy-list .status.success { color: #0f9d58; }
   .strategy-list .status.failed { color: #d93025; }
   .strategy-list .status.skipped { color: #e8820c; }
+  /* 面板内的分类切换卡片（条件选股/以股选股） */
+  .run-panel #catTabs { margin: 0 0 2px; }
+  .run-panel #catTabs a { padding: 8px 20px; font-size: 14px; }
+  /* 以股选股参数输入区 */
+  .fs-box { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e0e0e0; }
+  .fs-box .fs-title { font-size: 15px; font-weight: 600; color: #1a73e8; margin-bottom: 10px; }
+  .fs-box .fs-hint { font-size: 13px; color: #888; padding: 6px 0; }
+  .fs-param-row { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
+  .fs-param-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #555; }
+  .fs-param-row input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 6px;
+                        font-size: 13px; width: 170px; font-family: inherit; }
+  .fs-param-row input:focus { border-color: #1a73e8; outline: none; }
+  .fs-param-row .fs-run { padding: 7px 22px; border: none; border-radius: 6px;
+                          background: #1a73e8; color: #fff; font-size: 13px;
+                          font-weight: 600; cursor: pointer; }
+  .fs-param-row .fs-run:disabled { background: #bbb; cursor: not-allowed; }
+  .fs-status { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .fs-status .running { color: #1a73e8; }
+  .fs-status .success { color: #0f9d58; }
+  .fs-status .failed { color: #d93025; }
+  .fs-status a { color: #1a73e8; margin-left: 8px; }
   .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end;
            background: #fff; padding: 10px 16px; border-radius: 8px;
            box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-top: 10px; font-size: 13px; color: #555; }
@@ -97,6 +132,16 @@
   }
   .page-tabs a:hover { color: #1a1a1a; }
   .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  /* 勾选框列 */
+  td input[type="checkbox"], th input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  thead th:first-child { cursor: default; }
+  thead th:first-child:hover { background: #1a73e8; }
+  /* 行点击展开K线 */
+  tbody tr.data-row { cursor: pointer; }
+  tr.kline-row td { padding: 0; background: #fafbfc; border-bottom: 1px solid #eee; }
+  .kline-inline { width: 100%; height: 340px; padding: 4px 8px 8px; }
+  .kline-loading { text-align: center; padding: 40px; color: #888; font-size: 14px; }
+  .bar button.add-pool { background: #0f9d58; }
 </style>
 </head>
 <body>
@@ -119,17 +164,20 @@
 <div class="page-tabs">
   <a href="/backtest" class="active">策略选股结果</a>
   <a href="/backtest_analysis">策略回测</a>
+  <a href="/my_stocks">我的股票池</a>
 </div>
 
 <div class="run-panel">
-  <div class="head">
+  <div class="page-tabs" id="catTabs"></div>
+  <!-- 条件选股卡片专属操作行：目标日期 + 运行 -->
+  <div class="head" id="selectHead">
     <label>目标日期 <input id="runDate" type="date"></label>
-    <button class="run-all" id="runBtn" onclick="runStrategies()">执行策略</button>
-    <button onclick="selectAllStrategies(true)">全选</button>
-    <button onclick="selectAllStrategies(false)">清空</button>
+    <button class="run-all" id="runBtn" onclick="runStrategies()">运行策略</button>
     <span id="selCount">已选 0 个</span>
   </div>
   <div class="strategy-list" id="strategyList"></div>
+  <!-- 以股选股卡片专属：选中某个策略后展示其参数输入（复用以股选股.html） -->
+  <div id="findSimilarBox" class="fs-box" style="display:none;"></div>
 </div>
 
 <div class="bar">
@@ -139,6 +187,7 @@
   <button id="queryBtn" onclick="query()">查询</button>
   <button class="reset" onclick="resetFilters()">重置</button>
   <button class="download" id="downloadBtn" onclick="downloadCsv()">下载CSV</button>
+  <button class="add-pool" id="addPoolBtn" onclick="addToMyStocks()">加入我的股票池</button>
   <span id="count"></span>
   <span id="msg"></span>
 </div>
@@ -164,8 +213,20 @@ const NAV_KEY = 'stock_nav';   // 跳转详情页时传递的导航上下文 key
 
 // 当前排序口径下的完整记录（分页切片前）
 function sortedRows() {
-  const col = COLS.find(c => c.key === sortKey);
   const rows = ROWS.slice();
+  // 短线强弱得分：分数存在全局 _sssMap 中，未取到/无评分一律排最后
+  if (sortKey === 'sss_score') {
+    rows.sort((a, b) => {
+      const sa = _sssMap[a.ts_code], sb = _sssMap[b.ts_code];
+      const va = sa && sa.composite != null ? sa.composite : null;
+      const vb = sb && sb.composite != null ? sb.composite : null;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return (va - vb) * sortDir;
+    });
+    return rows;
+  }
+  const col = COLS.find(c => c.key === sortKey);
   rows.sort((a, b) => {
     const va = a[sortKey], vb = b[sortKey];
     if (va === null || va === undefined) return 1;   // 空值排最后
@@ -189,18 +250,40 @@ function buildNavList() {
 }
 
 // 点击代码/名称跳转前，把导航上下文存入 sessionStorage（同源详情页读取）
+// 点击行（非勾选框、非链接）则展开/收起该股票的近120日K线图
 document.getElementById('body').addEventListener('click', e => {
   const a = e.target.closest('a.stocklink');
-  if (a) sessionStorage.setItem(NAV_KEY, JSON.stringify({list: buildNavList()}));
+  if (a) {
+    sessionStorage.setItem(NAV_KEY, JSON.stringify({list: buildNavList()}));
+    return;   // 点链接跳转详情页，不展开 K线
+  }
+  if (e.target.closest('input[type="checkbox"]')) return;   // 点勾选框不展开
+  const tr = e.target.closest('tr.data-row');
+  if (tr) toggleKlineRow(tr);
 });
 
-// 初始化：加载策略下拉框，点击表头排序（序号列不参与排序）
-document.getElementById('headRow').innerHTML = '<th>序号</th>' + COLS.map(c =>
-  `<th data-key="${c.key}">${c.label}<span class="arrow"></span></th>`).join('');
-document.querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
+// 初始化：加载策略下拉框，点击表头排序（勾选框列和序号列不参与排序）
+document.getElementById('headRow').innerHTML = '<th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)" title="全选当前页"></th><th>序号</th>' + COLS.map(c => {
+  let html = `<th data-key="${c.key}">${c.label}<span class="arrow"></span></th>`;
+  // 短线强弱得分列表头同样可点击排序；列名+? 仍是跳转说明页的超链接
+  if (c.key === 'strategy') html += '<th data-key="sss_score" title="点击按短线强弱得分排序">'
+    + '<a href="/sss/framework" target="_blank" style="color:inherit;text-decoration:none" title="点击查看计算说明">短线强弱得分'
+    + '<sup style="font-size:11px;color:#aaa;cursor:help;margin-left:2px">?</sup></a>'
+    + '<span class="arrow"></span></th>';
+  return html;
+}).join('');
+document.querySelectorAll('th[data-key]').forEach(th => th.onclick = async e => {
+  // 点击"短线强弱得分"列名/问号超链接时只跳转说明页，不触发排序
+  if (e.target.closest('a')) return;
   const k = th.dataset.key;
-  if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === 'ts_code' || k === 'trade_date') ? -1 : 1; }
+  if (sortKey === k) sortDir = -sortDir;
+  else { sortKey = k; sortDir = (k === 'ts_code' || k === 'trade_date' || k === 'sss_score') ? -1 : 1; }
   render();
+  // 首次按得分排序时，分数尚未全量加载：先拉取全部股票评分再重排（空评分排末尾）
+  if (k === 'sss_score') {
+    await ensureAllSSS();
+    render();
+  }
 });
 // 支持 URL 预筛选，如 /backtest?strategy=limitup_1d
 const urlStrategy = new URLSearchParams(location.search).get('strategy') || '';
@@ -212,37 +295,129 @@ fetch('/api/strategies').then(r => r.json()).then(d => {
   if (urlStrategy) sel.value = urlStrategy;
 }).finally(() => query());
 
-// ---- 策略执行面板 ----
+// ---- 策略执行面板：条件选股 / 以股选股 两个可切换卡片 ----
 let _strategyMeta = [];   // 来自 /api/strategies_meta 的全部策略元数据
-let _statusTimer = null;  // 轮询定时器
+let _cats = {};           // {分类名: [策略元数据...]}
+let _catNames = [];
+let _activeCat = '';
+const _selectedFiles = new Set();   // 条件选股已勾选脚本（批量执行）
+const _statusMap = {};              // 条件选股运行状态：file -> {cls, text}
+let _statusTimer = null;            // 条件选股轮询定时器
 
-// 加载策略复选框列表
+// 以股选股：单脚本单选，参数配置复用以股选股.html 的 STRATEGY_CONFIG
+const FIND_SIMILAR_CAT = '以股选股';
+const FS_CONFIG = {
+  'find_similar_ma5.py': {
+    title: '5日均线相似度选股',
+    params: [
+      { key: 'target', label: '目标股票代码', type: 'text', required: true, placeholder: '如 301171.SZ' },
+      { key: 'window', label: '窗口长度(交易日)', type: 'number', default: 10 },
+      { key: 'top', label: '输出前N只', type: 'number', default: 10 },
+    ],
+  },
+  'find_similar_price_vol.py': {
+    title: '量价形态相似选股',
+    params: [
+      { key: 'code', label: '模板股票代码', type: 'text', default: '605111.SH' },
+      { key: 'start', label: '模板起始日(YYYYMMDD)', type: 'text', default: '20260127' },
+      { key: 'end', label: '模板结束日(YYYYMMDD)', type: 'text', default: '20260615' },
+      { key: 'min_score', label: '相似度阈值', type: 'number', step: '0.01', default: 0.70 },
+    ],
+  },
+  'find_similar_wave2.py': {
+    title: '二浪候选 × DTW 量价相似度二次打分',
+    params: [
+      { key: 'code', label: '标杆模板股票代码(可选)', type: 'text', placeholder: '默认自动取最高分' },
+      { key: 'start', label: '模板起始日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
+      { key: 'end', label: '模板结束日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
+      { key: 'min_score', label: '二浪打分阈值(100分制)', type: 'number', step: '1' },
+      { key: 'top', label: '输出前N只', type: 'number' },
+    ],
+  },
+};
+let _fsScript = '';          // 当前选中的以股选股脚本（单选）
+const _fsParams = {};        // 各脚本已填参数（切换卡片/策略后保留）：file -> {key: value}
+const _fsStatus = {};        // 各脚本运行状态：file -> {cls, text, link}
+let _fsTimer = null;         // 以股选股轮询定时器
+
+// 加载策略元数据，按分类生成切换卡片，默认展示第一个分类
 fetch('/api/strategies_meta').then(r => r.json()).then(d => {
   _strategyMeta = d.strategies || [];
-  const list = document.getElementById('strategyList');
-  list.innerHTML = _strategyMeta.map(s =>
-    `<label title="${(s.doc || '').replace(/"/g, '&quot;')}">
-       <input type="checkbox" value="${s.file}" onchange="updateSelCount()">
-       <span class="sname">${s.title || s.strategy || s.file}</span>
-       <span class="sfile">${s.file}</span>
-       <span class="status" data-script="${s.file}"></span>
-     </label>`).join('');
+  _strategyMeta.forEach(s => { (_cats[s.category] = _cats[s.category] || []).push(s); });
+  _catNames = Object.keys(_cats);
+  if (_catNames.length) renderCat(_catNames[0]);
 });
 
-function updateSelCount() {
-  const n = document.querySelectorAll('#strategyList input:checked').length;
-  document.getElementById('selCount').textContent = '已选 ' + n + ' 个';
+// 分类名拼进 onclick 字符串前转义反斜杠与单引号（分类名一般为中文，此处为防御性处理）
+function escJs(s) {
+  const bs = String.fromCharCode(92);    // 反斜杠
+  const sq = String.fromCharCode(39);    // 单引号
+  return String(s || '').split(bs).join(bs + bs).split(sq).join(bs + sq);
 }
 
-function selectAllStrategies(checked) {
-  document.querySelectorAll('#strategyList input[type=checkbox]').forEach(cb => cb.checked = checked);
+function attrEsc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// 渲染分类 tab 栏 + 当前分类下的策略复选框，并切换两个卡片专属区域
+function renderCat(cat) {
+  saveFsParams();   // 重渲染前先留住参数区已填内容
+  _activeCat = cat;
+  document.getElementById('catTabs').innerHTML = _catNames.map(c =>
+    `<a href="javascript:void(0)" class="${c === cat ? 'active' : ''}"
+        onclick="renderCat('${escJs(c)}')">${c}（${_cats[c].length}）</a>`).join('');
+  const list = document.getElementById('strategyList');
+  list.innerHTML = (_cats[cat] || []).map(s => {
+    const st = cat === FIND_SIMILAR_CAT ? _fsStatus[s.file] : _statusMap[s.file];
+    const checked = cat === FIND_SIMILAR_CAT
+      ? (s.file === _fsScript)
+      : _selectedFiles.has(s.file);
+    return `<label title="${(s.doc || '').replace(/"/g, '&quot;')}">
+         <input type="checkbox" value="${s.file}" ${checked ? 'checked' : ''}
+                onchange="toggleStrategy(this)">
+         <span class="sname">${s.title || s.strategy || s.file}</span>
+         <span class="sfile">${s.file}</span>
+         <span class="status ${st ? st.cls : ''}" data-script="${s.file}">${st ? st.text : ''}</span>
+       </label>`;
+  }).join('');
+  // 目标日期等批量执行控件仅属于条件选股卡片；以股选股卡片显示参数输入区
+  document.getElementById('selectHead').style.display = cat === FIND_SIMILAR_CAT ? 'none' : '';
+  renderFindSimilarBox(cat === FIND_SIMILAR_CAT);
   updateSelCount();
 }
 
+// 勾选：条件选股多选入集合；以股选股单选，选中后展开其参数表单
+function toggleStrategy(cb) {
+  const file = cb.value;
+  if (_activeCat === FIND_SIMILAR_CAT) {
+    saveFsParams();
+    _fsScript = cb.checked ? file : '';
+    // 单选：同步其它复选框状态
+    document.querySelectorAll('#strategyList input[type=checkbox]').forEach(o => {
+      if (o !== cb) o.checked = false;
+    });
+    renderFindSimilarBox(true);
+  } else {
+    if (cb.checked) _selectedFiles.add(file);
+    else _selectedFiles.delete(file);
+    updateSelCount();
+  }
+}
+
+function updateSelCount() {
+  document.getElementById('selCount').textContent = '已选 ' + _selectedFiles.size + ' 个';
+}
+
+// 统一写入条件选股运行状态（缓存 + 当前可见状态标签）
+function setScriptStatus(script, cls, text) {
+  _statusMap[script] = {cls, text};
+  const span = document.querySelector(`.status[data-script="${script}"]`);
+  if (span) { span.className = 'status ' + cls; span.textContent = text; }
+}
+
 function runStrategies() {
-  const checked = Array.from(document.querySelectorAll('#strategyList input:checked'));
-  if (!checked.length) { alert('请至少勾选一个策略'); return; }
-  const scripts = checked.map(cb => cb.value);
+  const scripts = [..._selectedFiles];
+  if (!scripts.length) { alert('请至少勾选一个策略'); return; }
   const runDate = document.getElementById('runDate').value;
   const body = { scripts };
   if (runDate) body.target_date = compactDate(runDate);
@@ -253,19 +428,17 @@ function runStrategies() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).then(r => r.json()).then(d => {
-    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '执行策略'; return; }
+    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '运行策略'; return; }
     // 标记每个策略的启动结果
     (d.results || []).forEach(r => {
-      const span = document.querySelector(`.status[data-script="${r.script}"]`);
-      if (!span) return;
-      if (r.ok) { span.className = 'status running'; span.textContent = '运行中'; }
-      else { span.className = 'status skipped'; span.textContent = r.error || '跳过'; }
+      if (r.ok) setScriptStatus(r.script, 'running', '运行中');
+      else setScriptStatus(r.script, 'skipped', r.error || '跳过');
     });
-    btn.disabled = false; btn.textContent = '执行策略';
+    btn.disabled = false; btn.textContent = '运行策略';
     startStatusPolling(scripts);
   }).catch(err => {
     alert('启动失败: ' + err);
-    btn.disabled = false; btn.textContent = '执行策略';
+    btn.disabled = false; btn.textContent = '运行策略';
   });
 }
 
@@ -278,17 +451,15 @@ function startStatusPolling(scripts) {
         let allDone = true;
         const statuses = d.statuses || {};
         for (const s of scripts) {
-          const span = document.querySelector(`.status[data-script="${s}"]`);
-          if (!span) continue;
           const st = statuses[s];
           if (!st) continue;
           if (st.status === 'running') {
-            span.className = 'status running'; span.textContent = '运行中';
+            setScriptStatus(s, 'running', '运行中');
             allDone = false;
           } else if (st.status === 'success') {
-            span.className = 'status success'; span.textContent = '✓ 完成';
+            setScriptStatus(s, 'success', '✓ 完成');
           } else if (st.status === 'failed') {
-            span.className = 'status failed'; span.textContent = '✗ 失败';
+            setScriptStatus(s, 'failed', '✗ 失败');
           }
         }
         if (allDone) { clearInterval(_statusTimer); _statusTimer = null; }
@@ -296,6 +467,141 @@ function startStatusPolling(scripts) {
   };
   poll();
   _statusTimer = setInterval(poll, 3000);
+}
+
+// ---- 以股选股卡片：参数输入 + 单脚本执行（逻辑对齐 以股选股.html）----
+// 首次使用某脚本时，用配置中的默认值初始化参数缓存
+function fsSeedParams(script) {
+  if (!_fsParams[script]) {
+    const o = {};
+    (FS_CONFIG[script].params || []).forEach(p => {
+      if (p.default !== undefined) o[p.key] = String(p.default);
+    });
+    _fsParams[script] = o;
+  }
+  return _fsParams[script];
+}
+
+// 把参数区当前输入保存回缓存（切换卡片/策略前调用）
+function saveFsParams() {
+  if (!_fsScript || !FS_CONFIG[_fsScript]) return;
+  const box = document.getElementById('findSimilarBox');
+  if (!box || box.style.display === 'none') return;
+  const o = _fsParams[_fsScript] || {};
+  FS_CONFIG[_fsScript].params.forEach(p => {
+    const el = document.getElementById('fs_' + p.key);
+    if (el) o[p.key] = el.value.trim();
+  });
+  _fsParams[_fsScript] = o;
+}
+
+// 渲染以股选股参数区；visible=false 时仅隐藏
+function renderFindSimilarBox(visible) {
+  const box = document.getElementById('findSimilarBox');
+  if (!visible) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  if (!_fsScript) {
+    box.innerHTML = '<div class="fs-hint">请先在上方勾选一个以股选股策略，选中后在此填写参数并查询相似股票。</div>';
+    return;
+  }
+  const cfg = FS_CONFIG[_fsScript];
+  const vals = fsSeedParams(_fsScript);
+  const inputs = cfg.params.map(p => {
+    const ph = p.placeholder ? `placeholder="${attrEsc(p.placeholder)}"` : '';
+    const step = p.step ? `step="${p.step}"` : '';
+    const req = p.required ? 'required' : '';
+    return `<label>${p.label}
+      <input type="${p.type}" id="fs_${p.key}" value="${attrEsc(vals[p.key] || '')}" ${ph} ${step} ${req}>
+    </label>`;
+  }).join('');
+  const st = _fsStatus[_fsScript];
+  const statusHtml = st
+    ? `<span class="${st.cls}">${attrEsc(st.text)}</span>${st.link ? `<a href="${st.link}" target="_blank">查看相似股票结果 →</a>` : ''}`
+    : '';
+  box.innerHTML = `<div class="fs-title">${cfg.title}</div>`
+    + `<div class="fs-param-row">${inputs}`
+    + `<button class="fs-run" id="fsRunBtn" onclick="runFindSimilar()">查询相似股票</button></div>`
+    + `<div class="fs-status" id="fsStatusBar">${statusHtml}</div>`;
+  // 切回卡片时若该脚本仍在执行，继续轮询
+  if (st && st.cls === 'running') startFindSimilarPolling(_fsScript);
+}
+
+// 收集当前脚本非空参数
+function getFsArgs() {
+  const args = {};
+  FS_CONFIG[_fsScript].params.forEach(p => {
+    const el = document.getElementById('fs_' + p.key);
+    if (el && el.value.trim()) args[p.key] = el.value.trim();
+  });
+  return args;
+}
+
+// 写入以股选股运行状态（缓存 + 行内状态标签 + 参数区状态栏）
+function setFindSimilarStatus(script, cls, text, link) {
+  _fsStatus[script] = {cls, text, link: link || ''};
+  const span = document.querySelector(`.status[data-script="${script}"]`);
+  if (span) { span.className = 'status ' + cls; span.textContent = text; }
+  const bar = document.getElementById('fsStatusBar');
+  if (bar && script === _fsScript) {
+    bar.innerHTML = `<span class="${cls}">${attrEsc(text)}</span>`
+      + (link ? `<a href="${link}" target="_blank">查看相似股票结果 →</a>` : '');
+  }
+  const btn = document.getElementById('fsRunBtn');
+  if (btn && cls !== 'running') { btn.disabled = false; btn.textContent = '查询相似股票'; }
+}
+
+function runFindSimilar() {
+  if (!_fsScript) { alert('请先勾选一个以股选股策略'); return; }
+  saveFsParams();
+  const args = getFsArgs();
+  // ma5 的目标代码为必填位置参数（与以股选股.html/后端校验保持一致）
+  if (_fsScript === 'find_similar_ma5.py' && !args.target) {
+    alert('请填写目标股票代码，如 301171.SZ');
+    return;
+  }
+  const btn = document.getElementById('fsRunBtn');
+  btn.disabled = true; btn.textContent = '执行中…';
+  setFindSimilarStatus(_fsScript, 'running', '⏳ 正在执行选股脚本，请稍候…');
+  fetch('/api/find_similar_run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({script: _fsScript, args})
+  }).then(r => r.json().then(d => ({ok: r.ok, d}))).then(({ok, d}) => {
+    if (!ok) {
+      // 409 表示该脚本正在执行中，直接接管轮询
+      if (d.error && d.error.indexOf('执行中') >= 0) startFindSimilarPolling(_fsScript);
+      else { alert(d.error || '启动失败'); setFindSimilarStatus(_fsScript, 'failed', '❌ ' + (d.error || '启动失败')); }
+      return;
+    }
+    startFindSimilarPolling(_fsScript);
+  }).catch(err => {
+    setFindSimilarStatus(_fsScript, 'failed', '❌ 启动失败: ' + err);
+  });
+}
+
+function startFindSimilarPolling(script) {
+  if (_fsTimer) clearInterval(_fsTimer);
+  const poll = () => {
+    fetch('/api/find_similar_status?script=' + encodeURIComponent(script))
+      .then(r => r.json()).then(d => {
+        const s = (d.statuses || {})[script];
+        if (!s) return;
+        if (s.status === 'running') {
+          setFindSimilarStatus(script, 'running', `⏳ 执行中…（${s.duration || '计算中'}）`);
+          const b = document.getElementById('fsRunBtn');
+          if (b) { b.disabled = true; b.textContent = '执行中…'; }
+        } else if (s.status === 'success') {
+          clearInterval(_fsTimer); _fsTimer = null;
+          setFindSimilarStatus(script, 'success', `✅ 计算完成（${s.duration}秒）`,
+                               '/find_similar?script=' + encodeURIComponent(script));
+        } else if (s.status === 'failed') {
+          clearInterval(_fsTimer); _fsTimer = null;
+          setFindSimilarStatus(script, 'failed', `❌ 执行失败（退出码 ${s.rc}）`);
+        }
+      }).catch(() => {});
+  };
+  poll();
+  _fsTimer = setInterval(poll, 3000);
 }
 
 function resetFilters() {
@@ -332,6 +638,7 @@ function query() {
     if (d.error) { msgEl.textContent = d.error; return; }
     ROWS = d.rows || [];
     currentPage = 1;    // 新查询结果回到第 1 页
+    resetSSS();         // 清空短线强弱得分缓存，随新结果重新加载
     render();
   }).catch(err => msgEl.textContent = '查询失败: ' + err)
     .finally(() => { btn.disabled = false; btn.textContent = '查询'; });
@@ -448,14 +755,281 @@ function render() {
   currentPage = Math.min(Math.max(1, currentPage), totalPages);
   const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE,
                               currentPage * PAGE_SIZE);
+  // 重新渲染前销毁已展开的内联 K线图实例，避免 ECharts 内存泄漏
+  disposeAllInlineCharts();
   document.querySelectorAll('th .arrow').forEach(a => { a.textContent = '↕'; a.classList.remove('active'); });
   const th = document.querySelector(`th[data-key="${sortKey}"] .arrow`);
-  if (th) { th.textContent = sortDir === 1 ? '▲' : '▼'; th.classList.add('active'); }
+  if (th) {
+    // 全量分数拉取中，得分列箭头显示沙漏提示
+    th.textContent = (sortKey === 'sss_score' && _sssLoading) ? '⏳' : (sortDir === 1 ? '▲' : '▼');
+    th.classList.add('active');
+  }
   document.getElementById('count').textContent = `共 ${rows.length} 条记录`;
-  document.getElementById('body').innerHTML = pageRows.map((r, i) => '<tr>'
+  document.getElementById('body').innerHTML = pageRows.map((r, i) =>
+    `<tr class="data-row">`
+    + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${r.trade_date||''}" data-strategy="${(r.strategy||'').replace(/"/g,'&quot;')}"></td>`
     + `<td>${(currentPage - 1) * PAGE_SIZE + i + 1}</td>`
-    + COLS.map(c => renderCell(r, c)).join('') + '</tr>').join('');
+    + COLS.map(c => {
+        let cells = renderCell(r, c);
+        if (c.key === 'strategy') cells += `<td class="sss-cell" data-code="${r.ts_code||''}">${sssCellHtml(r.ts_code)}</td>`;
+        return cells;
+      }).join('') + '</tr>').join('');
   renderPager(currentPage, totalPages);
+  loadVisibleSSS(pageRows);
+}
+
+// ---- 短线强弱得分（SSS）：全局缓存 + 按需批量加载，支持跨页按分数排序 ----
+let _sssMap = {};        // ts_code -> 评分对象 {composite,rps,vpvr,trend,msr,mfi,level}，null 表示已请求但无评分
+let _sssLoading = false; // 是否正在全量拉取（用于表头沙漏提示）
+let _sssAllPromise = null; // 全量拉取进行中的共享 Promise，防重复点击并发请求
+
+function resetSSS() {
+  _sssMap = {};
+  _sssLoading = false;
+  _sssAllPromise = null;
+}
+
+// 单元格 HTML：未加载显示 …，已加载但无评分显示 —
+function sssCellHtml(code) {
+  if (!code || !(code in _sssMap)) return '<span class="null">…</span>';
+  const s = _sssMap[code];
+  if (!s || s.composite == null) return '<span class="null">—</span>';
+  const cls = s.composite >= 65 ? 's-strong' : (s.composite >= 50 ? 's-mid' : 's-weak');
+  const tip = `<div class="sss-tooltip">`
+    + `RPS 相对强弱: ${s.rps ?? '—'}<br>`
+    + `VPVR 量价共振: ${s.vpvr ?? '—'}<br>`
+    + `TREND 趋势: ${s.trend ?? '—'}<br>`
+    + `MSR 动量夏普: ${s.msr ?? '—'}<br>`
+    + `MFI 主力资金: ${s.mfi ?? '—'}<br>`
+    + `<b>${s.level}</b></div>`;
+  return `<span class="sss-val ${cls}">${s.composite}</span>${tip}`;
+}
+
+// 仅拉取缓存中尚不存在的代码（去重、每批 <=200，与后端上限对齐）
+async function fetchSSS(codes) {
+  const missing = [...new Set(codes.filter(Boolean))].filter(c => !(c in _sssMap));
+  for (let i = 0; i < missing.length; i += 200) {
+    const batch = missing.slice(i, i + 200);
+    let scores = null;
+    try {
+      const d = await fetch('/api/sss_batch', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({codes: batch})
+      }).then(r => r.json());
+      scores = d.scores || {};
+    } catch (e) {
+      scores = null;
+    }
+    // 请求失败的批次也缓存为 null，避免反复重试；单元格显示 —
+    for (const c of batch) _sssMap[c] = scores && scores[c] ? scores[c] : null;
+  }
+}
+
+// 用缓存刷新当前页已渲染的得分单元格（不触发整页重排）
+function fillSSSCells() {
+  document.querySelectorAll('.sss-cell').forEach(td => {
+    td.innerHTML = sssCellHtml(td.dataset.code);
+  });
+}
+
+// 每次 render 后：补齐当前页缺的分数；分数到达时若正按得分排序则整页重排
+async function loadVisibleSSS(pageRows) {
+  const codes = pageRows.map(r => r.ts_code);
+  if (!codes.some(c => c && !(c in _sssMap))) return;
+  await fetchSSS(codes);
+  if (sortKey === 'sss_score') render();
+  else fillSSSCells();
+}
+
+// 点击得分表头时：全量拉取当前结果中所有股票的评分，保证跨页排序正确
+function ensureAllSSS() {
+  if (_sssAllPromise) return _sssAllPromise;   // 已有全量拉取在途，复用之
+  const codes = [...new Set(ROWS.map(r => r.ts_code).filter(Boolean))];
+  if (!codes.some(c => !(c in _sssMap))) return Promise.resolve();
+  _sssLoading = true;
+  // 立即把表头箭头切为沙漏，不必等下一次 render
+  const arr = document.querySelector('th[data-key="sss_score"] .arrow');
+  if (arr) { arr.textContent = '⏳'; arr.classList.add('active'); }
+  _sssAllPromise = fetchSSS(codes)
+    .catch(() => {})
+    .finally(() => { _sssLoading = false; _sssAllPromise = null; });
+  return _sssAllPromise;
+}
+
+// ---- 勾选框：全选/批量加入我的股票池 ----
+function toggleAll(checked) {
+  document.querySelectorAll('input.row-cb').forEach(cb => cb.checked = checked);
+}
+
+function addToMyStocks() {
+  const checked = Array.from(document.querySelectorAll('input.row-cb:checked'));
+  if (!checked.length) {
+    document.getElementById('msg').textContent = '请先勾选要加入的股票';
+    return;
+  }
+  const stocks = checked.map(cb => ({
+    ts_code: cb.dataset.code,
+    stock_name: cb.dataset.name,
+    selected_date: cb.dataset.date,
+    strategy_name: cb.dataset.strategy,
+  }));
+  const btn = document.getElementById('addPoolBtn');
+  const msgEl = document.getElementById('msg');
+  btn.disabled = true; btn.textContent = '加入中…';
+  msgEl.textContent = '';
+  fetch('/api/my_stocks/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stocks })
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      msgEl.textContent = '加入失败: ' + d.error;
+    } else {
+      msgEl.textContent = `✅ 已加入 ${d.count} 只股票到我的股票池`;
+      document.querySelectorAll('input.row-cb:checked').forEach(cb => cb.checked = false);
+      const selAll = document.getElementById('selectAll');
+      if (selAll) selAll.checked = false;
+    }
+  }).catch(err => {
+    msgEl.textContent = '加入失败: ' + err;
+  }).finally(() => {
+    btn.disabled = false; btn.textContent = '加入我的股票池';
+  });
+}
+
+// ---- 行点击展开/收起近120日K线图 ----
+// 销毁所有内联 ECharts 实例（re-render 或收起前调用，防止内存泄漏）
+function disposeAllInlineCharts() {
+  document.querySelectorAll('.kline-inline').forEach(el => {
+    if (el._echart) { el._echart.dispose(); el._echart = null; }
+    if (el._resizeHandler) { window.removeEventListener('resize', el._resizeHandler); el._resizeHandler = null; }
+  });
+}
+
+function toggleKlineRow(tr) {
+  const next = tr.nextElementSibling;
+  // 已展开则收起
+  if (next && next.classList.contains('kline-row')) {
+    disposeAllInlineCharts();
+    next.remove();
+    return;
+  }
+  // 先收起其他已展开的行
+  disposeAllInlineCharts();
+  document.querySelectorAll('tr.kline-row').forEach(r => r.remove());
+  // 从行内勾选框取股票信息
+  const cb = tr.querySelector('input.row-cb');
+  if (!cb) return;
+  const code = cb.dataset.code;
+  if (!code) return;
+  // 插入展开行（8 列 colspan）
+  const klineRow = document.createElement('tr');
+  klineRow.className = 'kline-row';
+  klineRow.innerHTML = `<td colspan="8"><div class="kline-inline" id="inline-chart"><div class="kline-loading">加载K线数据中…</div></div></td>`;
+  tr.after(klineRow);
+  loadInlineKline(code, 'inline-chart');
+}
+
+async function loadInlineKline(code, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  try {
+    const d = await fetch('/api/kline?code=' + encodeURIComponent(code)).then(r => r.json());
+    if (d.error) {
+      container.innerHTML = `<div class="kline-loading">${d.error}</div>`;
+      return;
+    }
+    // 取最近 120 个交易日
+    const klines = d.klines.slice(-120);
+    const vols = d.vols.slice(-120);
+    renderInlineChart(container, klines, vols, d.marks, code, d.stock_name);
+  } catch (e) {
+    container.innerHTML = `<div class="kline-loading">K线数据加载失败: ${e}</div>`;
+  }
+}
+
+function renderInlineChart(container, klines, vols, marks, code, stockName) {
+  container.innerHTML = '';
+  const chart = echarts.init(container);
+  const rows = klines.map((k, i) => ({ ...k, vol: vols[i] }));
+  const dates = rows.map(k => k.date);
+  const candle = rows.map(k => k.ohlc);
+  // 只保留 120 日窗口内的策略选中标记
+  const startDate = dates.length ? dates[0] : null;
+  const winMarks = startDate ? marks.filter(m => m.date >= startDate) : marks;
+  const markMap = {};
+  winMarks.forEach(m => { markMap[m.date] = m.strategy; });
+  const volumes = rows.map(k => {
+    const up = k.ohlc[1] >= k.ohlc[0];
+    return { value: k.vol, itemStyle: { color: up ? '#d93025' : '#0f9d58' } };
+  });
+
+  chart.setOption({
+    animation: false,
+    title: { text: `${stockName || ''} ${code} 近120日K线`, left: 10, top: 4,
+             textStyle: { fontSize: 13, color: '#555' } },
+    grid: [
+      { left: 62, right: 24, top: 36, height: '55%' },
+      { left: 62, right: 24, top: '72%', height: '16%' }
+    ],
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      formatter: params => {
+        if (!params || !params.length) return '';
+        const date = params[0].axisValue;
+        const k = rows.find(x => x.date === date);
+        if (!k) return date;
+        const [o, c, lo, hi] = k.ohlc;
+        const pct = k.pct_chg;
+        const pctColor = pct == null ? '#888' : (pct > 0 ? '#d93025' : (pct < 0 ? '#0f9d58' : '#888'));
+        const pctTxt = pct == null ? '—' : (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
+        const volTxt = k.vol == null ? '—' : (k.vol / 10000).toFixed(2) + ' 万手';
+        let html = `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}`
+                 + `<br/>涨跌 <span style="color:${pctColor}">${pctTxt}</span>`
+                 + `<br/>量 ${volTxt}`;
+        if (markMap[date]) html += `<br/><span style="color:#f5a623">★ 策略选中: ${markMap[date]}</span>`;
+        return html;
+      }
+    },
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, boundaryGap: true,
+        axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, boundaryGap: true,
+        axisLabel: { fontSize: 10 } }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitArea: { show: true } },
+      { scale: true, gridIndex: 1, splitNumber: 2,
+        axisLabel: { formatter: v => (v / 10000).toFixed(0) + '万' } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], top: '90%', height: 14, start: 0, end: 100 }
+    ],
+    series: [
+      {
+        name: '日K', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0,
+        itemStyle: { color: '#d93025', color0: '#0f9d58',
+                     borderColor: '#d93025', borderColor0: '#0f9d58' },
+        markLine: {
+          symbol: 'none', animation: false,
+          data: winMarks.map(m => ({
+            xAxis: m.date,
+            lineStyle: { color: '#f5a623', type: 'dashed', width: 1.5 },
+            label: { formatter: m.strategy, color: '#b26a00', fontSize: 10,
+                     position: 'insideStartTop' }
+          }))
+        }
+      },
+      { name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1,
+        barWidth: '70%' }
+    ]
+  }, true);
+  // 窗口缩放时重绘
+  const resizeHandler = () => chart.resize();
+  window.addEventListener('resize', resizeHandler);
+  container._echart = chart;
+  container._resizeHandler = resizeHandler;
 }
 </script>
 </body>

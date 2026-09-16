@@ -36,11 +36,11 @@ MANUAL_LOG_DIR = os.path.join(BASE_DIR, 'manual_logs')
 DAILY_SH_PATH = os.path.join(BASE_DIR, 'run_daily_stock_tasks.sh')
 
 _CRON_TS_LINE = re.compile(r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(?P<body>.*)$')
-# 新格式：[步骤1/19] 开始执行 指数日交易数据 (update_stock_index_daily.py)...
+# 新格式：[步骤1/20] 开始执行 指数日交易数据 (update_stock_index_daily.py)...
 _CRON_START = re.compile(
     r'^\[(?P<step>[^\]]+)\]\s?开始执行\s?(?P<task_name>[^\(]+?)\s?\((?P<script>[\w.]+\.py)\)\s?\.\.\.$'
 )
-# [步骤1/19] ✅ 指数日交易数据 (update_stock_index_daily.py) 执行成功
+# [步骤1/20] ✅ 指数日交易数据 (update_stock_index_daily.py) 执行成功
 _CRON_END = re.compile(
     r'^\[(?P<step>[^\]]+)\]\s?[✅❌]\s?(?P<task_name>[^\(]+?)\s?\((?P<script>[\w.]+\.py)\)\s?执行(?P<result>成功|失败)'
 )

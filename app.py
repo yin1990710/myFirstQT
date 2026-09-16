@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
@@ -51,7 +51,7 @@ sys.path.append(BASE_DIR)
 # 系统 Python 多为 PEP 668 外部管理环境，无法直接 pip 安装 flask；
 # 若当前解释器缺少 flask，则自动切换到项目 venv 的 python 重新执行本脚本。
 try:
-    from flask import Flask, jsonify, request, send_from_directory
+    from flask import Flask, jsonify, request, send_from_directory, session, redirect, url_for
 except ModuleNotFoundError:
     VENV_PYTHON = os.path.join(BASE_DIR, '.venv', 'bin', 'python3')
     if os.path.exists(VENV_PYTHON) and os.path.realpath(sys.executable) != os.path.realpath(VENV_PYTHON):
@@ -73,16 +73,76 @@ PAGE_DIR = os.path.join(BASE_DIR, 'pages')
 KLINE_DAYS = 200   # 个股详情页展示的最近交易日数量
 
 app = Flask(__name__)
+app.secret_key = 'ljjh_quant_secret_2026'
+app.permanent_session_lifetime = timedelta(hours=3)   # session 有效时长 3 小时
 
 
 @app.after_request
 def no_cache_html(resp):
-    """页面文件每次都校验最新内容，避免浏览器缓存旧版 HTML 导致改动不生效。"""
-    if resp.content_type and resp.content_type.startswith('text/html'):
+    """页面与 JSON 接口都不缓存，避免浏览器拿到旧版 HTML 或过期任务状态。"""
+    ctype = resp.content_type or ''
+    if ctype.startswith('text/html') or 'application/json' in ctype:
         resp.headers['Cache-Control'] = 'no-store, must-revalidate'
         resp.headers['Pragma'] = 'no-cache'
         resp.headers['Expires'] = '0'
     return resp
+
+
+@app.after_request
+def inject_auth_script(resp):
+    """向所有 HTML 页面注入登录账号展示脚本（登录页除外），在导航栏右侧显示账号和退出链接。"""
+    if (resp.content_type and resp.content_type.startswith('text/html')
+            and request.path != '/login'):
+        # send_from_directory 返回 direct_passthrough 响应，需关闭才能读取 body
+        resp.direct_passthrough = False
+        html = resp.get_data(as_text=True)
+        if '</body>' in html:
+            script = (
+                '<script>(function(){'
+                "fetch('/api/current_user').then(r=>r.json()).then(d=>{"
+                "if(!d.account) return;"
+                "var nb=document.querySelector('.navbar');"
+                "if(!nb) return;"
+                "var el=document.createElement('span');"
+                "el.style.cssText='margin-left:auto;display:flex;align-items:center;gap:6px;"
+                "color:rgba(255,255,255,.9);font-size:14px;white-space:nowrap;';"
+                "el.innerHTML=d.account+' <a href=\"/logout\" style=\"color:#fff;"
+                "font-size:12px;text-decoration:none;margin-left:6px;opacity:.8;\">退出</a>';"
+                'nb.appendChild(el);});'
+                '})();</script>'
+            )
+            html = html.replace('</body>', script + '</body>')
+            resp.set_data(html)
+    return resp
+
+
+# 不需要登录的公开路径
+PUBLIC_PATHS = {'/login', '/logout', '/api/current_user', '/favicon.ico'}
+
+
+@app.before_request
+def require_login():
+    """全局登录拦截：除公开路径外，所有请求都需要登录，session 超时（3小时）需重新登录。"""
+    path = request.path
+    if path in PUBLIC_PATHS or path.startswith('/static/'):
+        return None
+    account = session.get('account')
+    login_time = session.get('login_time')
+    if account and login_time:
+        try:
+            elapsed = datetime.now() - datetime.fromisoformat(login_time)
+            if elapsed > timedelta(hours=3):
+                session.clear()
+                if path.startswith('/api/'):
+                    return jsonify({'error': '登录已超时，请重新登录', 'need_login': True}), 401
+                return redirect(url_for('login_page', next=request.url))
+            return None   # 已登录且未超时
+        except (ValueError, TypeError):
+            session.clear()
+    # 未登录
+    if path.startswith('/api/'):
+        return jsonify({'error': '请先登录', 'need_login': True}), 401
+    return redirect(url_for('login_page', next=request.url))
 
 
 def query_db(sql, params=None):
@@ -96,6 +156,43 @@ def query_db(sql, params=None):
             return cursor.fetchall()
     finally:
         close_connection(conn)
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    """登录页面：GET 返回登录页，POST 验证账号密码并设置 session。"""
+    if request.method == 'GET':
+        return send_from_directory(PAGE_DIR, '登录.html')
+    data = request.get_json(silent=True) or {}
+    account = (data.get('account') or '').strip()
+    password = data.get('password') or ''
+    from controller_auth import verify_user, update_login_status
+    result = verify_user(account, password)
+    if result.get('ok'):
+        session.permanent = True
+        session['account'] = result['account']
+        session['login_time'] = datetime.now().isoformat()
+        update_login_status(result['account'], online=True)
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': result.get('error', '登录失败')}), 401
+
+
+@app.route('/logout')
+def logout():
+    """退出登录：清除 session 并重定向到登录页。"""
+    account = session.get('account')
+    if account:
+        from controller_auth import update_login_status
+        update_login_status(account, online=False)
+    session.clear()
+    return redirect(url_for('login_page'))
+
+
+@app.route('/api/current_user')
+def api_current_user():
+    """返回当前登录账号（供前端导航栏展示）。"""
+    account = session.get('account')
+    return jsonify({'account': account})
 
 
 @app.route('/favicon.ico')
@@ -224,6 +321,66 @@ def backtest_analysis_page():
     return send_from_directory(PAGE_DIR, '策略回测.html')
 
 
+@app.route('/my_stocks')
+def my_stocks_page():
+    """我的股票池页面。"""
+    return send_from_directory(PAGE_DIR, '我的股票池.html')
+
+
+@app.route('/api/my_stocks')
+def api_my_stocks():
+    """查询用户股票池中所有股票的区间收益指标。
+
+    仅做请求转发与响应，业务逻辑由 controller_my_stocks.get_account_stocks() 封装。
+    """
+    account = request.args.get('account') or session.get('account') or ''
+
+    from controller_my_stocks import get_account_stocks
+    result = get_account_stocks(account)
+
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@app.route('/api/my_stocks/add', methods=['POST'])
+def api_my_stocks_add():
+    """批量将股票加入用户股票池。
+
+    仅做请求转发与响应，业务逻辑由 controller_my_stocks.add_to_my_stocks() 封装。
+
+    请求体：{account: 'luckboy', stocks: [{ts_code, stock_name, selected_date, strategy_name}, ...]}
+    """
+    data = request.get_json(silent=True) or {}
+    account = (data.get('account') or session.get('account') or '').strip()
+    stocks = data.get('stocks') or []
+
+    from controller_my_stocks import add_to_my_stocks
+    result = add_to_my_stocks(account, stocks)
+
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@app.route('/api/my_stocks/remove', methods=['POST'])
+def api_my_stocks_remove():
+    """从用户股票池移除股票。仅做请求转发与响应。
+
+    请求体：{ts_codes: [ts_code, ...]}（account 取当前登录 session）
+    """
+    data = request.get_json(silent=True) or {}
+    account = (data.get('account') or session.get('account') or '').strip()
+    ts_codes = data.get('ts_codes') or []
+
+    from controller_my_stocks import remove_from_my_stocks
+    result = remove_from_my_stocks(account, ts_codes)
+
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
 @app.route('/stock')
 def stock_detail():
     """返回 pages/ 下的个股K线详情页（股票代码由 ?code= 提供，前端解析）。"""
@@ -298,6 +455,12 @@ def mri_dashboard():
                 '<p>请先运行 <code>python report_market_risk.py</code> 生成报告。</p>'
                 '<p><a href="/">返回首页</a></p></body>'), 404
     return send_from_directory(PAGE_DIR, 'A股大盘风险指数MRI.html')
+
+
+@app.route('/sss/framework')
+def sss_framework_page():
+    """股票短期强弱指标体系说明页面。"""
+    return send_from_directory(PAGE_DIR, '股票短期强弱指标体系说明.html')
 
 
 @app.route('/mri/framework')
@@ -670,6 +833,7 @@ def api_strategies_run():
     """批量手动执行选股策略脚本：逐个在后台执行，返回每个脚本的启动结果。
 
     请求体：{scripts: ['select_limitup_1d.py', ...], target_date?: 'YYYYMMDD'}
+    脚本白名单：select_*.py（条件选股）和 find_similar_*.py（以股选股）。
     响应：{results: [{script, ok, state?, error?}]}
     """
     payload = request.get_json(silent=True) or {}
@@ -677,8 +841,9 @@ def api_strategies_run():
     if not isinstance(scripts, list) or not scripts:
         return jsonify({'error': 'scripts 参数不能为空'}), 400
 
-    # 校验脚本名：必须是 select_*.py 且文件存在
-    valid_files = {os.path.basename(p) for p in glob.glob(os.path.join(BASE_DIR, 'select_*.py'))}
+    # 校验脚本名：必须是 select_*.py 或 find_similar_*.py 且文件存在
+    valid_files = ({os.path.basename(p) for p in glob.glob(os.path.join(BASE_DIR, 'select_*.py'))}
+                   | {os.path.basename(p) for p in glob.glob(os.path.join(BASE_DIR, 'find_similar_*.py'))})
     target_date = (payload.get('target_date') or '').strip()
     cmd_args = []
     if target_date:
@@ -785,8 +950,10 @@ def api_cron_log():
 
 
 # 标题形如 "二浪日线选股策略 (select_2wave_daily.py)"，去掉括号内文件名
-_TITLE_FILE_SUFFIX = re.compile(r'[（(]\s*select_[^）)]*\.py\s*[）)]')
-_strategy_meta_cache = {}   # {文件mtime: 元数据}，select 文件运行期不变，缓存一次即可
+_TITLE_FILE_SUFFIX = re.compile(r'[（(]\s*(?:select_|find_similar_)[^）)]*\.py\s*[）)]')
+# docstring 首行形如 "选股策略: 当日涨停选股策略"，去掉前缀只留策略名
+_TITLE_PREFIX = re.compile(r'^选股策略[：:]\s*')
+_strategy_meta_cache = {}   # {文件mtime: 元数据}，select/find_similar 文件运行期不变，缓存一次即可
 
 
 def _parse_strategy_file(path):
@@ -821,7 +988,7 @@ def _parse_strategy_file(path):
     lines = [ln.rstrip() for ln in doc.splitlines()]
     while lines and not lines[0].strip():
         lines.pop(0)
-    title = _TITLE_FILE_SUFFIX.sub('', lines[0]).strip() if lines else filename
+    title = _TITLE_PREFIX.sub('', _TITLE_FILE_SUFFIX.sub('', lines[0])).strip() if lines else filename
     # 标题行之后的全部内容作为展开区文案（含选股条件、输出约定等）
     body = '\n'.join(lines[1:]).strip()
     return {
@@ -833,11 +1000,23 @@ def _parse_strategy_file(path):
 
 
 def _load_strategies_meta():
-    """扫描全部 select_*.py（按文件名排序），结果按文件 mtime 缓存。"""
-    paths = sorted(glob.glob(os.path.join(BASE_DIR, 'select_*.py')))
-    sig = tuple((p, os.path.getmtime(p)) for p in paths)
+    """扫描全部 select_*.py 和 find_similar_*.py，按类别+文件名排序，结果按文件 mtime 缓存。"""
+    select_paths = sorted(glob.glob(os.path.join(BASE_DIR, 'select_*.py')))
+    find_paths = sorted(glob.glob(os.path.join(BASE_DIR, 'find_similar_*.py')))
+    all_paths = select_paths + find_paths
+    sig = tuple((p, os.path.getmtime(p)) for p in all_paths)
     if _strategy_meta_cache.get('sig') != sig:
-        metas = [m for m in (_parse_strategy_file(p) for p in paths) if m]
+        metas = []
+        for p in select_paths:
+            m = _parse_strategy_file(p)
+            if m:
+                m['category'] = '条件选股'
+                metas.append(m)
+        for p in find_paths:
+            m = _parse_strategy_file(p)
+            if m:
+                m['category'] = '以股选股'
+                metas.append(m)
         _strategy_meta_cache.clear()
         _strategy_meta_cache['sig'] = sig
         _strategy_meta_cache['data'] = metas
@@ -859,6 +1038,22 @@ def api_strategies():
 def api_strategies_meta():
     """扫描所有 select_*.py，返回策略中文名、入库策略名及选股条件说明。"""
     return jsonify({'strategies': _load_strategies_meta()})
+
+
+@app.route('/api/backtest_strategies')
+def api_backtest_strategies():
+    """返回已注册的可回测策略列表（来自 backtest_scanner.STRATEGY_REGISTRY）。"""
+    from backtest_scanner import available_strategies, STRATEGY_REGISTRY
+    names = available_strategies()
+    strategies = []
+    for n in names:
+        reg = STRATEGY_REGISTRY[n]
+        strategies.append({
+            'name': n,
+            'module': reg['module'],
+            'min_lookback': reg['min_lookback'],
+        })
+    return jsonify({'strategies': strategies})
 
 
 @app.route('/api/results')
@@ -900,22 +1095,417 @@ def api_results():
     return jsonify({'rows': rows, 'total': len(rows)})
 
 
+# ---------------------------------------------------------------------------
+# 策略回测：异步任务（后台 daemon 线程执行，切换页面不中断；完成后结果落库可直接查询）
+# ---------------------------------------------------------------------------
+# {task_id: {status, strategy, start_date, end_date, stage, progress,
+#            start, end, duration, result, error, ...}}
+_backtest_tasks = {}
+_backtest_tasks_lock = threading.Lock()
+_BACKTEST_TASKS_MAX = 20   # 内存中最多保留最近 20 个任务，超出清理最早的已结束任务
+# task_id → threading.Event，用于通知守护线程中止扫描
+_backtest_stop_events = {}
+
+
+def _run_backtest_task(task_id, account, task_name, strategy,
+                       start_date, end_date, strategy_file):
+    """后台线程：扫描策略选股 → 计算回测指标 → 持久化到 strategy_backtest_result_t。
+
+    任务状态/进度同步写入 backtest_task_t 任务注册表，服务重启后历史仍可查询。
+    收到停止事件（Event）时在扫描交易日间隙退出，任务标记为 stopped。
+    """
+    from backtest_backend import (run_backtest, save_backtest_result,
+                                update_backtest_task_progress,
+                                set_backtest_task_stage,
+                                finish_backtest_task)
+
+    stop_event = _backtest_stop_events.get(task_id)
+
+    def _progress_cb(done, total, current_date):
+        with _backtest_tasks_lock:
+            t = _backtest_tasks.get(task_id)
+            if t:
+                t['stage'] = 'scanning'
+                t['progress'] = {'done': done, 'total': total,
+                                 'current_date': current_date}
+        update_backtest_task_progress(task_id, done, total, current_date, 'scanning')
+        # 返回 True 通知扫描器中止
+        return bool(stop_event and stop_event.is_set())
+
+    started_dt = datetime.now()
+    try:
+        # 1. 扫描策略选股记录（直接扫 stock_daily_t，不依赖 strategy_selected_stock_daily_t）
+        from backtest_scanner import scan_strategy
+        scan_result = scan_strategy(strategy, start_date, end_date,
+                                   progress_cb=_progress_cb)
+        if isinstance(scan_result, dict) and scan_result.get('cancelled'):
+            raise _TaskStopped()
+        if isinstance(scan_result, dict) and scan_result.get('error'):
+            raise RuntimeError(scan_result['error'])
+
+        # 扫描结束后、开始计算前也响应停止
+        if stop_event and stop_event.is_set():
+            raise _TaskStopped()
+
+        # 2. 计算回测指标
+        with _backtest_tasks_lock:
+            t = _backtest_tasks.get(task_id)
+            if t:
+                t['stage'] = 'computing'
+        set_backtest_task_stage(task_id, 'computing')
+        result = run_backtest(strategy, start_date, end_date, records=scan_result)
+        if result.get('error'):
+            raise RuntimeError(result['error'])
+
+        # 3. 有明细数据时持久化到 strategy_backtest_result_t
+        saved = False
+        save_error = ''
+        if result.get('detail'):
+            save_info = save_backtest_result(result, strategy_file)
+            saved = save_info.get('ok', False)
+            if not saved:
+                save_error = save_info.get('error', '')
+        result['strategy_file'] = strategy_file
+        result['saved'] = saved
+        if save_error:
+            result['save_error'] = save_error
+
+        ended_dt = datetime.now()
+        with _backtest_tasks_lock:
+            t = _backtest_tasks.get(task_id)
+            if t:
+                t.update(status='done', stage='done',
+                         end=ended_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                         duration=round((ended_dt - started_dt).total_seconds(), 1),
+                         result=result)
+        finish_backtest_task(task_id, 'done', saved=saved)
+    except _TaskStopped:
+        ended_dt = datetime.now()
+        with _backtest_tasks_lock:
+            t = _backtest_tasks.get(task_id)
+            if t:
+                t.update(status='stopped', stage='stopped',
+                         end=ended_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                         duration=round((ended_dt - started_dt).total_seconds(), 1),
+                         error='任务已停止')
+        finish_backtest_task(task_id, 'stopped', error='任务已停止')
+    except Exception as e:
+        ended_dt = datetime.now()
+        with _backtest_tasks_lock:
+            t = _backtest_tasks.get(task_id)
+            if t:
+                t.update(status='failed', stage='failed',
+                         end=ended_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                         duration=round((ended_dt - started_dt).total_seconds(), 1),
+                         error=str(e))
+        finish_backtest_task(task_id, 'failed', error=str(e))
+    finally:
+        _backtest_stop_events.pop(task_id, None)
+
+
+class _TaskStopped(Exception):
+    """内部信号：任务被用户停止。"""
+    pass
+
+
+def _backtest_task_public(t, include_result=False):
+    """任务状态对外视图（去掉内部字段，明细结果按需携带）。"""
+    if not t:
+        return None
+    view = {k: v for k, v in t.items() if k != 'result'}
+    if include_result and t.get('result'):
+        view['result'] = t['result']
+    return view
+
+
 @app.route('/api/backtest_analysis', methods=['POST'])
 def api_backtest_analysis():
-    """策略回测分析：按策略名 + 日期范围计算聚合回测评价指标。"""
+    """策略回测分析（异步）：按指定策略 + 日期范围扫描 stock_daily_t 找出符合条件的股票，
+    后台计算回测指标并持久化到 strategy_backtest_result_t。
+
+    立即返回 202 + task_id，前端通过 GET /api/backtest_task_status?task_id= 轮询。
+    相同策略+日期范围的任务正在执行时直接复用，不重复启动。
+    """
     data = request.get_json(silent=True) or {}
     strategy = (data.get('strategy') or '').strip() or None
     start_date = (data.get('start_date') or '').strip() or None
     end_date = (data.get('end_date') or '').strip() or None
+    task_name = (data.get('task_name') or '').strip() or None
 
-    from backtest_backend import run_backtest
-    result = run_backtest(strategy, start_date, end_date)
+    if not strategy or not start_date or not end_date:
+        return jsonify({'error': '请指定策略、起始日期和结束日期'}), 400
+    if not task_name:
+        return jsonify({'error': '请填写回测任务名称'}), 400
+
+    # 任务归属当前登录账号，名称格式：账号-策略名_起始~结束
+    account = session.get('account') or ''
+
+    # 按策略名查找对应的策略 .py 文件
+    strategy_file = None
+    for m in _load_strategies_meta():
+        if m.get('strategy') == strategy:
+            strategy_file = m.get('file')
+            break
+
+    import uuid
+    with _backtest_tasks_lock:
+        # 相同参数的在途任务直接复用（防止重复扫描）
+        for tid, t in _backtest_tasks.items():
+            if (t.get('status') == 'running' and t.get('strategy') == strategy
+                    and t.get('start_date') == start_date
+                    and t.get('end_date') == end_date
+                    and t.get('account') == account):
+                return jsonify({'ok': True, 'task_id': tid,
+                                'message': '相同参数的回测任务正在执行中'}), 202
+
+        task_id = 'bt_' + datetime.now().strftime('%Y%m%d%H%M%S') + '_' + uuid.uuid4().hex[:8]
+        started = datetime.now()
+        _backtest_tasks[task_id] = {
+            'task_id': task_id,
+            'account': account,
+            'task_name': task_name,
+            'status': 'running',
+            'stage': 'queued',
+            'strategy': strategy,
+            'start_date': start_date,
+            'end_date': end_date,
+            'strategy_file': strategy_file,
+            'progress': None,
+            'start': started.strftime('%Y-%m-%d %H:%M:%S'),
+            'end': None,
+            'duration': None,
+            'result': None,
+            'error': None,
+        }
+        _backtest_stop_events[task_id] = threading.Event()
+        # 清理超出上限的最早已结束任务（done/failed/stopped）
+        finished = [(tid, t) for tid, t in _backtest_tasks.items()
+                    if t.get('status') in ('done', 'failed', 'stopped')]
+        finished.sort(key=lambda x: x[1].get('end') or '')
+        if len(finished) >= _BACKTEST_TASKS_MAX:
+            for tid, _ in finished[:-_BACKTEST_TASKS_MAX + 1]:
+                _backtest_tasks.pop(tid, None)
+                _backtest_stop_events.pop(tid, None)
+
+    # 任务注册落库（失败不阻断内存中的执行，仅记录提示）
+    from backtest_backend import create_backtest_task
+    create_backtest_task(task_id, account, task_name, strategy,
+                       strategy_file, start_date, end_date)
+
+    threading.Thread(target=_run_backtest_task,
+                     args=(task_id, account, task_name, strategy,
+                           start_date, end_date, strategy_file),
+                     daemon=True).start()
+    return jsonify({'ok': True, 'task_id': task_id}), 202
+
+
+@app.route('/api/backtest_task_status')
+def api_backtest_task_status():
+    """查询单个回测异步任务状态（含完成后的完整回测结果）。
+
+    优先读进程内任务（刚完成的内存任务携带完整结果）；
+    进程内没有（如服务重启后）则读 backtest_task_t 注册表，
+    已完成任务从 strategy_backtest_result_t 还原完整结果。
+    """
+    task_id = (request.args.get('task_id') or '').strip()
+    if not task_id:
+        return jsonify({'error': '缺少 task_id'}), 400
+    with _backtest_tasks_lock:
+        t = _backtest_tasks.get(task_id)
+        if t:
+            return jsonify(_backtest_task_public(t, include_result=True))
+
+    # 进程内无任务 → 查数据库注册表
+    from backtest_backend import get_backtest_task, load_saved_backtest_result
+    task = get_backtest_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+
+    if task['status'] == 'done':
+        if task.get('saved'):
+            result = load_saved_backtest_result(
+                task['strategy'], task['start_date'], task['end_date'])
+            if isinstance(result, dict) and not result.get('error'):
+                task['result'] = result
+        if 'result' not in task:
+            # 完成但区间内无选股（无结果明细），给出空结果占位
+            task['result'] = {
+                'strategy': task['strategy'],
+                'start_date': task['start_date'],
+                'end_date': task['end_date'],
+                'strategy_file': task.get('strategy_file'),
+                'total_stocks': 0,
+                'message': '回测区间未选出符合条件的股票，无明细数据',
+                'saved': task.get('saved', False),
+            }
+    return jsonify(task)
+
+
+@app.route('/api/backtest_task_stop', methods=['POST'])
+def api_backtest_task_stop():
+    """停止运行中的回测任务（仅任务所属账号可停止）。
+
+    守护线程在扫描交易日间隙收到停止信号后退出，任务标记为 stopped；
+    若服务已重启（线程不存在），直接将数据库中运行中任务标记为 stopped。
+    """
+    data = request.get_json(silent=True) or {}
+    task_id = (data.get('task_id') or '').strip()
+    if not task_id:
+        return jsonify({'error': '缺少 task_id'}), 400
+
+    account = session.get('account') or ''
+    with _backtest_tasks_lock:
+        t = _backtest_tasks.get(task_id)
+        if t:
+            if t.get('account') != account:
+                return jsonify({'error': '无权停止他人任务'}), 403
+            if t.get('status') != 'running':
+                return jsonify({'ok': False, 'message': '任务不在运行中'}), 200
+            ev = _backtest_stop_events.get(task_id)
+            if ev:
+                ev.set()
+            t['stage'] = 'stopping'
+            return jsonify({'ok': True, 'status': 'stopping'})
+
+    # 进程内无任务（服务重启过）→ 校验账号归属后直接标记数据库
+    from backtest_backend import get_backtest_task, mark_backtest_task_stopped
+    task = get_backtest_task(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    if task.get('account') != account:
+        return jsonify({'error': '无权停止他人任务'}), 403
+    if task.get('status') != 'running':
+        return jsonify({'ok': False, 'message': '任务不在运行中'}), 200
+    affected = mark_backtest_task_stopped(task_id)
+    return jsonify({'ok': bool(affected), 'status': 'stopped'})
+
+
+@app.route('/api/backtest_tasks_recent')
+def api_backtest_tasks_recent():
+    """返回回测任务列表（读 backtest_task_t 注册表，重启不丢失）。
+
+    查询参数：
+      account     ：账号筛选，缺省为当前登录账号
+      strategy/start_date/end_date：策略与日期范围筛选
+    """
+    from backtest_backend import list_backtest_tasks
+    account = (request.args.get('account') or '').strip() \
+        or session.get('account') or ''
+    result = list_backtest_tasks(
+        account=account,
+        strategy=(request.args.get('strategy') or '').strip() or None,
+        start_date=(request.args.get('start_date') or '').strip() or None,
+        end_date=(request.args.get('end_date') or '').strip() or None,
+    )
+    if 'error' in result:
+        return jsonify(result), 500
+    return jsonify(result)
+
+
+@app.route('/api/backtest_accounts')
+def api_backtest_accounts():
+    """返回提交过回测任务的账号去重列表，供任务列表账号筛选下拉。"""
+    from backtest_backend import list_backtest_accounts
+    result = list_backtest_accounts()
+    if 'error' in result:
+        return jsonify(result), 500
+    result['current'] = session.get('account') or ''
     return jsonify(result)
 
 
 def _fmt_date(d):
     """YYYYMMDD → YYYY-MM-DD（供前端 x 轴与 markLine 对齐使用）。"""
     return f"{d[:4]}-{d[4:6]}-{d[6:8]}" if d and len(d) == 8 else d
+
+
+@app.route('/api/backtest_results')
+def api_backtest_results():
+    """查询已保存的回测结果（strategy_backtest_result_t），按策略名 + 日期筛选。
+
+    参数：
+      strategy:  策略名称（精确匹配 strategy_name，空则全部）
+      start_date: 起始日期 YYYYMMDD（筛选回测的 start_date >= 该值）
+      end_date:   结束日期 YYYYMMDD（筛选回测的 end_date <= 该值）
+
+    返回：
+      {runs: [{strategy_name, strategy_file, start_date, end_date, total_stocks,
+              valid_stocks, total_dates, avg_gain_10d, ... sharpe, run_time, ...}],
+       total: N}
+    """
+    strategy = request.args.get('strategy', '').strip()
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+
+    sql = """
+        SELECT DISTINCT
+          strategy_name, strategy_file, start_date, end_date,
+          total_stocks, valid_stocks, total_dates,
+          avg_gain_10d, avg_gain_20d, avg_down_10d, avg_down_20d,
+          excess_sh, excess_sz, sharpe, sh_index_10d, sz_index_10d,
+          run_time, update_time
+        FROM strategy_backtest_result_t
+        WHERE 1=1
+    """
+    params = []
+    if strategy:
+        sql += " AND strategy_name = %s"
+        params.append(strategy)
+    if start_date:
+        sql += " AND start_date >= %s"
+        params.append(start_date)
+    if end_date:
+        sql += " AND end_date <= %s"
+        params.append(end_date)
+    sql += " ORDER BY run_time DESC"
+
+    rows = query_db(sql, params)
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+
+    # Decimal/datetime → 可 JSON 序列化
+    for r in rows:
+        for k in ('avg_gain_10d', 'avg_gain_20d', 'avg_down_10d', 'avg_down_20d',
+                  'excess_sh', 'excess_sz', 'sharpe', 'sh_index_10d', 'sz_index_10d'):
+            if r.get(k) is not None:
+                r[k] = float(r[k])
+        if r.get('run_time'):
+            r['run_time'] = str(r['run_time'])
+        if r.get('update_time'):
+            r['update_time'] = str(r['update_time'])
+
+    return jsonify({'runs': rows, 'total': len(rows)})
+
+
+@app.route('/api/backtest_results_detail')
+def api_backtest_results_detail():
+    """查询某次回测的逐股明细。
+
+    参数：
+      strategy:  策略名称
+      start_date: 回测起始日期
+      end_date:   回测结束日期
+    """
+    strategy = request.args.get('strategy', '').strip()
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+
+    sql = """
+        SELECT ts_code, stock_name, trade_date,
+               max_gain_10d, max_down_10d, max_gain_20d, max_down_20d
+        FROM strategy_backtest_result_t
+        WHERE strategy_name = %s AND start_date = %s AND end_date = %s
+        ORDER BY trade_date DESC, ts_code
+    """
+    rows = query_db(sql, [strategy, start_date, end_date])
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+
+    for r in rows:
+        for k in ('max_gain_10d', 'max_down_10d', 'max_gain_20d', 'max_down_20d'):
+            if r.get(k) is not None:
+                r[k] = float(r[k])
+
+    return jsonify({'rows': rows, 'total': len(rows)})
 
 
 @app.route('/api/kline')
@@ -988,5 +1578,332 @@ def api_selected_stocks():
                                 'stock_name': r['stock_name']} for r in rows]})
 
 
+@app.route('/api/sss_batch', methods=['POST'])
+def api_sss_batch():
+    """批量计算股票短期强弱评分（SSS 5 维指标）。
+
+    请求体：{"codes": ["000001.SZ", ...]}
+    响应：{"scores": {"000001.SZ": {"composite": 56.8, "rps": 83.1, ...}, ...}}
+
+    仅做请求转发，业务逻辑由 module_stock_short_strength 封装。
+    """
+    data = request.get_json(silent=True) or {}
+    codes = data.get('codes') or []
+    if not codes or not isinstance(codes, list):
+        return jsonify({'scores': {}})
+
+    from module_stock_short_strength import (
+        fetch_one, fetch_benchmark, safe_pct_change, calc_all_scores,
+        PARAMS,
+    )
+
+    # 基准只取一次
+    try:
+        bm = fetch_benchmark(PARAMS['benchmark'], days=PARAMS['lookback'] + 60)
+        bm_ret = safe_pct_change(bm, PARAMS['lookback'])
+    except Exception:
+        bm_ret = float('nan')
+
+    scores = {}
+    for code in codes[:200]:   # 上限 200 只，防止过大请求
+        code = (code or '').strip()
+        if not code:
+            continue
+        try:
+            df = fetch_one(code, days=PARAMS['lookback'] + 60)
+            r = calc_all_scores(df, bm_ret, code=code)
+            scores[code] = {
+                'composite': round(r.composite, 1) if r.composite is not None else None,
+                'rps': round(r.rps, 1) if r.rps is not None else None,
+                'vpvr': round(r.vpvr, 1) if r.vpvr is not None else None,
+                'trend': round(r.trend, 1) if r.trend is not None else None,
+                'msr': round(r.msr, 1) if r.msr is not None else None,
+                'mfi': round(r.mfi, 1) if r.mfi is not None else None,
+                'level': r.level,
+            }
+        except Exception:
+            scores[code] = None
+    return jsonify({'scores': scores})
+
+
+# ---------------------------------------------------------------------------
+# 新建策略页面与提交接口
+# ---------------------------------------------------------------------------
+
+STRATEGY_DESC_DIR = os.path.join(BASE_DIR, 'pages', 'strategy_description')
+
+
+@app.route('/strategy/new')
+def strategy_new_page():
+    """新建策略页面：输入策略名称+描述并提交。"""
+    return send_from_directory(PAGE_DIR, '新建策略.html')
+
+
+@app.route('/api/strategy_submit', methods=['POST'])
+def api_strategy_submit():
+    """接收策略名称+描述，保存为 Markdown 文件到 pages/strategy_description/ 目录。
+
+    请求体：{name: '策略名称', description: '策略描述Markdown'}
+    文件名：策略名称_YYYYMMDD.md；同名策略重新提交时覆盖旧文件（删除同前缀旧文件）
+    """
+    import re as _re
+    import glob as _glob
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get('name') or '').strip()
+    description = payload.get('description') or ''
+    if not name:
+        return jsonify({'error': '策略名称不能为空'}), 400
+    if not description.strip():
+        return jsonify({'error': '策略描述不能为空'}), 400
+    # 清理文件名：只保留中文、字母、数字、下划线、连字符
+    safe_name = _re.sub(r'[^\w\u4e00-\u9fff\-]', '_', name).strip('_')
+    if not safe_name:
+        safe_name = 'strategy'
+    date_str = datetime.now().strftime('%Y%m%d')
+    filename = f'{safe_name}_{date_str}.md'
+    os.makedirs(STRATEGY_DESC_DIR, exist_ok=True)
+    # 删除同前缀的旧文件，实现同名策略覆盖
+    for old_file in _glob.glob(os.path.join(STRATEGY_DESC_DIR, f'{safe_name}_*.md')):
+        try:
+            os.remove(old_file)
+        except OSError:
+            pass
+    filepath = os.path.join(STRATEGY_DESC_DIR, filename)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(f'# {name}\n\n> 提交日期：{datetime.now().strftime("%Y-%m-%d")}\n\n{description}\n')
+    return jsonify({'ok': True, 'filename': filename}), 201
+
+
+# ---------------------------------------------------------------------------
+# 以股选股（find_similar_*.py）页面与执行接口
+# ---------------------------------------------------------------------------
+
+_find_similar_state = {}   # {script: {status, start, end, rc, duration, log, pid, params}}
+
+
+@app.route('/find_similar')
+def find_similar_page():
+    """以股选股页面：参数输入 + 模板/相似股票 K 线展示。"""
+    script = request.args.get('script', '').strip()
+    return send_from_directory(PAGE_DIR, '以股选股.html')
+
+
+@app.route('/api/find_similar_run', methods=['POST'])
+def api_find_similar_run():
+    """后台执行 find_similar_*.py 脚本，返回启动结果。
+
+    请求体：{script: 'find_similar_ma5.py', args: {target: '301171.SZ', ...}}
+    """
+    payload = request.get_json(silent=True) or {}
+    script = (payload.get('script') or '').strip()
+    if not re.fullmatch(r'find_similar_[A-Za-z0-9_]+\.py', script):
+        return jsonify({'error': '脚本名不合法'}), 400
+    script_path = os.path.join(BASE_DIR, script)
+    if not os.path.isfile(script_path):
+        return jsonify({'error': '脚本不存在'}), 400
+
+    with _manual_lock:
+        current = _find_similar_state.get(script)
+        if current and current.get('status') == 'running':
+            return jsonify({'error': '正在执行中，请等待完成', 'state': dict(current)}), 409
+
+        # 构造命令行参数
+        args_map = payload.get('args') or {}
+        cmd_args = []
+        # find_similar_ma5.py 的 target 是位置参数
+        if script == 'find_similar_ma5.py':
+            target = (args_map.get('target') or '').strip()
+            if not target:
+                return jsonify({'error': '缺少目标股票代码 target 参数'}), 400
+            cmd_args.append(target)
+        else:
+            # find_similar_wave2.py / find_similar_price_vol.py 用 --code/--start/--end
+            code = (args_map.get('code') or '').strip()
+            if code:
+                cmd_args.extend(['--code', code])
+            start = (args_map.get('start') or '').strip()
+            if start:
+                cmd_args.extend(['--start', start])
+            end = (args_map.get('end') or '').strip()
+            if end:
+                cmd_args.extend(['--end', end])
+
+        # 通用可选参数
+        min_score = args_map.get('min_score')
+        if min_score:
+            cmd_args.extend(['--min-score', str(min_score)])
+        top = args_map.get('top')
+        if top:
+            cmd_args.extend(['--top', str(top)])
+        window = args_map.get('window')
+        if window:
+            cmd_args.extend(['--window', str(window)])
+
+        os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
+        started = datetime.now()
+        log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
+        log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
+        try:
+            proc = subprocess.Popen([sys.executable, script_path] + cmd_args,
+                                    cwd=BASE_DIR,
+                                    stdout=log_fp, stderr=subprocess.STDOUT)
+        except OSError as e:
+            log_fp.close()
+            return jsonify({'error': f'启动失败: {e}'}), 500
+
+        state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
+                 'end': None, 'rc': None, 'duration': None,
+                 'log': log_name, 'pid': proc.pid,
+                 'params': args_map}
+        _find_similar_state[script] = state
+
+    # 后台收割进程
+    def _reap_find_similar(script, proc, started, log_fp):
+        proc.wait()
+        ended = datetime.now()
+        rc = proc.returncode
+        duration = round((ended - started).total_seconds(), 1)
+        log_fp.close()
+        with _manual_lock:
+            s = _find_similar_state.get(script)
+            if s:
+                s.update(status='success' if rc == 0 else 'failed',
+                         end=ended.strftime('%Y-%m-%d %H:%M:%S'),
+                         rc=rc, duration=duration)
+
+    threading.Thread(target=_reap_find_similar,
+                     args=(script, proc, started, log_fp), daemon=True).start()
+    return jsonify({'state': dict(state)}), 202
+
+
+@app.route('/api/find_similar_status')
+def api_find_similar_status():
+    """查询以股选股脚本执行状态。"""
+    script = request.args.get('script', '').strip()
+    if not script:
+        return jsonify({'statuses': {}})
+    with _manual_lock:
+        s = _find_similar_state.get(script)
+    return jsonify({'statuses': {script: dict(s) if s else None}})
+
+
+@app.route('/api/find_similar_results')
+def api_find_similar_results():
+    """从日志中解析以股选股执行结果（相似股票列表）。
+
+    解析日志中 "🔥 相似度排名前N：" 之后的股票列表行。
+    """
+    script = request.args.get('script', '').strip()
+    with _manual_lock:
+        s = _find_similar_state.get(script)
+    if not s or s.get('status') != 'success':
+        return jsonify({'error': '脚本未成功执行'}), 400
+
+    log_path = os.path.join(MANUAL_LOG_DIR, s.get('log') or '')
+    stocks = []
+    template_code = None
+    try:
+        with open(log_path, encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+    except OSError:
+        return jsonify({'error': '日志文件不存在'}), 500
+
+    # 从参数中提取模板股票代码
+    params = s.get('params') or {}
+    if params.get('target'):
+        template_code = params['target'].upper().strip()
+    elif params.get('code'):
+        template_code = params['code'].upper().strip()
+
+    # 解析 "🔥 相似度排名" 后的股票列表
+    in_results = False
+    for line in lines:
+        stripped = line.strip()
+        if '相似度排名' in stripped:
+            in_results = True
+            continue
+        if not in_results:
+            continue
+        # 匹配 " 1. 301171.SZ 最终=..." 或 " 1. 301171.SZ 综合=..."
+        m = re.match(r'\d+\.\s+([A-Za-z0-9.]+)', stripped)
+        if m:
+            stocks.append(m.group(1))
+        elif stripped and not stripped.startswith('=') and not stripped.startswith('🎉'):
+            break  # 结果列表结束
+
+    # 补充股票名称
+    if stocks:
+        placeholders = ','.join(['%s'] * len(stocks))
+        rows = query_db(f"""
+            SELECT ts_code, stock_name FROM stock_info_t
+            WHERE ts_code IN ({placeholders})
+        """, tuple(stocks))
+        name_map = {r['ts_code']: r['stock_name'] for r in rows} if rows else {}
+    else:
+        name_map = {}
+
+    # 模板股票名称
+    template_name = None
+    if template_code:
+        rows = query_db("SELECT stock_name FROM stock_info_t WHERE ts_code = %s",
+                        (template_code,))
+        if rows:
+            template_name = rows[0]['stock_name']
+
+    result_list = [{'ts_code': s, 'stock_name': name_map.get(s)} for s in stocks]
+    return jsonify({
+        'template_code': template_code,
+        'template_name': template_name,
+        'stocks': result_list,
+    })
+
+
+@app.route('/api/kline_range')
+def api_kline_range():
+    """返回指定股票在指定日期范围内的日K数据。"""
+    code = request.args.get('code', '').strip()
+    start = request.args.get('start', '').strip()
+    end = request.args.get('end', '').strip()
+    if not code:
+        return jsonify({'error': '缺少 code 参数'}), 400
+
+    sql = """SELECT trade_date, open, high, low, close, vol, pct_chg
+             FROM stock_daily_t WHERE ts_code = %s"""
+    params = [code]
+    if start:
+        sql += " AND trade_date >= %s"
+        params.append(start)
+    if end:
+        sql += " AND trade_date <= %s"
+        params.append(end)
+    sql += " ORDER BY trade_date"
+    rows = query_db(sql, tuple(params))
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    if not rows:
+        return jsonify({'error': f'未找到 {code} 的行情数据'}), 404
+
+    klines = []
+    for r in rows:
+        klines.append({
+            'date': _fmt_date(r['trade_date']),
+            'ohlc': [r['open'], r['close'], r['low'], r['high']],
+            'vol': r['vol'],
+            'pct_chg': r['pct_chg'],
+        })
+
+    # 查股票名称
+    name_rows = query_db("SELECT stock_name FROM stock_info_t WHERE ts_code = %s", (code,))
+    stock_name = name_rows[0]['stock_name'] if name_rows else None
+
+    return jsonify({
+        'ts_code': code,
+        'stock_name': stock_name,
+        'klines': klines,
+    })
+
+
 if __name__ == '__main__':
+    from controller_auth import init_user_table
+    init_user_table()   # 建表并初始化默认账号
     app.run(host='127.0.0.1', port=5000, debug=False)

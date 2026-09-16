@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>股票短期强弱指标体系 SSS —— 5 维评分模型</title>
+<style>
+  body{margin:0;background:#eef1f5;color:#1f2430;font-family:"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.75;font-size:14.5px}
+  .page{max-width:920px;margin:24px auto 24px;background:#fff;padding:36px 48px 60px;box-shadow:0 2px 14px rgba(0,0,0,.07)}
+  h1{font-size:24px;margin:6px 0 4px}
+  h2{font-size:18px;border-left:4px solid #1f2430;padding-left:10px;margin:34px 0 12px}
+  h3{font-size:15px;margin:22px 0 8px;color:#1f2430}
+  h4{font-size:14px;margin:14px 0 6px;color:#2563a8}
+  .meta{color:#5a6472;font-size:12.5px;border-bottom:3px double #1f2430;padding-bottom:12px;margin-bottom:18px}
+  .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:3px;color:#fff;margin-right:4px;vertical-align:middle}
+  .t-lead{background:#2d6cdf}.t-sync{background:#5e7d97}.t-lag{background:#b07d2b}.t-warn{background:#c0392b}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin:8px 0 14px}
+  th{background:#1f2430;color:#fff;padding:7px 8px;text-align:left;font-size:12px}
+  td{border:1px solid #d9dee6;padding:6px 9px;vertical-align:top}
+  tr:nth-child(even) td{background:#fafbfd}
+  .note{color:#5a6472;font-size:12px}
+  .hl{background:#fdf6ec;border-left:4px solid #b07d2b;padding:10px 14px;font-size:13px;margin:14px 0}
+  .hl-b{border-left-color:#c0392b}
+  .hl-g{border-left-color:#2d6cdf;background:#f0f4fb}
+  .ok{color:#1a7f3c;font-weight:600}.warn{color:#c0392b;font-weight:600}
+  .formula{font-family:"JetBrains Mono","SF Mono",Consolas,monospace;font-size:13px;background:#f7f8fa;border:1px solid #e5e8ee;padding:8px 12px;border-radius:4px;display:block;margin:6px 0;color:#1f2430}
+  .badge{display:inline-block;background:#f0f4fb;border:1px solid #d0d8e8;color:#1f2430;padding:2px 8px;border-radius:3px;font-size:11.5px;margin:0 2px}
+  .grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:18px 0}
+  .card{border:1px solid #d9dee6;border-radius:8px;padding:12px 10px;text-align:center;background:#fcfdff}
+  .card .w{font-size:22px;font-weight:700;color:#1f2430}
+  .card .l{font-size:11.5px;color:#5a6472;margin-top:2px}
+  .card .n{font-size:12px;color:#2563a8;font-weight:600;margin-bottom:4px}
+  .bar{height:6px;background:#e6ebf2;border-radius:3px;overflow:hidden;margin:4px 0}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,#2d6cdf,#4f9bff)}
+  .num-strong{color:#1a7f3c}.num-weak{color:#c0392b}.num-mid{color:#b07d2b}
+  .legend{font-size:12px;color:#5a6472;margin:6px 0}
+  .legend b{color:#1f2430}
+  .disclaimer{background:#f9fafc;border:1px dashed #c9d2e0;padding:14px 18px;font-size:12.5px;color:#5a6472;margin-top:30px}
+  code{background:#f1f3f6;padding:1px 5px;border-radius:3px;font-size:12.5px}
+  /* 与首页一致的导航栏 */
+  .navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:16px;padding:0 20px;height:56px;background:#1a73e8;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  .navbar .brand{display:flex;align-items:center;gap:10px;margin-right:8px;text-decoration:none}
+  .navbar .brand img{height:40px;width:auto;border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.3);background:#0b2545}
+  .navbar .brand .brand-text{color:#fff;font-size:17px;font-weight:600;white-space:nowrap}
+  .navbar nav{display:flex;gap:0;height:100%}
+  .navbar nav a{display:flex;align-items:center;padding:0 12px;height:100%;white-space:nowrap;color:rgba(255,255,255,.88);font-size:14px;text-decoration:none}
+  .navbar nav a:hover{background:#1558b0;color:#fff}
+  .navbar nav a.active{background:#1558b0;color:#fff;font-weight:600}
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+<div class="page">
+
+<h1>股票短期强弱指标体系（SSS, Short-term Strength Score）</h1>
+<div class="meta">五维评分模型 · 2026-09-16 · 与 W23 模型互补</div>
+
+<div class="hl">
+<b>定位：</b>回答「这只股票当下 5–20 个交易日买/卖力量谁占优，未来 1–4 周是否更可能跑赢市场」。<br>
+<b>与 W23 的关系：</b>W23 抓「形态」（2 浪末/3 浪初的中期波段），SSS 抓「当下强度」。两者互为校验——W23 信号出现时，SSS 可作为入场排序权重；SSS 高分但 W23 无信号，往往是追高风险区。
+</div>
+
+<h2>一、5 个核心指标</h2>
+
+<div class="grid5">
+  <div class="card"><div class="n">① RPS</div><div class="w">30%</div><div class="l">相对强弱</div></div>
+  <div class="card"><div class="n">② VPVR</div><div class="w">20%</div><div class="l">量价共振</div></div>
+  <div class="card"><div class="n">③ TREND</div><div class="w">20%</div><div class="l">趋势动量</div></div>
+  <div class="card"><div class="n">④ MSR</div><div class="w">15%</div><div class="l">动量夏普</div></div>
+  <div class="card"><div class="n">⑤ MFI</div><div class="w">15%</div><div class="l">主力资金</div></div>
+</div>
+
+<p>权重合计 100%。指标之间相互独立、维度互补——任何单项高分都不足以构成买入条件，必须多项共振。</p>
+
+<h3>1. RPS 相对强弱比率（权重 30%）</h3>
+<p><b>回答：</b>过去 N 个交易日，个股相对基准是更强还是更弱？</p>
+<table>
+  <tr><th>要素</th><th>定义</th></tr>
+  <tr><td>公式</td><td>RPS = 个股 N 日涨跌幅 − 沪深 300 N 日涨跌幅</td></tr>
+  <tr><td>默认参数</td><td>N = 20 日（可调 5/10/20/60；A 股市场 20 日是短期/中期分界）</td></tr>
+  <tr><td>标准化</td><td>单标的：−10% ~ +10% 线性映射到 0–100；批量扫描：横截面百分位排名</td></tr>
+  <tr><td>解读</td><td>分位 &gt; 80% = 明显强；&lt; 20% = 明显弱</td></tr>
+</table>
+<p class="note"><b>为何权重最高：</b>相对收益是短期强弱最直接的体现，且有大量 A 股实证支持。但它只看结果、不看原因，所以必须有其他指标补充验证。</p>
+
+<h3>2. VPVR 量价共振度（权重 20%）</h3>
+<p><b>回答：</b>上涨时是否被资金确认？下跌时是否放量？</p>
+<table>
+  <tr><th>要素</th><th>定义</th></tr>
+  <tr><td>公式</td><td>VPVR = log(过去 N 日「上涨日均量 / 下跌日均量」)</td></tr>
+  <tr><td>分档</td><td>0.5→10 分、1.0→50 分、2.0→80 分、3.0+→95 分</td></tr>
+  <tr><td>解读</td><td>&gt;1.5 量价齐升 = 真强；&lt;0.7 上涨缩量 = 假强；放量下跌 = 真弱</td></tr>
+</table>
+<p class="note"><b>为何用 log：</b>线性量比会让极端值（一字板放量）主导分数；log 化后 0.5→3.0 的范围映射 10–95 分，符合视觉直觉。</p>
+
+<h3>3. TREND 趋势动量（权重 20%）</h3>
+<p><b>回答：</b>形态是否处于多头排列？趋势强度够不够？</p>
+<table>
+  <tr><th>子项</th><th>权重</th><th>定义</th></tr>
+  <tr><td>MA5 斜率年化</td><td>30%</td><td>最近 5 日 MA5 变化率年化 → −20% ~ +60% 映射 0–100</td></tr>
+  <tr><td>价格站位</td><td>40%</td><td>收盘 &gt; MA5 / MA10 / MA20 各占 1/3 权重</td></tr>
+  <tr><td>ADX</td><td>30%</td><td>14 日 ADX → 15–25 映射 0–100（25+ 视为强趋势）</td></tr>
+</table>
+<p class="note"><b>与 RPS 的区别：</b>RPS 看收益结果，TREND 看形态结构——即使 RPS 不高，只要 TREND 接近 60，说明已开始多头排列，是潜在转强信号。</p>
+
+<h3>4. MSR 动量夏普（权重 15%）</h3>
+<p><b>回答：</b>上涨是「稳定走高」还是「脉冲暴涨」？</p>
+<table>
+  <tr><th>要素</th><th>定义</th></tr>
+  <tr><td>公式</td><td>MSR = (N 日累计收益 − 无风险) / N 日收益年化波动率</td></tr>
+  <tr><td>标准化</td><td>横截面百分位；单标的用 −1 ~ +2 线性映射</td></tr>
+  <tr><td>解读</td><td>MSR &gt; 1.5 = 高质量强势；&lt; 0 = 风险调整后为负</td></tr>
+</table>
+<p class="note"><b>关键作用：</b>排除「一日涨停 + 九日横盘」这种 RPS 看着不错但实际不稳的标的。一根大阳线冲高、随后缩量震荡的票，RPS 高、MSR 低——这是 SSS 必须识别的「假强势」。</p>
+
+<h3>5. MFI 主力资金净流入强度（权重 15%）</h3>
+<p><b>回答：</b>有没有「聪明钱」在背后推动？</p>
+<table>
+  <tr><th>要素</th><th>定义</th></tr>
+  <tr><td>公式</td><td>MFI = 5 日 Σ(收盘−开盘)×成交量 ÷ 5 日 Σ 成交额</td></tr>
+  <tr><td>阈值</td><td>−2% ~ +2% 映射 0–100</td></tr>
+  <tr><td>数据源升级</td><td>粗口径可对接 AkShare <code>stock_individual_fund_flow_rank</code> 获取真实主力净额</td></tr>
+</table>
+<p class="note"><b>背离信号（最有价值的部分）：</b>当 RPS 高但 MFI 低 = 假突破风险；当 MFI 高但 RPS 低 = 资金抢筹但价格未启动，可左侧关注。</p>
+
+<h2>二、综合打分与等级</h2>
+
+<div class="formula">
+综合分 = Σ(指标分 × 权重) ÷ Σ(有效权重)        # 缺数据指标权重自动归零
+</div>
+
+<table>
+  <tr><th>综合分区间</th><th>等级</th><th>操作建议</th></tr>
+  <tr><td><span class="num-strong">≥ 80</span></td><td><b>强势</b> ★★★★</td><td>W23 入场候选的优先标的；可单独建仓</td></tr>
+  <tr><td>65 ~ 80</td><td><b>偏强</b> ★★★</td><td>W23 信号出现时优先排序</td></tr>
+  <tr><td>50 ~ 65</td><td><b>中性</b> ★★</td><td>观察池；等待 W23 或量价共振确认</td></tr>
+  <tr><td>35 ~ 50</td><td><b>偏弱</b> ★</td><td>规避/减仓</td></tr>
+  <tr><td><span class="num-weak">&lt; 35</span></td><td><b>弱势</b></td><td>不参与</td></tr>
+</table>
+
+<h3>缺数据时的优雅降级</h3>
+<p>任何指标取数失败时，权重自动按可用指标归一化（仍可合成总分）。这一指标对免费源场景至关重要——比如北向资金自 2024-08 后不再披露，<b>MFI</b> 缺数时仍能算出 4 维总分。</p>
+
+<h2>三、4 种「危险背离」必须主动识别</h2>
+
+<table>
+  <tr><th>背离类型</th><th>判读条件</th><th>含义</th></tr>
+  <tr><td><b>量价背离</b></td><td>RPS − MFI &gt; 30</td><td>涨幅领先但资金净流出——警惕假突破</td></tr>
+  <tr><td><b>资金背离（正向）</b></td><td>MFI − RPS &gt; 30</td><td>资金抢筹但价格未启动——可左侧关注</td></tr>
+  <tr><td><b>形态背离</b></td><td>TREND − MSR &gt; 30</td><td>形态强但波动大——可能是脉冲式强势，回撤风险高</td></tr>
+  <tr><td><b>动量断裂</b></td><td>综合分 5 日内从 70+ 跌至 40 以下</td><td>趋势可能已反转，立即止损/止盈</td></tr>
+</table>
+
+<h2>四、与 W23 协同使用的 3 种工作流</h2>
+
+<h3>工作流 A：W23 信号确认（推荐主流程）</h3>
+<ol>
+  <li>W23 跑出 70+ 分候选池（含 2 浪末/3 浪初形态）</li>
+  <li>用 SSS 给候选池标的打分排序：综合分 ≥ 65 的优先建仓</li>
+  <li>SSS &lt; 50 的 W23 信号暂缓（形态对了但力量不足）</li>
+</ol>
+
+<h3>工作流 B：SSS 主动选股（捕捉非形态机会）</h3>
+<ol>
+  <li>全市场扫描 SSS Top 30 → 这些是当下「真正强势」股</li>
+  <li>叠加 W23：得分双高 = 高置信度；仅 SSS 高 = 趋势已走出来（追高风险）；仅 W23 高 = 形态刚成形（可能是更好入场点）</li>
+</ol>
+
+<h3>工作流 C：动态仓位（SSS × MRI 联动）</h3>
+<ol>
+  <li>MRI 大盘风险指数决定仓位上限（如 MRI &lt; 30 时可满仓，&gt; 60 降至半仓）</li>
+  <li>SSS Top 30 中 SSS &gt; 80 的高强度标的优先分配资金</li>
+  <li>SSS &lt; 50 的标的即使 MRI 低也不轻易介入（个股强弱与大盘风险独立）</li>
+</ol>
+
+<h2>五、参数速查表（默认初值）</h2>
+
+<table>
+  <tr><th>类别</th><th>参数</th><th>默认值</th><th>调整方向</th></tr>
+  <tr><td>时间窗口</td><td>主回看 N</td><td>20 日</td><td>更短（5/10）→ 趋势；更长（60）→ 偏中期</td></tr>
+  <tr><td>权重</td><td>5 项</td><td>30/20/20/15/15</td><td>见下节敏感性分析</td></tr>
+  <tr><td>VPVR 阈值</td><td>量比档位</td><td>0.5/1.0/2.0/3.0</td><td>大盘活跃时上调（→ 0.7/1.2/2.5/4.0）</td></tr>
+  <tr><td>MSR 阈值</td><td>动量夏普</td><td>−1 ~ +2</td><td>高波动股放宽（→ −1.5 ~ +3）</td></tr>
+  <tr><td>输出阈值</td><td>强弱区间</td><td>80/65/50/35</td><td>保守：上调一档（85/70/55/40）</td></tr>
+</table>
+
+<h2>六、权重敏感性分析（避免过拟合）</h2>
+<p>5 项指标按信息含量独立性强、相互低相关（&lt; 0.4），任意权重调整 ±5pp 综合分变化通常 &lt; 8 分。但以下极端情况要主动避免：</p>
+
+<table>
+  <tr><th>不建议的组合</th><th>原因</th></tr>
+  <tr><td>RPS &gt; 40%</td><td>会陷入「追涨陷阱」——只用过去收益预测未来</td></tr>
+  <tr><td>MFI &gt; 25%</td><td>资金面在 A 股阶段性失效（机构调仓、北向停披露）</td></tr>
+  <tr><td>MSR &lt; 10%</td><td>忽略波动率会让脉冲暴涨股反复入选</td></tr>
+</table>
+<p class="note">权重建议通过 <b>Walk-forward</b> 在 3 年滚动窗口上重训，而非一次性调死。配套 <code>bt_engine.py</code> 支持快速做这一验证。</p>
+
+<h2>七、失效条件与局限</h2>
+
+<div class="hl hl-b">
+<b>必须明确标注的失效场景：</b>
+<ul>
+  <li><b>小盘股</b>（市值 &lt; 30 亿）：流动性差，单日异常成交可拉高 VPVR，权重建议 VPVR &lt; 15%</li>
+  <li><b>ST/*ST</b>：5% 涨跌停使 MSR、TREND 失真，建议直接排除</li>
+  <li><b>新股</b>（上市 &lt; 60 日）：无足够历史窗口计算，全部指标 NaN</li>
+  <li><b>停牌/复牌日</b>：单日涨跌常 &gt; 20%，需在脚本里剔除（已实现）</li>
+  <li><b>大盘崩盘期</b>：SSS 高分股次日仍可能跌停——需 MRI 联动作为仓位上限</li>
+  <li><b>北向资金停披露后</b>：MFI 粗口径可能与真实主力行为偏差较大，建议接入 AkShare 主力净流入接口</li>
+</ul>
+</div>
+
+<h2>八、运行示例</h2>
+
+<h3>1. 单标的诊断</h3>
+<pre class="formula">python short_strength.py --code 688213 --name 思特威</pre>
+<p class="note">实测（2026-09-16）：思特威综合分 <b>49.6（偏弱 ★）</b>——RPS 67.5 收益仍可，但 TREND 44.3 + MSR 29.8 显示已现疲态，建议等待 W23 信号或 SSS 重新走高。</p>
+
+<h3>2. 全市场 Top30</h3>
+<pre class="formula">python short_strength.py --top 30</pre>
+<p>输出 <code>sss_top30.csv</code>，可作为观察池与 W23 交叉验证。</p>
+
+<h3>3. 离线自检</h3>
+<pre class="formula">python short_strength.py --selftest</pre>
+<p>4 项断言，验证打分逻辑与边界条件（不依赖外网）。当前结果：<span class="ok">4/4 PASS</span>。</p>
+
+<h2>九、交付清单</h2>
+<ul>
+  <li><code>short_strength.py</code> — 5 维评分引擎（含单标的 / 全市场 Top N / 离线自检三种模式）</li>
+  <li>本文档 — 指标定义、权重、打分规则、与 W23 协同、失效条件</li>
+  <li>建议配套：<code>bt_engine.py</code>（回测验证）+ <code>market_risk_index.py</code>（仓位上限联动）</li>
+</ul>
+
+<div class="disclaimer">
+<b>风险提示：</b>SSS 是经验模型，所有阈值与权重为初值，<b>实盘前必须用 6–12 个月历史数据校准</b>。<br>
+指标体系衡量的是「当下力量对比」，不能预测突发政策、黑天鹅事件；强信号也可能在极端行情下失效。<br>
+本报告不构成任何投资建议。
+</div>
+
+</div>
+</body>
+</html>

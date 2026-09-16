@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>以股选股 - 力矩量化选股平台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f7f8fa; color: #222; }
+  a { text-decoration: none; }
+
+  /* 顶部导航栏 — 与首页一致 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600;
+                               white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+
+  .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+
+  .param-panel { background: #fff; border-radius: 12px; padding: 24px;
+                 box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
+  .param-panel h2 { font-size: 18px; margin-bottom: 16px; color: #1a73e8; }
+  .param-row { display: flex; flex-wrap: wrap; gap: 16px 20px; align-items: flex-end; }
+  .param-row label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #555; }
+  .param-row input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px;
+                     font-size: 14px; width: 180px; }
+  .param-row input:focus { border-color: #1a73e8; outline: none; }
+  .param-row input::placeholder { color: #ccc; }
+  .btn-run { padding: 9px 28px; border: none; border-radius: 8px;
+             background: #1a73e8; color: #fff; font-size: 14px; font-weight: 600;
+             cursor: pointer; transition: background .2s; }
+  .btn-run:hover { background: #1557b0; }
+  .btn-run:disabled { background: #ccc; cursor: not-allowed; }
+
+  .status-bar { font-size: 14px; color: #555; margin: 12px 0; min-height: 20px; }
+  .status-bar .running { color: #1a73e8; }
+  .status-bar .success { color: #0f9d58; }
+  .status-bar .failed { color: #d93025; }
+
+  .stock-list { display: flex; flex-direction: column; gap: 12px; }
+  .stock-card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+                overflow: hidden; }
+  .stock-card.template { border: 2px solid #1a73e8; }
+  .stock-header { display: flex; align-items: center; gap: 12px;
+                   padding: 14px 20px; cursor: pointer; user-select: none; }
+  .stock-header:hover { background: #f8f9fa; }
+  .stock-header .badge { font-size: 11px; padding: 2px 8px; border-radius: 4px;
+                          font-weight: 600; }
+  .stock-header .badge.tpl { background: #e8f0fe; color: #1a73e8; }
+  .stock-header .badge.rank { background: #e8f5e9; color: #0f9d58; }
+  .stock-header .code { font-size: 15px; font-weight: 600; }
+  .stock-header .name { font-size: 14px; color: #666; }
+  .stock-header .toggle-btn { margin-left: auto; font-size: 13px; color: #1a73e8;
+                               border: 1px solid #1a73e8; border-radius: 6px;
+                               padding: 4px 12px; background: #fff; cursor: pointer;
+                               transition: all .2s; }
+  .stock-header .toggle-btn:hover { background: #e8f0fe; }
+  .chart-container { height: 0; overflow: hidden; transition: height .3s; }
+  .chart-container.expanded { height: 400px; }
+  .chart-container .chart { width: 100%; height: 400px; }
+
+  .empty { text-align: center; padding: 40px; color: #888; font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="container">
+  <div class="param-panel">
+    <h2 id="strategyTitle">以股选股</h2>
+    <div class="param-row" id="paramRow"></div>
+    <div class="status-bar" id="statusBar"></div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+    <button class="btn-run" id="downloadBtn" style="display:none; background:#0f9d58;"
+            onclick="downloadCsv()">下载CSV</button>
+    <span id="resultCount" style="font-size:13px; color:#888;"></span>
+  </div>
+
+  <div class="stock-list" id="stockList">
+    <div class="empty">请在上方输入参数后点击「查询相似股票」</div>
+  </div>
+</div>
+
+<script>
+// 策略参数配置（从 URL ?script=xxx 读取）
+const STRATEGY_CONFIG = {
+  'find_similar_ma5.py': {
+    title: '5日均线相似度选股',
+    params: [
+      { key: 'target', label: '目标股票代码', type: 'text', required: true, placeholder: '如 301171.SZ' },
+      { key: 'window', label: '窗口长度(交易日)', type: 'number', default: 10 },
+      { key: 'top', label: '输出前N只', type: 'number', default: 10 },
+    ],
+  },
+  'find_similar_price_vol.py': {
+    title: '量价形态相似选股',
+    params: [
+      { key: 'code', label: '模板股票代码', type: 'text', default: '605111.SH' },
+      { key: 'start', label: '模板起始日(YYYYMMDD)', type: 'text', default: '20260127' },
+      { key: 'end', label: '模板结束日(YYYYMMDD)', type: 'text', default: '20260615' },
+      { key: 'min_score', label: '相似度阈值', type: 'number', step: '0.01', default: 0.70 },
+    ],
+  },
+  'find_similar_wave2.py': {
+    title: '二浪候选 × DTW 量价相似度二次打分',
+    params: [
+      { key: 'code', label: '标杆模板股票代码(可选)', type: 'text', placeholder: '默认自动取最高分' },
+      { key: 'start', label: '模板起始日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
+      { key: 'end', label: '模板结束日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
+      { key: 'min_score', label: '二浪打分阈值(100分制)', type: 'number', step: '1' },
+      { key: 'top', label: '输出前N只', type: 'number' },
+    ],
+  },
+};
+
+let _currentScript = '';
+let _pollTimer = null;
+let _charts = {};   // {ts_code: echarts instance}
+let _resultItems = [];   // 渲染后的股票列表（含模板），供下载CSV使用
+
+// 从 URL 读取策略
+const urlScript = new URLSearchParams(location.search).get('script') || '';
+if (STRATEGY_CONFIG[urlScript]) {
+  _currentScript = urlScript;
+  const cfg = STRATEGY_CONFIG[urlScript];
+  document.getElementById('strategyTitle').textContent = cfg.title;
+
+  // 渲染参数输入框
+  const row = document.getElementById('paramRow');
+  row.innerHTML = cfg.params.map(p => {
+    const val = p.default !== undefined ? `value="${p.default}"` : '';
+    const ph = p.placeholder ? `placeholder="${p.placeholder}"` : '';
+    const step = p.step ? `step="${p.step}"` : '';
+    const required = p.required ? 'required' : '';
+    return `<label>${p.label}
+      <input type="${p.type}" id="param_${p.key}" ${val} ${ph} ${step} ${required}>
+    </label>`;
+  }).join('') + `<button class="btn-run" id="runBtn" onclick="runFindSimilar()">查询相似股票</button>`;
+} else {
+  document.getElementById('paramRow').innerHTML = '<p style="color:#888;">请在首页选择一个以股选股策略</p>';
+}
+
+function getParams() {
+  const cfg = STRATEGY_CONFIG[_currentScript];
+  if (!cfg) return {};
+  const args = {};
+  cfg.params.forEach(p => {
+    const el = document.getElementById('param_' + p.key);
+    if (el && el.value.trim()) args[p.key] = el.value.trim();
+  });
+  return args;
+}
+
+function runFindSimilar() {
+  if (!_currentScript) { alert('未选择策略'); return; }
+  const args = getParams();
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = '执行中…';
+  document.getElementById('statusBar').innerHTML = '<span class="running">⏳ 正在执行选股脚本，请稍候…</span>';
+  document.getElementById('stockList').innerHTML = '<div class="empty">正在计算中…</div>';
+
+  fetch('/api/find_similar_run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ script: _currentScript, args: args }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      document.getElementById('statusBar').innerHTML = `<span class="failed">❌ ${d.error}</span>`;
+      btn.disabled = false; btn.textContent = '查询相似股票';
+      return;
+    }
+    startPolling(args);
+  }).catch(err => {
+    document.getElementById('statusBar').innerHTML = `<span class="failed">❌ 启动失败: ${err}</span>`;
+    btn.disabled = false; btn.textContent = '查询相似股票';
+  });
+}
+
+function startPolling(args) {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(() => {
+    fetch('/api/find_similar_status?script=' + encodeURIComponent(_currentScript))
+      .then(r => r.json()).then(d => {
+        const s = (d.statuses || {})[_currentScript];
+        if (!s) return;
+        if (s.status === 'running') {
+          document.getElementById('statusBar').innerHTML =
+            `<span class="running">⏳ 执行中…（${s.duration || '计算中'}）</span>`;
+        } else if (s.status === 'success') {
+          clearInterval(_pollTimer); _pollTimer = null;
+          document.getElementById('statusBar').innerHTML =
+            `<span class="success">✅ 计算完成（${s.duration}秒）</span>`;
+          document.getElementById('runBtn').disabled = false;
+          document.getElementById('runBtn').textContent = '查询相似股票';
+          loadResults(args);
+        } else if (s.status === 'failed') {
+          clearInterval(_pollTimer); _pollTimer = null;
+          document.getElementById('statusBar').innerHTML =
+            `<span class="failed">❌ 执行失败（退出码 ${s.rc}）</span>`;
+          document.getElementById('runBtn').disabled = false;
+          document.getElementById('runBtn').textContent = '查询相似股票';
+          document.getElementById('stockList').innerHTML =
+            `<div class="empty">执行失败，请检查参数后重试</div>`;
+        }
+      });
+  }, 3000);
+}
+
+function loadResults(args) {
+  fetch('/api/find_similar_results?script=' + encodeURIComponent(_currentScript))
+    .then(r => r.json()).then(d => {
+      if (d.error) {
+        document.getElementById('stockList').innerHTML = `<div class="empty">${d.error}</div>`;
+        return;
+      }
+      renderStocks(d, args);
+    });
+}
+
+function renderStocks(d, args) {
+  const list = document.getElementById('stockList');
+  // 确定日期范围
+  let startDate = null, endDate = null;
+  if (args.start) startDate = args.start.replace(/-/g, '');
+  if (args.end) endDate = args.end.replace(/-/g, '');
+
+  // 构建股票列表：模板在第一行，相似股票依次排列
+  const items = [];
+  if (d.template_code) {
+    items.push({ ts_code: d.template_code, stock_name: d.template_name,
+                 isTemplate: true, rank: 0 });
+  }
+  (d.stocks || []).forEach((s, i) => {
+    items.push({ ts_code: s.ts_code, stock_name: s.stock_name,
+                 isTemplate: false, rank: i + 1 });
+  });
+
+  if (!items.length) {
+    list.innerHTML = '<div class="empty">未找到相似股票</div>';
+    document.getElementById('downloadBtn').style.display = 'none';
+    document.getElementById('resultCount').textContent = '';
+    return;
+  }
+
+  _resultItems = items;
+  document.getElementById('downloadBtn').style.display = '';
+  document.getElementById('resultCount').textContent = `共 ${items.length} 只（含模板）`;
+
+  list.innerHTML = items.map((s, i) => `
+    <div class="stock-card ${s.isTemplate ? 'template' : ''}" id="card_${i}">
+      <div class="stock-header" onclick="toggleChart(${i}, '${s.ts_code}', '${startDate || ''}', '${endDate || ''}')">
+        ${s.isTemplate ? '<span class="badge tpl">模板</span>' : `<span class="badge rank">第${s.rank}名</span>`}
+        <span class="code">${s.ts_code}</span>
+        <span class="name">${s.stock_name || ''}</span>
+        <button class="toggle-btn" onclick="event.stopPropagation(); toggleChart(${i}, '${s.ts_code}', '${startDate || ''}', '${endDate || ''}')">展开K线图</button>
+      </div>
+      <div class="chart-container" id="chart_container_${i}">
+        <div class="chart" id="chart_${i}"></div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleChart(idx, code, start, end) {
+  const container = document.getElementById('chart_container_' + idx);
+  const btn = document.querySelector(`#card_${idx} .toggle-btn`);
+  if (container.classList.contains('expanded')) {
+    container.classList.remove('expanded');
+    btn.textContent = '展开K线图';
+    return;
+  }
+  container.classList.add('expanded');
+  btn.textContent = '收起K线图';
+  // 懒加载K线数据
+  if (!_charts[idx]) {
+    loadKline(idx, code, start, end);
+  }
+}
+
+function loadKline(idx, code, start, end) {
+  let url = '/api/kline_range?code=' + encodeURIComponent(code);
+  if (start) url += '&start=' + start;
+  if (end) url += '&end=' + end;
+  fetch(url).then(r => r.json()).then(d => {
+    if (d.error) {
+      document.getElementById('chart_' + idx).innerHTML =
+        `<div style="padding:20px;color:#888;text-align:center;">${d.error}</div>`;
+      return;
+    }
+    renderKline(idx, code, d);
+  }).catch(err => {
+    document.getElementById('chart_' + idx).innerHTML =
+      `<div style="padding:20px;color:#d93025;text-align:center;">加载失败: ${err}</div>`;
+  });
+}
+
+function renderKline(idx, code, d) {
+  const dom = document.getElementById('chart_' + idx);
+  const chart = echarts.init(dom);
+  _charts[idx] = chart;
+  const klines = d.klines || [];
+  const dates = klines.map(k => k.date);
+  const ohlc = klines.map(k => k.ohlc);
+  const vols = klines.map(k => k.vol);
+  const upColor = '#ef232a', downColor = '#14b143';
+
+  chart.setOption({
+    title: { text: `${d.stock_name || ''} ${code}`, left: 10, top: 5,
+             textStyle: { fontSize: 14 } },
+    grid: [{ left: 60, right: 20, top: 40, height: '60%' },
+           { left: 60, right: 20, top: '75%', height: '20%' }],
+    xAxis: [
+      { type: 'category', data: dates, scale: true, boundaryGap: false,
+        axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { show: false } },
+      { type: 'category', gridIndex: 1, data: dates, scale: true,
+        boundaryGap: false, axisLabel: { show: true } },
+    ],
+    yAxis: [
+      { scale: true, splitArea: { show: true } },
+      { gridIndex: 1, splitNumber: 2 },
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+      { show: true, xAxisIndex: [0, 1], type: 'slider', top: '97%', start: 0, end: 100 },
+    ],
+    series: [
+      { name: '日K', type: 'candlestick', data: ohlc,
+        itemStyle: { color: upColor, color0: downColor,
+                     borderColor: upColor, borderColor0: downColor } },
+      { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: vols,
+        itemStyle: { color: '#7cb9ec' } },
+    ],
+  });
+  window.addEventListener('resize', () => chart.resize());
+}
+
+function downloadCsv() {
+  if (!_resultItems.length) { alert('无数据可下载'); return; }
+  const cfg = STRATEGY_CONFIG[_currentScript];
+  const header = '股票代码,股票名称,类型,排名';
+  const rows = _resultItems.map(s =>
+    [s.ts_code, s.stock_name || '', s.isTemplate ? '模板' : '相似', s.isTemplate ? '' : s.rank].join(',')
+  );
+  const csv = '\uFEFF' + header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  a.href = url;
+  a.download = `${cfg ? cfg.title : _currentScript}_${dateStr}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// 页面加载时检查是否有正在执行的脚本
+if (_currentScript) {
+  fetch('/api/find_similar_status?script=' + encodeURIComponent(_currentScript))
+    .then(r => r.json()).then(d => {
+      const s = (d.statuses || {})[_currentScript];
+      if (s && s.status === 'running') {
+        document.getElementById('runBtn').disabled = true;
+        document.getElementById('runBtn').textContent = '执行中…';
+        document.getElementById('statusBar').innerHTML =
+          '<span class="running">⏳ 检测到上次执行仍在进行中…</span>';
+        startPolling(getParams());
+      }
+    });
+}
+</script>
+</body>
+</html>

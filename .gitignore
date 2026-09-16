@@ -74,6 +74,10 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.trae/
 *.swp
 *.swo
 *~
+
+# 本地账号密码文件，严禁入库
+static/login

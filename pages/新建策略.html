@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新建策略 - 力矩量化选股平台</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f7f8fa; color: #222; }
+  a { text-decoration: none; }
+
+  /* 顶部导航栏 — 与首页一致 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600;
+                               white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+
+  .container { max-width: 800px; margin: 28px auto; padding: 0 24px; }
+
+  /* 子页面切换卡片 */
+  .page-tabs { display: flex; gap: 0; margin: 0 0 20px; border-bottom: 2px solid #e0e0e0; }
+  .page-tabs a { padding: 10px 24px; text-decoration: none; font-size: 15px; color: #666;
+                 border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .page-tabs a:hover { color: #1a1a1a; }
+  .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+
+  .panel { background: #fff; border-radius: 12px; padding: 28px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .panel h2 { font-size: 20px; color: #1a73e8; margin-bottom: 20px;
+              padding-left: 10px; border-left: 4px solid #1a73e8; }
+
+  .form-group { margin-bottom: 20px; }
+  .form-group label { display: block; font-size: 14px; font-weight: 600;
+                      color: #333; margin-bottom: 6px; }
+  .form-group input[type="text"] {
+    width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px;
+    font-size: 15px; font-family: inherit; }
+  .form-group input[type="text"]:focus { border-color: #1a73e8; outline: none;
+                                         box-shadow: 0 0 0 3px rgba(26,115,232,.1); }
+
+  .editor-toolbar { display: flex; gap: 6px; padding: 8px 12px;
+    background: #f0f2f5; border: 1px solid #ddd; border-bottom: none;
+    border-radius: 8px 8px 0 0; flex-wrap: wrap; }
+  .editor-toolbar button { padding: 4px 10px; border: 1px solid #ccc;
+    border-radius: 4px; background: #fff; color: #555; font-size: 13px;
+    cursor: pointer; transition: all .15s; }
+  .editor-toolbar button:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+
+  .editor-wrap { position: relative; }
+  .editor-wrap textarea {
+    width: 100%; min-height: 300px; padding: 14px; border: 1px solid #ddd;
+    border-radius: 0 0 8px 8px; font-size: 14px; font-family: "SF Mono", "Menlo",
+    "Consolas", monospace; line-height: 1.6; resize: vertical; color: #333; }
+  .editor-wrap textarea:focus { border-color: #1a73e8; outline: none; }
+
+  .btn-row { margin-top: 24px; display: flex; gap: 12px; align-items: center; }
+  .btn-submit { padding: 10px 32px; border: none; border-radius: 8px;
+    background: #1a73e8; color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background .2s; }
+  .btn-submit:hover { background: #1557b0; }
+  .btn-submit:disabled { background: #ccc; cursor: not-allowed; }
+
+  .status-msg { font-size: 14px; }
+  .status-msg.ok { color: #0f9d58; }
+  .status-msg.err { color: #d93025; }
+
+  .hint { font-size: 12px; color: #888; margin-top: 6px; }
+
+  .preview-toggle { margin-left: auto; font-size: 13px; color: #1a73e8;
+    cursor: pointer; user-select: none; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market">大盘整体情况</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="container">
+  <div class="page-tabs">
+    <a href="/#strategies">选股策略</a>
+    <a href="/strategy/new" class="active">新建策略</a>
+  </div>
+
+  <div class="panel">
+    <h2>新建策略</h2>
+
+    <div class="form-group">
+      <label for="strategyName">策略名称</label>
+      <input type="text" id="strategyName" placeholder="如：放量突破年线选股策略">
+      <div class="hint">文件将以「策略名称_YYYYMMDD.md」格式保存到 strategy_description/ 目录</div>
+    </div>
+
+    <div class="form-group">
+      <label for="strategyDesc">策略描述（支持 Markdown）</label>
+      <div class="editor-toolbar">
+        <button onclick="insertText('# ')">H1</button>
+        <button onclick="insertText('## ')">H2</button>
+        <button onclick="insertText('### ')">H3</button>
+        <button onclick="wrapText('**','**')">加粗</button>
+        <button onclick="wrapText('*','*')">斜体</button>
+        <button onclick="insertText('- ')">列表</button>
+        <button onclick="insertText('> ')">引用</button>
+        <button onclick="insertText('```\n','\n```')">代码块</button>
+        <button onclick="wrapText('[','](链接)')">链接</button>
+        <span class="preview-toggle" onclick="togglePreview()">预览</span>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="strategyDesc" placeholder="在此输入策略描述，支持 Markdown 语法..."></textarea>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-submit" id="submitBtn" onclick="submitStrategy()">提交策略</button>
+      <span class="status-msg" id="statusMsg"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="previewPanel" style="display:none; margin-top:20px;">
+    <h2>预览</h2>
+    <div id="previewContent" style="font-size:14px; line-height:1.8; color:#333;"></div>
+  </div>
+</div>
+
+<script>
+const editor = document.getElementById('strategyDesc');
+
+function insertText(prefix, suffix = '') {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const text = editor.value;
+  const selected = text.substring(start, end);
+  editor.value = text.substring(0, start) + prefix + selected + suffix + text.substring(end);
+  editor.focus();
+  const newPos = start + prefix.length + selected.length + suffix.length;
+  editor.setSelectionRange(start + prefix.length, start + prefix.length + (selected ? selected.length : 0));
+}
+
+function wrapText(prefix, suffix) {
+  insertText(prefix, suffix);
+}
+
+let _previewMode = false;
+function togglePreview() {
+  _previewMode = !_previewMode;
+  const panel = document.getElementById('previewPanel');
+  const toggle = document.querySelector('.preview-toggle');
+  if (_previewMode) {
+    panel.style.display = '';
+    toggle.textContent = '编辑';
+    document.getElementById('previewContent').textContent = editor.value || '（空）';
+  } else {
+    panel.style.display = 'none';
+    toggle.textContent = '预览';
+  }
+}
+
+function submitStrategy() {
+  const name = document.getElementById('strategyName').value.trim();
+  const description = editor.value.trim();
+  if (!name) { showMsg('请输入策略名称', 'err'); return; }
+  if (!description) { showMsg('请输入策略描述', 'err'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '提交中…';
+
+  fetch('/api/strategy_submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, description: description }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) {
+      showMsg('❌ ' + d.error, 'err');
+    } else {
+      showMsg('✅ 提交成功！文件：' + d.filename, 'ok');
+    }
+    btn.disabled = false; btn.textContent = '提交策略';
+  }).catch(err => {
+    showMsg('❌ 提交失败: ' + err, 'err');
+    btn.disabled = false; btn.textContent = '提交策略';
+  });
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = text;
+  el.className = 'status-msg ' + type;
+}
+</script>
+</body>
+</html>

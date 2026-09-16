@@ -44,8 +44,17 @@
                border-left: 4px solid #1a73e8; }
   .section-sub { font-size: 13px; color: #888; margin: -8px 0 16px 12px; }
 
+  /* 子页面切换卡片 */
+  .page-tabs { display: flex; gap: 0; margin: 16px 0 20px; border-bottom: 2px solid #e0e0e0; }
+  .page-tabs a { padding: 10px 24px; text-decoration: none; font-size: 15px; color: #666;
+                 border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .page-tabs a:hover { color: #1a1a1a; }
+  .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+
   /* 策略手风琴 */
   .strategy-list { display: flex; flex-direction: column; gap: 10px; }
+  .strategy-cat { font-size: 16px; font-weight: 600; color: #1a73e8; margin: 16px 0 4px;
+                   padding-bottom: 4px; border-bottom: 2px solid #e8eaed; }
   details.strategy { background: #fff; border-radius: 8px;
                      box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
   details.strategy summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -112,7 +121,16 @@
   </section>
 
   <h2 class="section" id="strategies">选股策略</h2>
-  <p class="section-sub">共 <span id="strategyCount">…</span> 个策略，点击任意策略可展开查看全部选股条件</p>
+
+  <div class="page-tabs">
+    <a href="/#strategies" class="active">选股策略</a>
+    <a href="/strategy/new">新建策略</a>
+  </div>
+
+  <p class="section-sub">共 <span id="strategyCount">…</span> 个策略（<span id="catCount">…</span>），点击任意策略可展开查看全部选股条件</p>
+
+  <div class="page-tabs" id="catTabs" style="display:none;"></div>
+
   <div class="strategy-list" id="strategyList">
     <div style="font-size:13px;color:#888;">策略列表加载中…</div>
   </div>
@@ -127,33 +145,68 @@ function esc(s) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-fetch('/api/strategies_meta').then(r => r.json()).then(d => {
-  const list = d.strategies || [];
-  document.getElementById('strategyCount').textContent = list.length;
+let _cats = {};        // {category: [strategy, ...]}
+let _catNames = [];    // ['条件选股', '以股选股', ...]
+let _activeCat = '';
+
+function renderCat(cat) {
+  _activeCat = cat;
+  const tabs = document.getElementById('catTabs');
+  tabs.innerHTML = _catNames.map(c =>
+    `<a href="#${encodeURIComponent(c)}" class="${c === cat ? 'active' : ''}"
+        onclick="renderCat('${esc(c)}');return false;">${esc(c)}（${_cats[c].length}）</a>`
+  ).join('');
+
   const box = document.getElementById('strategyList');
-  if (!list.length) {
-    box.innerHTML = '<div style="font-size:13px;color:#888;">未发现 select_*.py 策略文件</div>';
+  const items = _cats[cat] || [];
+  if (!items.length) {
+    box.innerHTML = '<div style="font-size:13px;color:#888;">该分类下暂无策略</div>';
     return;
   }
-  box.innerHTML = list.map((s, i) => {
+  box.innerHTML = items.map((s, idx) => {
     const backLink = s.strategy
         ? `<a class="to-backtest" href="/backtest?strategy=${encodeURIComponent(s.strategy)}">查看「${esc(s.strategy)}」回测结果 →</a>`
         : '';
+    const isFindSimilar = s.file.startsWith('find_similar_');
+    const findLink = isFindSimilar
+        ? `<a class="summary-link" href="/find_similar?script=${encodeURIComponent(s.file)}"
+            onclick="event.stopPropagation()">以股选股 →</a>`
+        : '';
     return `
-    <details class="strategy" ${i === 0 ? 'open' : ''}>
+    <details class="strategy" ${idx === 0 ? 'open' : ''}>
       <summary>
         <span>${esc(s.title)}</span>
         ${s.strategy ? `<span class="badge">${esc(s.strategy)}</span>` : ''}
         <span class="badge file">${esc(s.file)}</span>
         ${backLink ? `<a class="summary-link" href="/backtest?strategy=${encodeURIComponent(s.strategy)}"
                     onclick="event.stopPropagation()">回测结果 →</a>` : ''}
+        ${findLink}
       </summary>
       <div class="strategy-body">
         <pre>${esc(s.doc) || '（该策略暂无选股条件说明）'}</pre>
         ${backLink}
+        ${findLink}
       </div>
     </details>`;
   }).join('');
+}
+
+fetch('/api/strategies_meta').then(r => r.json()).then(d => {
+  const list = d.strategies || [];
+  document.getElementById('strategyCount').textContent = list.length;
+  _cats = {};
+  list.forEach(s => { (_cats[s.category] = _cats[s.category] || []).push(s); });
+  _catNames = Object.keys(_cats);
+  document.getElementById('catCount').textContent = _catNames.map(c => `${c} ${_cats[c].length} 个`).join(' · ');
+  if (!list.length) {
+    document.getElementById('strategyList').innerHTML = '<div style="font-size:13px;color:#888;">未发现策略文件</div>';
+    return;
+  }
+  // 显示分类切换卡片
+  if (_catNames.length > 1) {
+    document.getElementById('catTabs').style.display = '';
+  }
+  renderCat(_catNames[0]);
 }).catch(err => {
   document.getElementById('strategyErr').textContent = '策略列表加载失败: ' + err;
 });
