@@ -342,7 +342,7 @@ def write_run_log(data=None):
     if not data or not data.get('has_run') or not data.get('tasks'):
         return 0
 
-    from mysql_connection import get_mysql_connection, close_connection
+    from module_mysql_connection import get_mysql_connection, close_connection
 
     run_id = data['run_id']
     run_date = data['run_date']
