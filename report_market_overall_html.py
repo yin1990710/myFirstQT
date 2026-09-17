@@ -29,7 +29,7 @@ from datetime import datetime
 import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 # 直接复用 PNG 版报告的数据查询函数，保证两边统计口径一致
 from report_stock_overall import (
