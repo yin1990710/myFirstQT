@@ -159,12 +159,12 @@ else
     exit 1
 fi
 
-# 步骤15：2浪启动策略
-log "[步骤15/24] 开始执行 2浪启动策略 (select_2wave_up.py)..."
+# 步骤15：二浪启动策略
+log "[步骤15/24] 开始执行 二浪启动策略 (select_2wave_up.py)..."
 if ${VENV_PYTHON} select_2wave_up.py >> "${LOG_DIR}/select_2wave_up_${DATE}.log" 2>&1; then
-    log "[步骤15/24] ✅ 2浪启动策略 (select_2wave_up.py) 执行成功"
+    log "[步骤15/24] ✅ 二浪启动策略 (select_2wave_up.py) 执行成功"
 else
-    log "[步骤15/24] ❌ 2浪启动策略 (select_2wave_up.py) 执行失败，停止任务"
+    log "[步骤15/24] ❌ 二浪启动策略 (select_2wave_up.py) 执行失败，停止任务"
     exit 1
 fi
 
@@ -177,21 +177,21 @@ else
     exit 1
 fi
 
-# 步骤17：2浪趋势选股策略
-log "[步骤17/24] 开始执行 2浪趋势选股策略 (select_2wave_daily.py)..."
+# 步骤17：二浪日线选股策略
+log "[步骤17/24] 开始执行 二浪日线选股策略 (select_2wave_daily.py)..."
 if ${VENV_PYTHON} select_2wave_daily.py >> "${LOG_DIR}/select_2wave_daily_${DATE}.log" 2>&1; then
-    log "[步骤17/24] ✅ 2浪趋势选股策略 (select_2wave_daily.py) 执行成功"
+    log "[步骤17/24] ✅ 二浪日线选股策略 (select_2wave_daily.py) 执行成功"
 else
-    log "[步骤17/24] ❌ 2浪趋势选股策略 (select_2wave_daily.py) 执行失败，停止任务"
+    log "[步骤17/24] ❌ 二浪日线选股策略 (select_2wave_daily.py) 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤18：2浪趋势选股-23日策略
-log "[步骤18/24] 开始执行 2浪趋势选股-23日策略 (select_2wave_w23.py)..."
+# 步骤18：W23二浪选股策略
+log "[步骤18/24] 开始执行 W23二浪选股策略 (select_2wave_w23.py)..."
 if ${VENV_PYTHON} select_2wave_w23.py >> "${LOG_DIR}/select_2wave_w23_${DATE}.log" 2>&1; then
-    log "[步骤18/24] ✅ 2浪趋势选股-23日策略 (select_2wave_w23.py) 执行成功"
+    log "[步骤18/24] ✅ W23二浪选股策略 (select_2wave_w23.py) 执行成功"
 else
-    log "[步骤18/24] ❌ 2浪趋势选股-23日策略 (select_2wave_w23.py) 执行失败，停止任务"
+    log "[步骤18/24] ❌ W23二浪选股策略 (select_2wave_w23.py) 执行失败，停止任务"
     exit 1
 fi
 
