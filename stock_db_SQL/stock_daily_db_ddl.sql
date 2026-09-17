@@ -192,7 +192,7 @@ CREATE TABLE `my_stock_t` (
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_account_stock` (`account`,`ts_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=45 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
+) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -322,6 +322,7 @@ CREATE TABLE `stock_daily_t` (
   `ma5` float DEFAULT NULL,
   `ma30` float DEFAULT NULL,
   `qfq_adj_factor` float DEFAULT NULL,
+  `short_strength_score` decimal(5,1) DEFAULT NULL COMMENT '短线强弱得分SSS(0-100,综合五维加权)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
@@ -519,7 +520,7 @@ CREATE TABLE `task_run_log_t` (
   UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
   KEY `idx_run_date` (`run_date`),
   KEY `idx_script` (`script_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=6333 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
+) ENGINE=InnoDB AUTO_INCREMENT=6519 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -561,4 +562,4 @@ CREATE TABLE `user_login_t` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-17 17:18:44
+-- Dump completed on 2026-09-17 22:09:39

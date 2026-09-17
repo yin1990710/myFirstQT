@@ -46,7 +46,12 @@
   th, td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
   th:first-child, td:first-child { text-align: center; color: #888; }
   td.left, th.left { text-align: left; }
-  thead th { background: #1a73e8; color: #fff; }
+  thead th { background: #1a73e8; color: #fff; user-select: none; }
+  thead th.sortable { cursor: pointer; }
+  thead th.sortable:hover { background: #1558b0; }
+  thead th .arrow { font-size: 10px; margin-left: 4px; color: #bbb; }
+  thead th .arrow.active { color: #fff; }
+  thead th.sortable a { pointer-events: auto; }
   tbody tr:hover { background: #eef4ff; }
   .pos { color: #d93025; }
   .neg { color: #0f9d58; }
@@ -147,6 +152,11 @@ function fmtPrice(v) {
 let ROWS = [];                  // 全部股票记录
 const PAGE_SIZE = 20;           // 每页最多 20 条
 let currentPage = 1;            // 当前页码
+// ---- 排序状态 ----
+let _sortKey = null;            // 排序字段: max_gain / max_drop / gain_to_date / sss
+let _sortDir = 'desc';          // desc(降序,默认) / asc(升序)
+let _sssMap = {};               // 短线强弱得分缓存: code -> {composite, rps, vpvr, ...}
+let _sssLoading = false;        // 得分批量加载中（表头显示加载态）
 
 function loadMyStocks() {
   const area = document.getElementById('tableArea');
@@ -163,6 +173,7 @@ function loadMyStocks() {
       ROWS = data.rows || [];
       document.getElementById('count').textContent = '共 ' + data.total + ' 只';
       currentPage = 1;
+      _sssMap = {};   // 数据刷新时清空得分缓存
       renderTable();
     })
     .catch(() => {
@@ -177,17 +188,21 @@ function renderTable() {
     document.getElementById('pager').innerHTML = '';
     return;
   }
-  const totalPages = Math.ceil(ROWS.length / PAGE_SIZE);
+  const sorted = sortedRows();
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   if (currentPage > totalPages) currentPage = totalPages;
   const start = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = ROWS.slice(start, start + PAGE_SIZE);
+  const pageRows = sorted.slice(start, start + PAGE_SIZE);
 
   let html = '<table><thead><tr>';
   html += '<th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th>';
   html += '<th class="left">股票代码</th><th class="left">股票名称</th>';
   html += '<th>入选日期</th><th>入选价</th><th>至今收盘</th>';
   html += '<th>区间最高</th><th>区间最低</th>';
-  html += '<th>区间最大涨幅</th><th>区间最大跌幅</th><th>至今涨幅</th><th><a href="/sss/framework" target="_blank" style="color:inherit;text-decoration:none" title="点击查看说明">短线强弱得分</a><sup style="font-size:11px;color:#aaa;cursor:help;margin-left:2px" title="点击查看说明">?</sup></th>';
+  html += '<th class="sortable" onclick="toggleSort(\'max_gain\')">区间最大涨幅<span class="arrow' + (_sortKey==='max_gain'?' active':'') + '">' + (_sortKey==='max_gain'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
+  html += '<th class="sortable" onclick="toggleSort(\'max_drop\')">区间最大跌幅<span class="arrow' + (_sortKey==='max_drop'?' active':'') + '">' + (_sortKey==='max_drop'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
+  html += '<th class="sortable" onclick="toggleSort(\'gain_to_date\')">至今涨幅<span class="arrow' + (_sortKey==='gain_to_date'?' active':'') + '">' + (_sortKey==='gain_to_date'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
+  html += '<th class="sortable" onclick="toggleSort(\'sss\')"><a href="/sss/framework" target="_blank" style="color:inherit;text-decoration:none" title="点击查看说明" onclick="event.stopPropagation()">短线强弱得分</a><sup style="font-size:11px;color:#aaa;cursor:help;margin-left:2px" title="点击查看说明" onclick="event.stopPropagation()">?</sup>' + (_sssLoading ? '<span style="font-size:11px;margin-left:4px;color:#ffe082">加载中…</span>' : '') + '<span class="arrow' + (_sortKey==='sss'?' active':'') + '">' + (_sortKey==='sss'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
   html += '<th class="left">入选策略</th>';
   html += '</tr></thead><tbody>';
   pageRows.forEach(r => {
@@ -247,6 +262,70 @@ function gotoPage(n) {
   renderTable();
 }
 
+// ---- 排序：点击表头切换降序/升序 ----
+function toggleSort(key) {
+  if (_sortKey === key) {
+    _sortDir = (_sortDir === 'desc') ? 'asc' : 'desc';
+  } else {
+    _sortKey = key;
+    _sortDir = 'desc';   // 默认降序（高分/大涨在前）
+  }
+  // 短线强弱得分需要异步加载，未缓存全量时先批量预取再排序
+  if (key === 'sss' && !_sssLoading) {
+    const uncached = ROWS.map(r => r.ts_code).filter(c => c && !(_sssMap[c] && _sssMap[c].composite != null));
+    if (uncached.length) {
+      _sssLoading = true;
+      renderTable();   // 表头显示加载态
+      prefetchAllSSS(uncached).then(() => {
+        _sssLoading = false;
+        currentPage = 1;
+        renderTable();
+      });
+      return;
+    }
+  }
+  currentPage = 1;
+  renderTable();
+}
+
+// 返回按当前排序字段排好序的全量记录副本（null 值始终排末尾）
+function sortedRows() {
+  if (!_sortKey) return ROWS.slice();
+  const dir = _sortDir === 'asc' ? 1 : -1;
+  const getVal = (r) => {
+    if (_sortKey === 'sss') {
+      const s = _sssMap[r.ts_code];
+      return (s && s.composite != null) ? Number(s.composite) : null;
+    }
+    const v = r[_sortKey];
+    return (v == null || v === '') ? null : Number(v);
+  };
+  return ROWS.slice().sort((a, b) => {
+    const va = getVal(a), vb = getVal(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (va - vb) * dir;
+  });
+}
+
+// 批量预取全部股票的短线强弱得分（分批 ≤200 只）
+async function prefetchAllSSS(codes) {
+  const uniq = [...new Set(codes)];
+  const BATCH = 200;
+  for (let i = 0; i < uniq.length; i += BATCH) {
+    const batch = uniq.slice(i, i + BATCH);
+    try {
+      const d = await fetch('/api/sss_batch', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({codes: batch})
+      }).then(r => r.json());
+      const scores = d.scores || {};
+      Object.keys(scores).forEach(c => { _sssMap[c] = scores[c]; });
+    } catch(e) { /* 失败的批次留空，排序时排末尾 */ }
+  }
+}
+
 // ---- 短线强弱得分：批量加载并填充 ----
 async function loadSSS(pageRows) {
   const codes = [...new Set(pageRows.map(r => r.ts_code).filter(Boolean))];
@@ -257,6 +336,8 @@ async function loadSSS(pageRows) {
       body: JSON.stringify({codes})
     }).then(r => r.json());
     const scores = d.scores || {};
+    // 写入全局缓存，供排序使用
+    Object.keys(scores).forEach(c => { _sssMap[c] = scores[c]; });
     document.querySelectorAll('.sss-cell').forEach(td => {
       const code = td.dataset.code;
       const s = scores[code];
