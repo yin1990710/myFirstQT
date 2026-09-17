@@ -484,12 +484,111 @@ def market_overview():
 
 @app.route('/api/market_overview_metrics')
 def api_market_overview_metrics():
-    """返回大盘指标体系数据 JSON（由 report_market_overview_metricx.py 生成）。"""
+    """返回大盘指标体系数据 JSON。
+
+    无 date 参数：返回最新一次计算生成的 market_overview_metrics.json；
+    带 date=YYYYMMDD：从指标快照表 market_overview_metric_daily_t 查询指定交易日。
+    """
+    date = (request.args.get('date') or '').strip()
+    if date:
+        if not re.fullmatch(r'\d{8}', date):
+            return jsonify({'error': '日期格式应为 YYYYMMDD'}), 400
+        conn = get_mysql_connection()
+        if not conn:
+            return jsonify({'error': '数据库连接失败'}), 500
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT metric_key, metric_group, metric_name, metric_value, metric_unit, "
+                "metric_source, metric_status, metric_note, update_time "
+                "FROM market_overview_metric_daily_t WHERE trade_date = %s "
+                "ORDER BY metric_key", (date,))
+            rows = cur.fetchall()
+            cur.close()
+        finally:
+            close_connection(conn)
+        if not rows:
+            return jsonify({'error': f'{date} 暂无指标数据（该日可能未运行计算或非交易日）'}), 404
+        metrics = [{
+            'key': r['metric_key'], 'group': r['metric_group'], 'name': r['metric_name'],
+            'value': float(r['metric_value']) if r['metric_value'] is not None else None,
+            'unit': r['metric_unit'], 'source': r['metric_source'] or '',
+            'status': r['metric_status'] or 'ok', 'note': r['metric_note'] or '',
+        } for r in rows]
+        ok_count = sum(1 for m in metrics if m['status'] == 'ok')
+        updated = rows[0]['update_time']
+        return jsonify({
+            'trade_date': date,
+            'generated_at': updated.strftime('%Y-%m-%d %H:%M:%S') if updated else '',
+            'ok_count': ok_count, 'total_count': len(metrics), 'metrics': metrics,
+        })
+
+    # 最新：读计算脚本生成的 JSON
     path = os.path.join(PAGE_DIR, 'market_overview_metrics.json')
     if not os.path.exists(path):
         return jsonify({'error': '数据尚未生成，请先点击「刷新数据」'}), 404
     with open(path, encoding='utf-8') as f:
         return jsonify(json.load(f))
+
+
+@app.route('/api/market_overview_metrics_dates')
+def api_market_overview_metrics_dates():
+    """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'dates': []})
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT trade_date FROM market_overview_metric_daily_t "
+            "ORDER BY trade_date DESC LIMIT 120")
+        dates = [str(r['trade_date']) for r in cur.fetchall()]
+        cur.close()
+    finally:
+        close_connection(conn)
+    return jsonify({'dates': dates})
+
+
+@app.route('/api/market_overview_metric_history')
+def api_market_overview_metric_history():
+    """返回单个指标最近 N 个交易日的历史值（指标行点击展开走势图用）。
+
+    参数：key=指标编号（如 A1），days=交易日数（默认60，上限250）。
+    """
+    key = (request.args.get('key') or '').strip()
+    if not re.fullmatch(r'[A-C]\d', key):
+        return jsonify({'error': '指标编号不合法'}), 400
+    try:
+        days = min(max(int(request.args.get('days', 60)), 1), 250)
+    except (TypeError, ValueError):
+        days = 60
+
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT trade_date, metric_name, metric_unit, metric_value, metric_status "
+            "FROM market_overview_metric_daily_t WHERE metric_key = %s "
+            "ORDER BY trade_date DESC LIMIT %s", (key, days))
+        rows = list(reversed(cur.fetchall()))
+        cur.close()
+    finally:
+        close_connection(conn)
+    if not rows:
+        return jsonify({'error': f'{key} 暂无历史数据'}), 404
+    points = [{
+        'trade_date': str(r['trade_date']),
+        'value': float(r['metric_value']) if r['metric_value'] is not None else None,
+        'status': r['metric_status'] or 'ok',
+    } for r in rows]
+    return jsonify({
+        'key': key,
+        'name': rows[-1]['metric_name'],
+        'unit': rows[-1]['metric_unit'] or '',
+        'points': points,
+    })
 
 
 # 大盘指标概览刷新（后台运行 report_market_overview_metricx.py）
@@ -1702,44 +1801,163 @@ STRATEGY_DESC_DIR = os.path.join(BASE_DIR, 'pages', 'strategy_description')
 
 
 @app.route('/strategy/new')
-def strategy_new_page():
+def page_strategy_new():
     """新建策略页面：输入策略名称+描述并提交。"""
     return send_from_directory(PAGE_DIR, '新建策略.html')
 
 
+@app.route('/strategy/my')
+def page_strategy_my():
+    """我的策略页面：展示当前账号提交的策略列表，支持查看与编辑回填。"""
+    return send_from_directory(PAGE_DIR, '我的策略.html')
+
+
 @app.route('/api/strategy_submit', methods=['POST'])
 def api_strategy_submit():
-    """接收策略名称+描述，保存为 Markdown 文件到 pages/strategy_description/ 目录。
+    """接收策略类型+名称+描述，保存为 Markdown 文件到 pages/strategy_description/ 目录。
 
-    请求体：{name: '策略名称', description: '策略描述Markdown'}
-    文件名：策略名称_YYYYMMDD.md；同名策略重新提交时覆盖旧文件（删除同前缀旧文件）
+    请求体：{type: '条件选股'|'以股选股', name: '策略名称', description: '策略描述Markdown'}
+    文件名：账号-策略类型-策略名称-YYYYMMDD.md；同账号同类型同名策略重新提交时覆盖旧文件
     """
     import re as _re
     import glob as _glob
     payload = request.get_json(silent=True) or {}
+    # 策略类型白名单，默认条件选股
+    ALLOWED_TYPES = ('条件选股', '以股选股')
+    strategy_type = (payload.get('type') or '条件选股').strip()
+    if strategy_type not in ALLOWED_TYPES:
+        return jsonify({'error': '策略类型不合法，仅支持：条件选股、以股选股'}), 400
     name = (payload.get('name') or '').strip()
     description = payload.get('description') or ''
     if not name:
         return jsonify({'error': '策略名称不能为空'}), 400
     if not description.strip():
         return jsonify({'error': '策略描述不能为空'}), 400
-    # 清理文件名：只保留中文、字母、数字、下划线、连字符
-    safe_name = _re.sub(r'[^\w\u4e00-\u9fff\-]', '_', name).strip('_')
-    if not safe_name:
-        safe_name = 'strategy'
+
+    def _safe(seg, default):
+        # 清理文件名片段：只保留中文、字母、数字、下划线、连字符
+        seg = _re.sub(r'[^\w一-鿿\-]', '_', seg).strip('_')
+        return seg or default
+
+    account = _safe(session.get('account') or '', 'unknown')
+    safe_type = _safe(strategy_type, '条件选股')
+    safe_name = _safe(name, 'strategy')
     date_str = datetime.now().strftime('%Y%m%d')
-    filename = f'{safe_name}_{date_str}.md'
+    filename = f'{account}-{safe_type}-{safe_name}-{date_str}.md'
     os.makedirs(STRATEGY_DESC_DIR, exist_ok=True)
-    # 删除同前缀的旧文件，实现同名策略覆盖
-    for old_file in _glob.glob(os.path.join(STRATEGY_DESC_DIR, f'{safe_name}_*.md')):
+    # 删除同账号-同类型-同名称的旧文件，实现同名策略覆盖
+    old_pattern = os.path.join(STRATEGY_DESC_DIR, f'{account}-{safe_type}-{safe_name}-*.md')
+    for old_file in _glob.glob(old_pattern):
         try:
             os.remove(old_file)
         except OSError:
             pass
     filepath = os.path.join(STRATEGY_DESC_DIR, filename)
     with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f'# {name}\n\n> 提交日期：{datetime.now().strftime("%Y-%m-%d")}\n\n{description}\n')
+        f.write(f'# {name}\n\n'
+                f'> 提交账号：{session.get("account") or account}\n'
+                f'> 策略类型：{strategy_type}\n'
+                f'> 提交日期：{datetime.now().strftime("%Y-%m-%d")}\n\n'
+                f'{description}\n')
     return jsonify({'ok': True, 'filename': filename}), 201
+
+
+def _safe_filename_segment(seg, default):
+    """文件名片段清理：只保留中文、字母、数字、下划线、连字符。"""
+    seg = re.sub(r'[^\w一-鿿\-]', '_', seg).strip('_')
+    return seg or default
+
+
+def _parse_strategy_filename(account, filename):
+    """解析「账号-策略类型-策略名称-YYYYMMDD.md」文件名。
+
+    返回 dict(type, name, date) 或 None（不属于该账号/格式不符）。
+    """
+    import os as _os
+    base = _os.path.basename(filename)
+    if not base.endswith('.md'):
+        return None
+    stem = base[:-3]
+    prefix = account + '-'
+    if not stem.startswith(prefix):
+        return None
+    rest = stem[len(prefix):]
+    # 末尾固定 -YYYYMMDD
+    m = re.match(r'^(.+)-(\d{8})$', rest)
+    if not m:
+        return None
+    middle, date_str = m.group(1), m.group(2)
+    # 类型只有两种，按前缀匹配
+    stype = None
+    for t in ('条件选股', '以股选股'):
+        if middle == t or middle.startswith(t + '-'):
+            stype = t
+            break
+    if stype is None:
+        return None
+    name = middle[len(stype) + 1:] if len(middle) > len(stype) + 1 else ''
+    return {'type': stype, 'name': name, 'date': date_str}
+
+
+@app.route('/api/my_strategies')
+def api_my_strategies():
+    """列出当前登录账号提交的全部策略（文件名以「账号-」前缀过滤），按日期降序。"""
+    import glob as _glob
+    import os as _os
+    account = (session.get('account') or '').strip()
+    if not account:
+        return jsonify({'error': '请先登录'}), 401
+    safe_account = _safe_filename_segment(account, '')
+    if not safe_account:
+        return jsonify({'strategies': []})
+    items = []
+    for fp in _glob.glob(_os.path.join(STRATEGY_DESC_DIR, safe_account + '-*.md')):
+        base = _os.path.basename(fp)
+        info = _parse_strategy_filename(safe_account, base)
+        if not info:
+            continue
+        items.append({
+            'filename': base,
+            'type': info['type'],
+            'name': info['name'],
+            'date': info['date'],
+        })
+    items.sort(key=lambda x: (x['date'], x['type'], x['name']), reverse=True)
+    return jsonify({'strategies': items})
+
+
+@app.route('/api/my_strategy')
+def api_my_strategy():
+    """读取当前账号名下单个策略文件内容（供编辑回填）。
+
+    参数：filename=账号-类型-名称-日期.md（basename，强制账号前缀校验防穿越）。
+    返回：{type, name, date, description}，description 已剥离自动生成的文件头。
+    """
+    import os as _os
+    account = (session.get('account') or '').strip()
+    if not account:
+        return jsonify({'error': '请先登录'}), 401
+    safe_account = _safe_filename_segment(account, '')
+    filename = (request.args.get('filename') or '').strip()
+    if not re.fullmatch(r'[\w一-鿿\-]+\.md', filename):
+        return jsonify({'error': '文件名不合法'}), 400
+    info = _parse_strategy_filename(safe_account, filename)
+    if not info:
+        return jsonify({'error': '策略不存在或无权访问'}), 404
+    filepath = _os.path.join(STRATEGY_DESC_DIR, _os.path.basename(filename))
+    if not _os.path.isfile(filepath):
+        return jsonify({'error': '策略文件不存在'}), 404
+    with open(filepath, encoding='utf-8') as f:
+        content = f.read()
+    # 剥离自动生成的头部：# 标题 与若干 > 元信息行，保留正文描述
+    body = re.sub(r'^#[^\n]*\n+(?:>[^\n]*\n+)*', '', content, count=1).strip()
+    return jsonify({
+        'filename': filename,
+        'type': info['type'],
+        'name': info['name'],
+        'date': info['date'],
+        'description': body,
+    })
 
 
 # ---------------------------------------------------------------------------

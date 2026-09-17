@@ -37,6 +37,7 @@
                 font-size: 13px; cursor: pointer; }
   .bar button.reset { background: #888; }
   .bar button.remove-btn { background: #d93025; }
+  .bar button.download { background: #0f9d58; }
   #count { font-size: 13px; color: #666; }
   table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px;
           box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 13px; }
@@ -111,10 +112,10 @@
 <h1>💼 我的股票池</h1>
 
 <div class="bar">
-  <label>账号 <input id="account" value="" readonly style="background:#f0f0f0;"></label>
   <span id="count"></span>
-  <button onclick="loadMyStocks()">查询</button>
+  <button onclick="loadMyStocks()">刷新</button>
   <button class="remove-btn" onclick="removeStocks()">移除</button>
+  <button class="download" onclick="downloadCsv(this)">下载CSV</button>
 </div>
 
 <div id="tableArea">
@@ -126,12 +127,11 @@
 <div class="pager" id="pager"></div>
 
 <script>
-// 页面加载时获取当前登录账号并自动查询
+// 当前登录账号（用于CSV文件命名等）
+let _account = '';
+// 页面加载时校验登录态后自动加载当前账号股票池（后端按 session 账号过滤）
 fetch('/api/current_user').then(r => r.json()).then(d => {
-  if (d.account) {
-    document.getElementById('account').value = d.account;
-    loadMyStocks();
-  }
+  if (d.account) { _account = d.account; loadMyStocks(); }
 });
 
 function fmtPct(v) {
@@ -149,12 +149,11 @@ const PAGE_SIZE = 20;           // 每页最多 20 条
 let currentPage = 1;            // 当前页码
 
 function loadMyStocks() {
-  const account = document.getElementById('account').value;
   const area = document.getElementById('tableArea');
   area.innerHTML = '<div class="empty"><div class="icon">⏳</div><p>查询中...</p></div>';
   document.getElementById('pager').innerHTML = '';
 
-  fetch('/api/my_stocks?account=' + encodeURIComponent(account))
+  fetch('/api/my_stocks')
     .then(r => r.json())
     .then(data => {
       if (data.error) {
@@ -300,6 +299,49 @@ function removeStocks() {
     if (d.error) { alert('移除失败: ' + d.error); return; }
     loadMyStocks();   // 刷新列表
   }).catch(e => alert('移除失败: ' + e));
+}
+
+// ---- 下载CSV：导出当前账号股票池全部记录（不受分页限制）----
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function fmtDateCsv(v) {
+  // YYYYMMDD → YYYY-MM-DD，便于 Excel 阅读
+  return v && /^\d{8}$/.test(v) ? v.slice(0, 4) + '-' + v.slice(4, 6) + '-' + v.slice(6, 8) : (v || '');
+}
+
+function downloadCsv(btn) {
+  if (!ROWS.length) { alert('股票池为空，没有可下载的数据'); return; }
+  btn.disabled = true;
+  try {
+    const header = ['股票代码', '股票名称', '入选日期', '入选价', '至今收盘', '区间最高', '区间最低',
+                    '区间最大涨幅(%)', '区间最大跌幅(%)', '至今涨幅(%)', '入选策略'];
+    const lines = ROWS.map(r => [
+      r.ts_code, r.stock_name || '', fmtDateCsv(r.selected_date),
+      r.buy_price, r.latest_close, r.max_close, r.min_close,
+      r.max_gain, r.max_drop, r.gain_to_date, r.strategy_name || ''
+    ].map(csvCell).join(','));
+    // 首部 ﻿ 为 UTF-8 BOM，保证 Excel 直接打开中文不乱码
+    const csv = '﻿' + header.join(',') + '\r\n' + lines.join('\r\n');
+    const today = new Date();
+    const stamp = today.getFullYear()
+      + String(today.getMonth() + 1).padStart(2, '0')
+      + String(today.getDate()).padStart(2, '0');
+    const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+    const a = document.createElement('a');
+    a.href = url;
+    // 文件名格式：账号-我的股票池-下载日期
+    a.download = (_account || '未知账号') + '-我的股票池-' + stamp + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('生成CSV失败: ' + e);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---- 行点击展开/收起近120日K线图 ----

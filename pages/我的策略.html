@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的策略 - 力矩量化选股平台</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f7f8fa; color: #222; }
+  a { text-decoration: none; }
+
+  /* 顶部导航栏 — 与首页一致 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600;
+                               white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+
+  .container { max-width: 900px; margin: 28px auto; padding: 0 24px; }
+
+  /* 子页面切换卡片：选股策略 / 新建策略 / 我的策略 */
+  .page-tabs { display: flex; gap: 0; margin: 0 0 20px; border-bottom: 2px solid #e0e0e0; }
+  .page-tabs a { padding: 10px 24px; text-decoration: none; font-size: 15px; color: #666;
+                 border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .page-tabs a:hover { color: #1a1a1a; }
+  .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+
+  .panel { background: #fff; border-radius: 12px; padding: 28px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .panel h2 { font-size: 20px; color: #1a73e8; margin-bottom: 20px;
+              padding-left: 10px; border-left: 4px solid #1a73e8; }
+
+  /* 我的策略列表 */
+  .ms-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .ms-table th { background: #f0f2f5; color: #555; padding: 9px 12px; text-align: left;
+                 border-bottom: 1px solid #ddd; font-weight: 600; }
+  .ms-table td { padding: 9px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  .ms-table tr.data-row:hover td { background: #f7faff; }
+  .ms-table tr.data-row { cursor: pointer; }
+  .ms-table .t-tag { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 12px; }
+  .t-tag.t-cond { background: #e8f0fe; color: #174ea6; }
+  .t-tag.t-fs { background: #fce8e6; color: #b3261e; }
+  .ms-table .ms-name { font-weight: 600; color: #222; }
+  .ms-table .ms-date { color: #888; white-space: nowrap; }
+  .ms-table .ms-ops { white-space: nowrap; }
+  .ms-table .ms-ops button { padding: 4px 12px; border: 1px solid #1a73e8; border-radius: 5px;
+                             background: #fff; color: #1a73e8; font-size: 12.5px; cursor: pointer;
+                             margin-right: 6px; }
+  .ms-table .ms-ops button:hover { background: #e8f0fe; }
+  .ms-table .ms-ops button.view { border-color: #888; color: #666; }
+  .ms-table .ms-ops button.view:hover { background: #f0f0f0; }
+  tr.ms-detail td { background: #fafbfc; padding: 14px 18px; }
+  .ms-detail .md-body { white-space: pre-wrap; font-size: 13px; line-height: 1.7;
+                        color: #333; font-family: "SF Mono","Menlo","Consolas",monospace;
+                        max-height: 360px; overflow-y: auto; }
+  .ms-detail .md-loading { color: #999; font-size: 13px; }
+  .ms-empty { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="container">
+  <div class="page-tabs">
+    <a href="/#strategies">选股策略</a>
+    <a href="/strategy/new">新建策略</a>
+    <a href="/strategy/my" class="active">我的策略</a>
+  </div>
+
+  <div class="panel">
+    <h2>我的策略</h2>
+    <div id="myStrategyList"><div class="ms-empty">加载中…</div></div>
+  </div>
+</div>
+
+<script>
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function fmtDate(s) {
+  return s && /^\d{8}$/.test(s) ? s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8) : (s || '');
+}
+
+// ---- 我的策略列表 ----
+function loadMyStrategies() {
+  const box = document.getElementById('myStrategyList');
+  box.innerHTML = '<div class="ms-empty">加载中…</div>';
+  fetch('/api/my_strategies').then(r => r.json()).then(d => {
+    if (d.error) { box.innerHTML = '<div class="ms-empty">' + escHtml(d.error) + '</div>'; return; }
+    const list = d.strategies || [];
+    if (!list.length) {
+      box.innerHTML = '<div class="ms-empty">暂无策略，请到「新建策略」卡片创建</div>';
+      return;
+    }
+    let html = '<table class="ms-table"><thead><tr>'
+      + '<th style="width:90px">类型</th><th>策略名称</th><th style="width:110px">提交日期</th>'
+      + '<th style="width:150px">操作</th></tr></thead><tbody>';
+    list.forEach(s => {
+      const cls = s.type === '以股选股' ? 't-fs' : 't-cond';
+      html += '<tr class="data-row" data-filename="' + escHtml(s.filename) + '">'
+        + '<td><span class="t-tag ' + cls + '">' + escHtml(s.type) + '</span></td>'
+        + '<td class="ms-name">' + escHtml(s.name) + '</td>'
+        + '<td class="ms-date">' + fmtDate(s.date) + '</td>'
+        + '<td class="ms-ops">'
+        +   '<button class="view" onclick="event.stopPropagation();toggleStrategyDetail(this)">查看</button>'
+        +   '<button onclick="event.stopPropagation();editStrategy(\'' + escHtml(s.filename).replace(/'/g, "\\'") + '\')">编辑</button>'
+        + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  }).catch(() => {
+    box.innerHTML = '<div class="ms-empty">加载失败，请刷新重试</div>';
+  });
+}
+
+// 点击「查看」：在行下方展开/收起策略内容
+function toggleStrategyDetail(btn) {
+  const tr = btn.closest('tr.data-row');
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('ms-detail')) {
+    next.remove();
+    btn.textContent = '查看';
+    return;
+  }
+  // 同表只保留一个展开行
+  const existed = tr.parentNode.querySelector('tr.ms-detail');
+  if (existed) existed.remove();
+  document.querySelectorAll('.ms-ops button.view').forEach(b => b.textContent = '查看');
+  btn.textContent = '收起';
+  const dr = document.createElement('tr');
+  dr.className = 'ms-detail';
+  dr.innerHTML = '<td colspan="4"><div class="md-loading">内容加载中…</div></td>';
+  tr.parentNode.insertBefore(dr, tr.nextSibling);
+  fetch('/api/my_strategy?filename=' + encodeURIComponent(tr.dataset.filename))
+    .then(r => r.json()).then(d => {
+      if (!dr.parentNode) return;
+      if (d.error) { dr.querySelector('td').innerHTML = '<div class="md-loading">' + escHtml(d.error) + '</div>'; return; }
+      dr.querySelector('td').innerHTML = '<div class="md-body"></div>';
+      dr.querySelector('.md-body').textContent = d.description || '（无内容）';
+    }).catch(() => {
+      if (dr.parentNode) dr.querySelector('td').innerHTML = '<div class="md-loading">内容加载失败</div>';
+    });
+}
+
+// 点击「编辑」：跳转至新建策略页并自动回填该策略
+function editStrategy(filename) {
+  location.href = '/strategy/new?edit=' + encodeURIComponent(filename);
+}
+
+// 点击策略行任意位置（操作按钮除外）等同点「查看」
+document.getElementById('myStrategyList').addEventListener('click', e => {
+  if (e.target.closest('.ms-ops')) return;
+  const tr = e.target.closest('tr.data-row');
+  if (tr) {
+    const btn = tr.querySelector('button.view');
+    if (btn) toggleStrategyDetail(btn);
+  }
+});
+
+loadMyStrategies();
+</script>
+</body>
+</html>

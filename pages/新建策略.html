@@ -44,10 +44,10 @@
   .form-group { margin-bottom: 20px; }
   .form-group label { display: block; font-size: 14px; font-weight: 600;
                       color: #333; margin-bottom: 6px; }
-  .form-group input[type="text"] {
+  .form-group input[type="text"], .form-group select {
     width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px;
-    font-size: 15px; font-family: inherit; }
-  .form-group input[type="text"]:focus { border-color: #1a73e8; outline: none;
+    font-size: 15px; font-family: inherit; background: #fff; }
+  .form-group input[type="text"]:focus, .form-group select:focus { border-color: #1a73e8; outline: none;
                                          box-shadow: 0 0 0 3px rgba(26,115,232,.1); }
 
   .editor-toolbar { display: flex; gap: 6px; padding: 8px 12px;
@@ -103,15 +103,24 @@
   <div class="page-tabs">
     <a href="/#strategies">选股策略</a>
     <a href="/strategy/new" class="active">新建策略</a>
+    <a href="/strategy/my">我的策略</a>
   </div>
 
   <div class="panel">
     <h2>新建策略</h2>
 
     <div class="form-group">
+      <label for="strategyType">策略类型</label>
+      <select id="strategyType">
+        <option value="条件选股">条件选股</option>
+        <option value="以股选股">以股选股</option>
+      </select>
+    </div>
+
+    <div class="form-group">
       <label for="strategyName">策略名称</label>
       <input type="text" id="strategyName" placeholder="如：放量突破年线选股策略">
-      <div class="hint">文件将以「策略名称_YYYYMMDD.md」格式保存到 strategy_description/ 目录</div>
+      <div class="hint">文件将以「账号-策略类型-策略名称-YYYYMMDD.md」格式保存到 strategy_description/ 目录</div>
     </div>
 
     <div class="form-group">
@@ -179,6 +188,7 @@ function togglePreview() {
 }
 
 function submitStrategy() {
+  const type = document.getElementById('strategyType').value;
   const name = document.getElementById('strategyName').value.trim();
   const description = editor.value.trim();
   if (!name) { showMsg('请输入策略名称', 'err'); return; }
@@ -190,7 +200,7 @@ function submitStrategy() {
   fetch('/api/strategy_submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, description: description }),
+    body: JSON.stringify({ type: type, name: name, description: description }),
   }).then(r => r.json()).then(d => {
     if (d.error) {
       showMsg('❌ ' + d.error, 'err');
@@ -209,6 +219,21 @@ function showMsg(text, type) {
   el.textContent = text;
   el.className = 'status-msg ' + type;
 }
+
+// 从「我的策略」页点编辑跳转过来时，URL 带 ?edit=文件名，自动拉取并回填
+(function fillFromEdit() {
+  const filename = new URLSearchParams(location.search).get('edit');
+  if (!filename) return;
+  fetch('/api/my_strategy?filename=' + encodeURIComponent(filename))
+    .then(r => r.json()).then(d => {
+      if (d.error) { showMsg('❌ ' + d.error, 'err'); return; }
+      document.getElementById('strategyType').value = d.type || '条件选股';
+      document.getElementById('strategyName').value = d.name || '';
+      editor.value = d.description || '';
+      showMsg('已载入策略「' + (d.name || '') + '」，修改后重新提交即可覆盖同名文件', 'ok');
+      document.getElementById('strategyName').focus();
+    }).catch(e => showMsg('❌ 加载策略失败: ' + e, 'err'));
+})();
 </script>
 </body>
 </html>
