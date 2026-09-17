@@ -98,6 +98,32 @@ CREATE TABLE `etf_daily_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `exchange_market_overview_t`
+--
+
+DROP TABLE IF EXISTS `exchange_market_overview_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `exchange_market_overview_t` (
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期YYYYMMDD',
+  `exchange` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易所：SSE上交所/SZSE深交所',
+  `board_type` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块：全市场/主板/科创板/创业板',
+  `company_count` int DEFAULT NULL COMMENT '上市公司数（家）',
+  `listed_count` int DEFAULT NULL COMMENT '上市证券/股票数（只）',
+  `total_mv` decimal(18,2) DEFAULT NULL COMMENT '总市值（亿元）',
+  `float_mv` decimal(18,2) DEFAULT NULL COMMENT '流通市值（亿元）',
+  `total_amount` decimal(18,2) DEFAULT NULL COMMENT '成交金额（亿元）',
+  `total_volume` decimal(20,2) DEFAULT NULL COMMENT '成交量（万股，仅深交所）',
+  `total_shares` decimal(18,2) DEFAULT NULL COMMENT '总股本（亿股，仅上交所）',
+  `float_shares` decimal(18,2) DEFAULT NULL COMMENT '流通股本（亿股，仅上交所）',
+  `avg_pe` decimal(12,4) DEFAULT NULL COMMENT '平均市盈率（倍）',
+  `data_source` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '数据来源URL',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`trade_date`,`exchange`,`board_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='沪深交易所市场总貌分板块数据表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `index_daily_t`
 --
 
@@ -125,6 +151,28 @@ CREATE TABLE `index_daily_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `market_overview_metric_daily_t`
+--
+
+DROP TABLE IF EXISTS `market_overview_metric_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `market_overview_metric_daily_t` (
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期YYYYMMDD',
+  `metric_key` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '指标编号(A1-A4,B1-B7,C1-C4)',
+  `metric_group` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '指标分类(短线技术/资金面/估值)',
+  `metric_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '指标名称',
+  `metric_value` decimal(20,4) DEFAULT NULL COMMENT '指标值',
+  `metric_unit` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '单位(%,亿元,倍,家)',
+  `metric_source` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '数据来源',
+  `metric_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT 'ok' COMMENT '状态(ok/approx/missing)',
+  `metric_note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`trade_date`,`metric_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='大盘指标每日快照表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `my_stock_t`
 --
 
@@ -144,7 +192,7 @@ CREATE TABLE `my_stock_t` (
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_account_stock` (`account`,`ts_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
+) ENGINE=InnoDB AUTO_INCREMENT=45 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -167,28 +215,6 @@ CREATE TABLE `rzrq_ye_t` (
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`trade_date`,`exchange_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `sse_market_summary_t`
---
-
-DROP TABLE IF EXISTS `sse_market_summary_t`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `sse_market_summary_t` (
-  `trade_date` varchar(8) NOT NULL COMMENT '交易日期',
-  `board_type` varchar(20) NOT NULL COMMENT '板块类型（主板、科创板等）',
-  `total_mv` decimal(15,2) DEFAULT NULL COMMENT '总市值（亿元）',
-  `float_mv` decimal(15,2) DEFAULT NULL COMMENT '流通市值（亿元）',
-  `company_count` int DEFAULT NULL COMMENT '上市公司数',
-  `stock_count` int DEFAULT NULL COMMENT '上市股票数',
-  `total_shares` decimal(15,2) DEFAULT NULL COMMENT '总股本（亿股）',
-  `float_shares` decimal(15,2) DEFAULT NULL COMMENT '流通股本（亿股）',
-  `avg_pe_ratio` decimal(10,2) DEFAULT NULL COMMENT '平均市盈率',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
-  PRIMARY KEY (`trade_date`,`board_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='上交所市场总貌数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -300,7 +326,7 @@ CREATE TABLE `stock_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
   KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=41105587 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=41115469 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -462,26 +488,6 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `szse_market_summary_t`
---
-
-DROP TABLE IF EXISTS `szse_market_summary_t`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `szse_market_summary_t` (
-  `trade_date` varchar(8) NOT NULL COMMENT '交易日期',
-  `board_type` varchar(20) NOT NULL COMMENT '板块类型（主板A股、创业板A股等）',
-  `total_mv` decimal(15,2) DEFAULT NULL COMMENT '总市值（亿元）',
-  `float_mv` decimal(15,2) DEFAULT NULL COMMENT '流通市值（亿元）',
-  `company_count` int DEFAULT NULL COMMENT '上市公司数',
-  `total_amount` decimal(15,2) DEFAULT NULL COMMENT '总成交金额（亿元）',
-  `avg_pe_ratio` decimal(10,2) DEFAULT NULL COMMENT '平均市盈率',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
-  PRIMARY KEY (`trade_date`,`board_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='深交所市场总貌数据表';
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Table structure for table `task_run_log_t`
 --
 
@@ -513,7 +519,7 @@ CREATE TABLE `task_run_log_t` (
   UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
   KEY `idx_run_date` (`run_date`),
   KEY `idx_script` (`script_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=6008 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
+) ENGINE=InnoDB AUTO_INCREMENT=6333 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -555,4 +561,4 @@ CREATE TABLE `user_login_t` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-17  1:44:16
+-- Dump completed on 2026-09-17 17:18:44
