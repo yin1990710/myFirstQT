@@ -12,11 +12,11 @@ A股大盘风险指数（Market Risk Index, MRI）
   4. 离线可验证：--selftest 用合成样本验证打分与合成逻辑，不依赖外网。
 
 用法
-  python report_market_risk.py                          # 自动取数（需 akshare）
-  python report_market_risk.py --input mri_manual.json  # 自动取数 + 手工补数（推荐）
-  python report_market_risk.py --init-manual            # 生成手工补数模板
-  python report_market_risk.py --selftest               # 离线自检
-  python report_market_risk.py --json out.json          # 指定 JSON 输出路径
+  python report_market_risk_metricx.py                          # 自动取数（需 akshare）
+  python report_market_risk_metricx.py --input mri_manual.json  # 自动取数 + 手工补数（推荐）
+  python report_market_risk_metricx.py --init-manual            # 生成手工补数模板
+  python report_market_risk_metricx.py --selftest               # 离线自检
+  python report_market_risk_metricx.py --json out.json          # 指定 JSON 输出路径
 
 指标可获取性（AkShare 免费源实测，2026-09）
   ✅ 全自动（14 项）：PE分位、PB分位、ERP、融资余额/流通市值、期权IV、涨停家数、

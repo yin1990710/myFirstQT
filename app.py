@@ -446,13 +446,13 @@ def api_stock_data_monitor():
 
 @app.route('/mri')
 def mri_dashboard():
-    """A股大盘风险指数（MRI 实时仪表盘），由 report_market_risk.py 生成。"""
+    """A股大盘风险指数（MRI 实时仪表盘），由 report_market_risk_metricx.py 生成。"""
     path = os.path.join(PAGE_DIR, 'A股大盘风险指数MRI.html')
     if not os.path.exists(path):
         return ('<!DOCTYPE html><meta charset="utf-8">'
                 '<title>MRI 仪表盘未生成</title><body style="font-family:sans-serif;padding:40px">'
                 '<h2>MRI 实时仪表盘尚未生成</h2>'
-                '<p>请先运行 <code>python report_market_risk.py</code> 生成报告。</p>'
+                '<p>请先运行 <code>python report_market_risk_metricx.py</code> 生成报告。</p>'
                 '<p><a href="/">返回首页</a></p></body>'), 404
     return send_from_directory(PAGE_DIR, 'A股大盘风险指数MRI.html')
 
@@ -469,9 +469,77 @@ def mri_framework():
     return send_from_directory(PAGE_DIR, 'A股大盘风险指标体系说明.html')
 
 
+@app.route('/market-overview')
+def market_overview():
+    """大盘指标概览页（15 指标仪表盘），由 report_market_overview_metricx.py 生成。"""
+    path = os.path.join(PAGE_DIR, '大盘指标概览.html')
+    if not os.path.exists(path):
+        return ('<!DOCTYPE html><meta charset="utf-8">'
+                '<title>大盘指标概览未生成</title><body style="font-family:sans-serif;padding:40px">'
+                '<h2>大盘指标概览页面尚未生成</h2>'
+                '<p>请先运行 <code>python report_market_overview_metricx.py</code> 生成数据。</p>'
+                '<p><a href="/">返回首页</a></p></body>'), 404
+    return send_from_directory(PAGE_DIR, '大盘指标概览.html')
+
+
+@app.route('/api/market_overview_metrics')
+def api_market_overview_metrics():
+    """返回大盘指标体系数据 JSON（由 report_market_overview_metricx.py 生成）。"""
+    path = os.path.join(PAGE_DIR, 'market_overview_metrics.json')
+    if not os.path.exists(path):
+        return jsonify({'error': '数据尚未生成，请先点击「刷新数据」'}), 404
+    with open(path, encoding='utf-8') as f:
+        return jsonify(json.load(f))
+
+
+# 大盘指标概览刷新（后台运行 report_market_overview_metricx.py）
+_MARKET_OVERVIEW_SCRIPT = 'report_market_overview_metricx.py'
+_market_overview_state = {'status': 'idle'}
+_market_overview_lock = threading.Lock()
+
+
+def _reap_market_overview_process(proc, started):
+    rc = proc.wait()
+    ended = datetime.now()
+    with _market_overview_lock:
+        _market_overview_state.update(
+            status='success' if rc == 0 else 'failed',
+            end=ended.strftime('%Y-%m-%d %H:%M:%S'), rc=rc,
+            duration=round((ended - started).total_seconds(), 1))
+
+
+@app.route('/api/market_overview_refresh', methods=['POST'])
+def api_market_overview_refresh():
+    """立即刷新大盘指标体系：后台运行 report_market_overview_metricx.py 重算数据。"""
+    with _market_overview_lock:
+        if _market_overview_state.get('status') == 'running':
+            return jsonify({'error': '数据正在计算中，请勿重复触发',
+                            'state': dict(_market_overview_state)}), 409
+        script_path = os.path.join(BASE_DIR, _MARKET_OVERVIEW_SCRIPT)
+        if not os.path.isfile(script_path):
+            return jsonify({'error': '脚本不存在'}), 404
+        started = datetime.now()
+        try:
+            proc = subprocess.Popen([sys.executable, script_path], cwd=BASE_DIR)
+        except OSError as e:
+            return jsonify({'error': f'启动失败: {e}'}), 500
+        _market_overview_state.update(status='running',
+                                      start=started.strftime('%Y-%m-%d %H:%M:%S'),
+                                      end=None, rc=None, duration=None, pid=proc.pid)
+    threading.Thread(target=_reap_market_overview_process, args=(proc, started), daemon=True).start()
+    return jsonify({'ok': True, 'state': dict(_market_overview_state)}), 202
+
+
+@app.route('/api/market_overview_refresh_status')
+def api_market_overview_refresh_status():
+    """查询大盘指标体系计算状态。"""
+    with _market_overview_lock:
+        return jsonify(dict(_market_overview_state))
+
+
 @app.route('/api/mri_data')
 def api_mri_data():
-    """返回 MRI 风险指数数据 JSON（由 report_market_risk.py 生成到 pages/mri_data.json）。"""
+    """返回 MRI 风险指数数据 JSON（由 report_market_risk_metricx.py 生成到 pages/mri_data.json）。"""
     path = os.path.join(PAGE_DIR, 'mri_data.json')
     if not os.path.exists(path):
         return jsonify({'error': '数据尚未生成，请先点击「重新生成报告」'}), 404
@@ -480,7 +548,7 @@ def api_mri_data():
 
 
 # MRI 报告重新生成（单任务，复用手动执行状态管理）
-_MRI_SCRIPT = 'report_market_risk.py'
+_MRI_SCRIPT = 'report_market_risk_metricx.py'
 _mri_state = {'status': 'idle'}  # idle | running | success | failed
 _mri_lock = threading.Lock()
 
@@ -496,7 +564,7 @@ def _reap_mri_process(proc, started):
 
 @app.route('/api/mri_regenerate', methods=['POST'])
 def api_mri_regenerate():
-    """后台重新生成 MRI 报告（运行 report_market_risk.py）。"""
+    """后台重新生成 MRI 报告（运行 report_market_risk_metricx.py）。"""
     with _mri_lock:
         if _mri_state.get('status') == 'running':
             return jsonify({'error': '报告正在生成中，请勿重复触发',
@@ -1815,6 +1883,22 @@ def api_find_similar_results():
     elif params.get('code'):
         template_code = params['code'].upper().strip()
 
+    # 解析计算结果日期（结果列表的交易日）：
+    # ma5/wave2 日志为"目标日期[: ]YYYYMMDD"，price_vol 取"候选扫描区间"终点日
+    result_date = None
+    for line in lines:
+        m = re.search(r'目标日期[:：]?\s*(\d{8})', line)
+        if m:
+            result_date = m.group(1)
+            break
+    if not result_date:
+        for line in lines:
+            if '扫描区间' in line:
+                m = re.search(r'~\s*(\d{8})', line)
+                if m:
+                    result_date = m.group(1)
+                break
+
     # 解析 "🔥 相似度排名" 后的股票列表
     in_results = False
     for line in lines:
@@ -1854,6 +1938,7 @@ def api_find_similar_results():
     return jsonify({
         'template_code': template_code,
         'template_name': template_name,
+        'result_date': result_date,
         'stocks': result_list,
     })
 
