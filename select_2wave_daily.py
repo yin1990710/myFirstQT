@@ -15,7 +15,7 @@
 5. 最近一个交易日总市值 total_mv（万元）> 2亿（20,000 万元）
 6. 最近一个交易日成交额 amount × 1000 > 5亿
 
-输出：CSV「2浪启动.csv」（utf-8-sig），文件夹「2浪启动+当日日期后缀」（已存在则复用）；
+输出：CSV「二浪日线选股策略.csv」（utf-8-sig），文件夹「二浪日线选股策略+当日日期后缀」（已存在则复用）；
 结果为 0 时不生成文件/文件夹。
 """
 
@@ -41,7 +41,7 @@ def get_target_date():
 
 def get_folder_name():
     target_date = get_target_date()
-    folder_name = f"2浪启动{target_date}"
+    folder_name = f"2浪日线选股策略{target_date}"
     return folder_name
 
 
@@ -309,7 +309,7 @@ def analyze_stocks(data):
 
 
 def generate_csv_file(stocks, folder_path):
-    csv_filename = "2浪启动.csv"
+    csv_filename = "二浪日线选股策略.csv"
     csv_path = os.path.join(folder_path, csv_filename)
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
@@ -320,12 +320,9 @@ def generate_csv_file(stocks, folder_path):
     return csv_path
 
 
-STRATEGY_NAME = '二浪日线选股策略'
-
-
 def main():
     print("=" * 80)
-    print("🌊 二浪启动选股策略")
+    print("🌊 二浪日线选股策略")
     print("=" * 80)
     print("\n📊 选股逻辑：")
     print("  1. 基础过滤：流通市值>50亿")
@@ -364,7 +361,7 @@ def main():
         # 选股结果入库（便于回测）
         selection_date = max(r['trade_date'] for r in data)
         record_selected_stocks(
-            STRATEGY_NAME,
+            '二浪日线选股策略',
             [{'ts_code': s['ts_code'], 'selected': 1} for s in selected_stocks],
             selection_date)
 
