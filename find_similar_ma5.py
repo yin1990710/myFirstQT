@@ -347,7 +347,7 @@ def generate_csv_file(stocks, folder_path, target_code):
 
 # ---------- 选股结果入库（便于回测） ----------
 
-STRATEGY_NAME = 'similar_ma5'
+STRATEGY_NAME = '5日均线相似度选股策略'
 
 
 # ---------- 主入口 ----------

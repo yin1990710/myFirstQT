@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-选股策略：量价形态相似选股
+选股策略：量价形态相似选股策略
 
 以 605111.SH 在 20260127 ~ 20260615（共90个交易日）的交易数据为模板，
 从 stock_daily_t 表扫描全市场股票近 180 个交易日的走势，
@@ -454,7 +454,7 @@ def generate_csv(stocks, folder_path, template_code):
 
 # ---------- 选股结果入库（便于回测） ----------
 
-STRATEGY_NAME = 'similar_price_vol'
+STRATEGY_NAME = '量价形态相似选股策略'
 
 
 # ---------- 主入口 ----------

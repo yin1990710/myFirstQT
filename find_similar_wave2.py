@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-选股策略：二浪候选 × DTW 量价相似度二次打分
+选股策略：二浪候选×DTW量价相似度二次打分策略
 
 对齐豆包对话第四节「扩展思路」：先筛选 2 浪标的（select_wave2.py 的全部硬条件+打分），
 再用 DTW 量价相似度，匹配一个标杆 2 浪模板K线，对候选池做二次打分排序。
@@ -67,7 +67,7 @@ def get_folder_path():
 
 # ---------- 选股结果入库（便于回测） ----------
 
-STRATEGY_NAME = 'similar_wave2'
+STRATEGY_NAME = '二浪候选×DTW量价相似度二次打分策略'
 
 
 def minmax_normalize(vals):
