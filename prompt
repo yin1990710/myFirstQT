@@ -1,7 +1,7 @@
 生成一个名为stock_overall_report.py的文件，主要功能包括三个部分，分别是：
 第一部分功能为绘制股指合约和股指的期现差走势。分为如下个几步骤：
 1.读取股指代码和股指期货代码文件夹下的csv文件，获取股指合约代码和含义，以及股指代码和含义。
-1.依赖mysql_connection.py连接数据库。
+1.依赖module_mysql_connection.py连接数据库。
 2.读取股指日交易数据stock_index_daily_t表中最近90天的数据(日期字段为trade_date)。
 3.读取股指期货日交易数据stock_index_future_daily_t表中最近90天的数据(日期字段为trade_date)。
 4.将同一个交易日的含义相同的股指合约和股指数据关联起来。
@@ -23,7 +23,7 @@
 生成一个名为stock_overall_report_v2.py的文件，主要功能包括三个部分，分别是：
 第一部分功能为分别绘制股指和股指期货合约的close值近90天的走势。分为如下个几步骤：
 1.读取股指代码和股指期货代码文件夹下的csv文件，获取股指合约代码和含义，以及股指代码和含义。
-2.依赖mysql_connection.py连接数据库。
+2.依赖module_mysql_connection.py连接数据库。
 3.读取股指日交易数据stock_index_daily_t表中最近90天的数据(日期字段为trade_date)。
 4.读取股指期货日交易数据stock_index_future_daily_t表中最近90天的数据(日期字段为trade_date)。
 5.用每日股指期货合约的close值减去股指的close值作为期现差。
@@ -31,7 +31,7 @@
 
 第二部分功能为功能为用表格展示股指近期的涨跌幅，具体如下：
 1.读取股指代码和股指期货代码文件夹下的csv文件，获取股指合约代码和含义，以及股指代码和含义。
-2.依赖mysql_connection.py连接数据库。
+2.依赖module_mysql_connection.py连接数据库。
 3.读取股指日交易数据stock_index_daily_t表中最近30天的数据(日期字段为trade_date)。
 4.分别统计上证指数、沪深300、中证500、中证1000三个指数的近30天、近20天、近10天、近5天的最大震幅，近30天的最大震幅为（（3当日的最低价low-30日（不含当日）内的最高价high）/当日最低价low）*100），以此类推。
 5.将以上数据展示在表格中。
@@ -43,7 +43,7 @@
 4.将数据中的rqmcl融券卖出量、rqyl融券余量按天group by， 以trade_date为横轴，画出这2个指标的走势图。图表名称为融券量走势。
 
 第四部分功能为查询stock_daily_t表读取近90天的数据。
-1. 依赖mysql_connection.py连接数据库。
+1. 依赖module_mysql_connection.py连接数据库。
 2. 读取表stock_daily_t的近30天的数据(日期字段为trade_date)。
 3. 统计每日下跌（（当日收盘价close-前一日收盘价close）/前一日收盘价close）小于-8%的股票数量和上涨（（当日收盘价close-前一日收盘价close）/前一日收盘价close）大于8%的股票数量。
 4. 以trade_date为横轴，将这2个指标的走势图绘制在1个名为股票涨跌超百分之8数量走势的图表中。
@@ -101,7 +101,7 @@ industry_exchange_report.py 生成行业趋势报告
 -----------------------------
 突然放巨量大涨策略
 生成一个名为select_boomvol.py的文件，主要功能是：
-1. 依赖mysql_connection.py连接数据库。
+1. 依赖module_mysql_connection.py连接数据库。
 2. 读取stock_daily_t表近30个交易日（trade_date）的数据和stock_info_t表用ts_code关联。
 3. 选出近3个交易日中有一个交易日的交易额(amount)是其他交易日平均交易额的2.5倍以上，且这一日的成交额(amount)*1000大于5亿，且这一日的涨幅（当日收盘价close-前一日收盘价close）/前一日收盘价close）大于6%
 4. 将选出的股票代码和名称保存在一个名为爆量上涨加当日日期后缀（若当前时间为0-15点则取前一天日期的csv的文件中，将csv文件放在一个名为爆量上涨加当日日期后缀（若当前时间为0-15点则取前一天日期）的文件夹中，如果文件夹已经存在则删除新建。

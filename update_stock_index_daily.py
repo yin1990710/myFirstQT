@@ -8,7 +8,7 @@ import numpy as np
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 import tushare as ts
 

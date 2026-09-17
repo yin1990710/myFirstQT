@@ -29,7 +29,7 @@
                                                           # 单只诊断（不写库）
 依赖：
   module_stock_short_strength.py  —— SSS 五维评分模块（纯计算层）
-  mysql_connection.py             —— 数据库连接
+  module_mysql_connection.py             —— 数据库连接
 
 ⚠️ 全市场逐日评分约需 40~50 秒/交易日，时间段越长耗时越长。
 """
@@ -48,7 +48,7 @@ sys.path.append(BASE_DIR)
 from module_stock_short_strength import (
     PARAMS, calc_all_scores, safe_pct_change, fetch_benchmark,
 )
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 DAYS = PARAMS["lookback"] + 60     # 与模块 fetch_one 一致：近 80 个交易日
 BATCH_SIZE = 1000                  # 回填写入批次

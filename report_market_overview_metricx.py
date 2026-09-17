@@ -30,7 +30,7 @@ from decimal import Decimal
 import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 PAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pages')
 OUTPUT_JSON = os.path.join(PAGE_DIR, 'market_overview_metrics.json')

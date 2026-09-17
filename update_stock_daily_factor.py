@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import tushare as ts
 
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 

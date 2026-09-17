@@ -58,7 +58,7 @@ except ModuleNotFoundError:
         os.execv(VENV_PYTHON, [VENV_PYTHON, os.path.abspath(__file__)] + sys.argv[1:])
     raise
 
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 from monitor_run_daily_tasks import (
     parse_cron_run,
     write_run_log,

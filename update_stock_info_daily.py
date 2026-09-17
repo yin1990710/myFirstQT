@@ -4,7 +4,7 @@
 import pandas as pd
 import os
 import numpy as np
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 """ 读取文件夹《股票列表csv》下的基本股票基本信息保存到stock_info_t表里 """
 

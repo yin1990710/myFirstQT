@@ -34,7 +34,7 @@ import argparse
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 RECENT_TABLE_DAYS = 22   # 默认：strategy 表最近 22 个交易日
 FUTURE_DAYS_10 = 10      # T+1～T+10

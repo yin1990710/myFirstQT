@@ -12,7 +12,7 @@
 供 app.py 的 /api/my_stocks 接口调用，app.py 仅做请求转发与响应。
 """
 
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS my_stock_t (

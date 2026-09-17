@@ -14,7 +14,7 @@
 
 import hashlib
 
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS user_login_t (

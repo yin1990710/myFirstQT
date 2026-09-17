@@ -6,7 +6,7 @@ import sys
 import tushare as ts
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 def create_table(connection):
     create_sql = """
