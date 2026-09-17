@@ -13,7 +13,9 @@ V形反转选股 (select_v_reverse.py)
      3. 最近 30 个交易日 turning_point 出现至少 10 个「上升」
      4. 最近一个交易日 ma5 > ma30
   3. 仅 A 股（.SH / .SZ），最新交易日有数据（剔除停牌）
-  4. STOCK_FILTERS 灵活过滤（当前：最新日市值>100亿，可追加）
+  4. 全部条件以 STOCK_FILTERS 注册式过滤实现（参考 find_similar_ma5.py）：
+     A股板块、最新日市值>100亿、历史≥120日、收盘价无缺失、最低/最高<50%、
+     最低收盘在最近30日内、近30日上升≥10天、最新日ma5>ma30；新增条件只需追加一行注册
   5. CSV「V形反转.csv」（csv.writer + utf-8-sig，含极值信息）
   6. 文件夹「V形反转+当日日期后缀」（已存在则复用）；结果为0不生成文件/文件夹
 """
@@ -26,7 +28,7 @@ import tushare as ts
 
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
@@ -40,21 +42,109 @@ MIN_MARKET_CAP_WAN = 1_000_000  # 总市值下限（万元）= 100亿
 TOP_N = 50
 
 # ---------- 灵活过滤条件（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
+# 过滤函数入参为 build_context(records) 生成的单只股票特征上下文，返回 True=通过；
+# 通过全部前置过滤的股票即为V形反转入选标的。
 
-def _filter_min_market_cap(records):
+def build_context(records):
+    """计算单只股票的V形反转特征上下文。
+
+    records 按日期升序。数据缺失/除零等异常时相关特征取 None，由对应过滤条件拦截，
+    计算口径与原 detect_v_reverse 完全一致（min/max 基于全部收盘价、index 取首次最小值）。
+    """
+    n = len(records)
+    latest = records[-1]
+    closes = [r.get('close') for r in records]
+    close_complete = n > 0 and all(c is not None for c in closes)
+
+    lo = hi = min_idx = amp_ratio = None
+    min_date = None
+    if close_complete:
+        lo = min(closes)
+        hi = max(closes)
+        min_idx = closes.index(lo)
+        min_date = records[min_idx]['trade_date']
+        if hi is not None and hi > 0:
+            amp_ratio = lo / hi
+
+    recent = records[-RECENT_DAYS:]
+    rise_cnt = sum(1 for r in recent if r.get('turning_point') == '上升')
+
+    return {
+        'ts_code': latest.get('ts_code'),
+        'bars': n,
+        'close_complete': close_complete,
+        'lo': lo,
+        'hi': hi,
+        'min_idx': min_idx,
+        'min_date': min_date,
+        'amp_ratio': amp_ratio,
+        'rise_cnt': rise_cnt,
+        'ma5': latest.get('ma5'),
+        'ma30': latest.get('ma30'),
+        'total_mv': latest.get('total_mv'),
+        'close': latest.get('close'),
+    }
+
+
+def _filter_a_share(ctx):
+    """仅保留沪深A股（.SH/.SZ），剔除北交所等。"""
+    code = ctx['ts_code'] or ''
+    return code.endswith('.SH') or code.endswith('.SZ')
+
+
+def _filter_min_market_cap(ctx):
     """最近一个交易日总市值 total_mv（万元）> MIN_MARKET_CAP_WAN。"""
-    mv = records[-1].get('total_mv')
+    mv = ctx['total_mv']
     return mv is not None and mv > MIN_MARKET_CAP_WAN
 
 
+def _filter_enough_bars(ctx):
+    """有效交易日不少于 LOOKBACK_DAYS（120日）。"""
+    return ctx['bars'] >= LOOKBACK_DAYS
+
+
+def _filter_close_complete(ctx):
+    """全部交易日收盘价无缺失。"""
+    return ctx['close_complete']
+
+
+def _filter_deep_drawdown(ctx):
+    """过去120日 最低收盘价/最高收盘价 < 50%（极值异常时不通过）。"""
+    return ctx['amp_ratio'] is not None and ctx['amp_ratio'] < AMP_RATIO_MAX
+
+
+def _filter_low_in_recent(ctx):
+    """最低收盘价出现在最近 RECENT_DAYS（30日）个交易日内。"""
+    return ctx['min_idx'] is not None and ctx['min_idx'] >= ctx['bars'] - RECENT_DAYS
+
+
+def _filter_rise_days(ctx):
+    """最近30个交易日 turning_point='上升' 至少 MIN_RISE_DAYS（10）天。"""
+    return ctx['rise_cnt'] >= MIN_RISE_DAYS
+
+
+def _filter_ma_bull(ctx):
+    """最近一个交易日 ma5 > ma30（缺失或ma30<=0不通过）。"""
+    ma5, ma30 = ctx['ma5'], ctx['ma30']
+    return ma5 is not None and ma30 is not None and ma30 > 0 and ma5 > ma30
+
+
+# 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
 STOCK_FILTERS = [
-    (f'市值<={MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    ('非沪深A股', _filter_a_share),
+    (f'最新日总市值<={MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    (f'有效交易日不足{LOOKBACK_DAYS}日', _filter_enough_bars),
+    ('存在收盘价缺失日', _filter_close_complete),
+    (f'最低/最高收盘>={AMP_RATIO_MAX*100:.0f}%(或极值异常)', _filter_deep_drawdown),
+    (f'最低收盘不在最近{RECENT_DAYS}日内', _filter_low_in_recent),
+    (f'近{RECENT_DAYS}日上升天数<{MIN_RISE_DAYS}', _filter_rise_days),
+    ('最新日ma5未大于ma30', _filter_ma_bull),
 ]
 
 
-def apply_filters(records):
+def apply_filters(ctx):
     """依次执行 STOCK_FILTERS 全部条件，返回 (是否通过, 未通过条件名列表)。"""
-    reasons = [name for name, fn in STOCK_FILTERS if not fn(records)]
+    reasons = [name for name, fn in STOCK_FILTERS if not fn(ctx)]
     return (len(reasons) == 0), reasons
 
 
@@ -127,59 +217,6 @@ def read_stock_data(start_date, end_date):
         close_connection(conn)
 
 
-# ---------- V形反转识别 ----------
-
-def detect_v_reverse(recs):
-    """对齐 prompt 条件1~4，返回 (info, 失败原因)。"""
-    n = len(recs)
-    if n < LOOKBACK_DAYS:
-        return None, f'历史不足{LOOKBACK_DAYS}日'
-
-    closes = [r['close'] for r in recs]
-    if any(c is None for c in closes):
-        return None, '收盘价缺失'
-
-    # 条件1：过去120日 最低收盘/最高收盘 < 50%
-    lo, hi = min(closes), max(closes)
-    if lo is None or hi is None or hi <= 0:
-        return None, '极值异常'
-    amp_ratio = lo / hi
-    if amp_ratio >= AMP_RATIO_MAX:
-        return None, f'振幅比{amp_ratio*100:.1f}%≥50%'
-
-    # 条件2：最低收盘价出现在最近30个交易日内
-    min_idx = closes.index(lo)
-    recent_start = n - RECENT_DAYS
-    if min_idx < recent_start:
-        return None, f'最低收盘不在最近{RECENT_DAYS}日内'
-
-    # 条件3：最近30个交易日 turning_point 出现至少10个「上升」
-    recent = recs[-RECENT_DAYS:]
-    rise_cnt = sum(1 for r in recent if r['turning_point'] == '上升')
-    if rise_cnt < MIN_RISE_DAYS:
-        return None, f'近{RECENT_DAYS}日上升仅{rise_cnt}天<{MIN_RISE_DAYS}'
-
-    # 条件4：最近一个交易日 ma5 > ma30
-    latest = recs[-1]
-    ma5, ma30 = latest.get('ma5'), latest.get('ma30')
-    if ma5 is None or ma30 is None or ma30 <= 0:
-        return None, 'ma5/ma30缺失'
-    if ma5 <= ma30:
-        return None, 'ma5未大于ma30'
-
-    info = {
-        'min_idx': min_idx,
-        'min_date': recs[min_idx]['trade_date'],
-        'min_close': round(lo, 2),
-        'max_close': round(hi, 2),
-        'amp_ratio': round(amp_ratio, 3),
-        'rise_cnt': rise_cnt,
-        'ma5': round(ma5, 2),
-        'ma30': round(ma30, 2),
-    }
-    return info, None
-
-
 # ---------- 主流程 ----------
 
 def main():
@@ -199,6 +236,7 @@ def main():
     stock_data = {}
     for r in data:
         stock_data.setdefault(r['ts_code'], []).append({
+            'ts_code': r['ts_code'],
             'trade_date': r['trade_date'],
             'close': float(r['close']) if r['close'] is not None else None,
             'ma5': float(r['ma5']) if r['ma5'] is not None else None,
@@ -208,33 +246,36 @@ def main():
         })
 
     latest_date = trade_dates[-1]
-    cnt_no_latest = cnt_not_a = 0
+    cnt_no_latest = 0
     cnt_filter = {name: 0 for name, _ in STOCK_FILTERS}
-    cnt_fail = {}
     result = []
 
     for code, recs in stock_data.items():
+        # 最新交易日无行情（停牌等）不参与，与 find_similar_ma5 的日期对齐口径一致
         if recs[-1]['trade_date'] != latest_date:
             cnt_no_latest += 1
             continue
-        if not (code.endswith('.SH') or code.endswith('.SZ')):
-            cnt_not_a += 1
-            continue
-        ok, reasons = apply_filters(recs)
+
+        # 特征上下文 + 注册式过滤（板块/市值/历史/收盘价/深度回撤/低点位置/上升天数/均线多头）
+        ctx = build_context(recs)
+        ok, reasons = apply_filters(ctx)
         if not ok:
             for name in reasons:
                 cnt_filter[name] += 1
             continue
 
-        info, reason = detect_v_reverse(recs)
-        if info is None:
-            cnt_fail[reason] = cnt_fail.get(reason, 0) + 1
-            continue
-
-        info['ts_code'] = code
-        info['total_mv'] = recs[-1]['total_mv']
-        info['close'] = recs[-1]['close']
-        result.append(info)
+        result.append({
+            'ts_code': code,
+            'min_date': ctx['min_date'],
+            'min_close': round(ctx['lo'], 2),
+            'max_close': round(ctx['hi'], 2),
+            'amp_ratio': round(ctx['amp_ratio'], 3),
+            'rise_cnt': ctx['rise_cnt'],
+            'ma5': round(ctx['ma5'], 2),
+            'ma30': round(ctx['ma30'], 2),
+            'total_mv': ctx['total_mv'],
+            'close': ctx['close'],
+        })
 
     result.sort(key=lambda x: x['amp_ratio'])  # 振幅比越小（跌幅越深）排越前
 
@@ -242,11 +283,8 @@ def main():
     print("\n" + "=" * 72)
     print(f"  股票总数: {len(stock_data)}")
     print(f"  - 最新日停牌无数据: {cnt_no_latest}")
-    print(f"  - 非A股: {cnt_not_a}")
     for name, cnt in cnt_filter.items():
         print(f"  - 过滤[{name}]: {cnt}")
-    for name, cnt in sorted(cnt_fail.items(), key=lambda x: -x[1])[:10]:
-        print(f"  - {name}: {cnt}")
     print("-" * 72)
     print(f"  入选: {len(result)}（按振幅比升序）")
     print("=" * 72)

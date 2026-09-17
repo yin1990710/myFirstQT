@@ -14,8 +14,11 @@
    - >800亿       → 换手率 > 6%
 4. 最近 2 个交易日 close > ma5 且 ma5 > ma30
 5. 去除非 A 股（仅保留 .SH / .SZ）
-6. CSV 输出对齐 select_2wave_up_v2.py（csv.writer + utf-8-sig + 表头 股票代码）
-7. 文件夹「高换手+当日日期后缀」（已存在则删除重建）
+6. 全部条件以 STOCK_FILTERS 注册表实现（参考 find_similar_ma5.py）：
+   A股板块、最新日总市值>=100亿、有效交易日>=10日、近10日高换手达标>=5日、
+   近2日close>ma5>ma30；新增条件只需追加一个 _filter_xxx 与一行注册
+7. CSV 输出对齐 select_2wave_up_v2.py（csv.writer + utf-8-sig + 表头 股票代码）
+8. 文件夹「高换手+当日日期后缀」（已存在则删除重建）
 """
 
 import os
@@ -27,7 +30,7 @@ from datetime import datetime, timedelta
 import tushare as ts
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
@@ -69,21 +72,108 @@ def create_folder(target_date):
     return folder_path
 
 
+# ---------- 策略参数 ----------
+LOOKBACK_DAYS = 10              # 换手率统计/数据读取窗口（最近交易日数）
+MIN_HIT_DAYS = 5                # 窗口内换手率达标的最少天数
+ABOVE_MA_DAYS = 2               # close>ma5>ma30 需连续满足的交易日数
+MIN_MARKET_CAP_WAN = 1_000_000  # 最新日总市值下限（万元）= 100亿
+
+# 换手率分档表（万元总市值下限, 换手率阈值%）：按顺序匹配首个 mv>=下界 的档位
+MV_TR_TIERS = [
+    (8_000_000, 6.0),    # >=800亿 → 6%
+    (5_000_000, 8.0),    # >=500亿 → 8%
+    (3_000_000, 10.0),   # >=300亿 → 10%
+    (1_000_000, 15.0),   # >=100亿 → 15%
+]
+
+
 def get_turnover_threshold(total_mv_wan):
     """
     根据最新日总市值（万元）返回换手率阈值（%）
-    市值分档：100~300亿 → 15%，300~500亿 → 10%，500~800亿 → 8%，>800亿 → 6%
+    市值分档：100~300亿 → 15%，300~500亿 → 10%，500~800亿 → 8%，>=800亿 → 6%；<100亿返回 None
     """
-    if total_mv_wan < 1000000:         # < 100亿
+    if total_mv_wan < MIN_MARKET_CAP_WAN:
         return None
-    elif total_mv_wan < 3000000:       # 100~300亿
-        return 15.0
-    elif total_mv_wan < 5000000:       # 300~500亿
-        return 10.0
-    elif total_mv_wan < 8000000:       # 500~800亿
-        return 8.0
-    else:                               # > 800亿
-        return 6.0
+    for lower_bound, threshold in MV_TR_TIERS:
+        if total_mv_wan >= lower_bound:
+            return threshold
+    return None
+
+
+# ---------- 灵活过滤条件（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
+# 过滤函数入参为 build_context(records) 生成的单只股票特征上下文，返回 True=通过；
+# records 已按日期升序并剔除 close<=0 的脏数据。
+
+def build_context(ts_code, records):
+    """计算单只股票的高换手特征上下文。"""
+    latest_mv = 0.0
+    for r in reversed(records):
+        if r['total_mv'] > 0:
+            latest_mv = r['total_mv']
+            break
+
+    threshold = get_turnover_threshold(latest_mv)
+    hit_days = 0
+    if threshold is not None:
+        for r in records[-LOOKBACK_DAYS:]:
+            tr = r['turnover_rate_f']
+            if tr is not None and tr > threshold:
+                hit_days += 1
+
+    return {
+        'ts_code': ts_code,
+        'records': records,
+        'bars': len(records),
+        'latest_mv': latest_mv,
+        'threshold': threshold,
+        'hit_days': hit_days,
+    }
+
+
+def _filter_a_share(ctx):
+    """仅保留沪深A股（.SH/.SZ），剔除北交所等。"""
+    code = ctx['ts_code']
+    return code.endswith('.SH') or code.endswith('.SZ')
+
+
+def _filter_min_market_cap(ctx):
+    """最新有市值记录的交易日总市值 >= 100亿。"""
+    return ctx['latest_mv'] >= MIN_MARKET_CAP_WAN
+
+
+def _filter_enough_bars(ctx):
+    """有效交易日不少于 LOOKBACK_DAYS（10日）。"""
+    return ctx['bars'] >= LOOKBACK_DAYS
+
+
+def _filter_turnover_hits(ctx):
+    """近10个交易日内换手率达标（按市值分档）天数 >= MIN_HIT_DAYS（5日）。"""
+    return ctx['threshold'] is not None and ctx['hit_days'] >= MIN_HIT_DAYS
+
+
+def _filter_ma_bull(ctx):
+    """最近 ABOVE_MA_DAYS（2）个交易日 close > ma5 且 ma5 > ma30（均线需为正）。"""
+    return all(
+        r['close'] > 0 and r['ma5'] > 0 and r['ma30'] > 0
+        and r['close'] > r['ma5'] and r['ma5'] > r['ma30']
+        for r in ctx['records'][-ABOVE_MA_DAYS:]
+    )
+
+
+# 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
+STOCK_FILTERS = [
+    ('非沪深A股', _filter_a_share),
+    (f'最新日总市值<{MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    (f'有效交易日不足{LOOKBACK_DAYS}日', _filter_enough_bars),
+    (f'近{LOOKBACK_DAYS}日高换手达标<{MIN_HIT_DAYS}天', _filter_turnover_hits),
+    (f'近{ABOVE_MA_DAYS}日close<=ma5或ma5<=ma30', _filter_ma_bull),
+]
+
+
+def apply_filters(ctx):
+    """依次执行 STOCK_FILTERS 全部条件，返回 (是否通过, 未通过条件名列表)。"""
+    reasons = [name for name, fn in STOCK_FILTERS if not fn(ctx)]
+    return (len(reasons) == 0), reasons
 
 
 # ---------- 核心逻辑 ----------
@@ -153,67 +243,24 @@ def analyze_stocks(data):
         })
 
     result = []
-    cnt_not_a       = 0   # 非A股
-    cnt_mv_under     = 0   # total_mv < 100亿
-    cnt_need_more    = 0   # 交易天数不足10
-    cnt_fail_tr      = 0   # 高换手天数不足5
-    cnt_fail_ma      = 0   # 近2日 close>ma5>ma30 失败
+    cnt_empty = 0      # 清理停牌等脏数据（close<=0）后无有效行情
+    cnt_filtered = {}  # 各过滤条件淘汰数（一只股票可同时计入多个条件）
 
     for ts_code, records in stock_data.items():
-
-        # ---------- 非A股过滤 ----------
-        if not (ts_code.endswith('.SH') or ts_code.endswith('.SZ')):
-            cnt_not_a += 1
-            continue
 
         # 清理停牌等脏数据（close<=0），按日期排序
         records = [r for r in records if r['close'] > 0]
         if not records:
+            cnt_empty += 1
             continue
         records.sort(key=lambda x: x['trade_date'])
 
-        # ---------- total_mv：取最新有值的交易日 ----------
-        latest_mv = 0.0
-        for r in reversed(records):
-            if r['total_mv'] > 0:
-                latest_mv = r['total_mv']
-                break
-
-        if latest_mv < 1000000:          # < 100亿（万元）
-            cnt_mv_under += 1
-            continue
-
-        # ---------- 数据天数 ----------
-        if len(records) < 10:
-            cnt_need_more += 1
-            continue
-
-        # ---------- 条件3：近10日至少5日换手率达标 ----------
-        threshold = get_turnover_threshold(latest_mv)
-        if threshold is None:
-            cnt_mv_under += 1
-            continue
-
-        last_10 = records[-10:]
-        hit_days = 0
-        for r in last_10:
-            tr = r['turnover_rate_f']
-            if tr is not None and tr > threshold:
-                hit_days += 1
-
-        if hit_days < 5:
-            cnt_fail_tr += 1
-            continue
-
-        # ---------- 条件4：近2日 close > ma5 且 ma5 > ma30 ----------
-        last_2 = records[-2:]
-        ma_ok = all(
-            r['close'] > 0 and r['ma5'] > 0 and r['ma30'] > 0
-            and r['close'] > r['ma5'] and r['ma5'] > r['ma30']
-            for r in last_2
-        )
-        if not ma_ok:
-            cnt_fail_ma += 1
+        # 特征上下文 + 注册式过滤（板块/市值/天数/换手达标/均线多头）
+        ctx = build_context(ts_code, records)
+        ok, reasons = apply_filters(ctx)
+        if not ok:
+            for name in reasons:
+                cnt_filtered[name] = cnt_filtered.get(name, 0) + 1
             continue
 
         result.append({
@@ -221,9 +268,9 @@ def analyze_stocks(data):
             'close':       records[-1]['close'],
             'ma5':         records[-1]['ma5'],
             'ma30':        records[-1]['ma30'],
-            'total_mv':    latest_mv,
-            'threshold':   threshold,
-            'hit_days':    hit_days,
+            'total_mv':    ctx['latest_mv'],
+            'threshold':   ctx['threshold'],
+            'hit_days':    ctx['hit_days'],
         })
 
     # 按市值从大到小排序
@@ -231,13 +278,13 @@ def analyze_stocks(data):
 
     # ---------- 漏斗统计 ----------
     print("\n" + "=" * 60)
-    print(f"满足条件统计：")
+    print("高换手率选股策略 · 过滤漏斗")
+    print("-" * 40)
     print(f"  股票总数量:                      {len(stock_data)}")
-    print(f"  - 非A股过滤:                     {cnt_not_a}")
-    print(f"  - 最新日总市值<100亿过滤:         {cnt_mv_under}")
-    print(f"  - 交易天数不足10过滤:            {cnt_need_more}")
-    print(f"  - 近10日高换手天数<5 淘汰:       {cnt_fail_tr}")
-    print(f"  - 近2日close≤ma5或ma5≤ma30 淘汰: {cnt_fail_ma}")
+    if cnt_empty:
+        print(f"  - 无有效行情(close<=0) 淘汰:     {cnt_empty}")
+    for name, cnt in cnt_filtered.items():
+        print(f"  - 过滤[{name}] 淘汰: {cnt}")
     print("-" * 40)
     print(f"  最终选出: {len(result)}")
     print("=" * 60)
@@ -274,7 +321,7 @@ def main():
 
     # ---------- 步骤A：获取最近 10 个交易日 ----------
     print(f"\n📅 目标日期: {target_date}")
-    trade_dates = get_last_n_trade_dates(target_date, 10)
+    trade_dates = get_last_n_trade_dates(target_date, LOOKBACK_DAYS)
     start_date = trade_dates[0]
     end_date = trade_dates[-1]
     print(f"   查询区间: {start_date} ~ {end_date}（共{len(trade_dates)}个交易日）")

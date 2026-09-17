@@ -9,6 +9,12 @@
 
 1. 最近1个交易日收盘价（close），超过最近120天（不含最近一天）的最高收盘价（close）。
 2. 最近1个交易日的涨幅（(close-前一日收盘价)/前一日收盘价）超过5%。
+3. 前119日收盘价不含0值（脏数据保护）。
+4. 前119日区间振幅（最高收盘-最低收盘）/最低收盘 ≤ 35%。
+5. 最近1个交易日成交额 amount × 1000 > 5亿。
+
+过滤条件采用 STOCK_FILTERS 注册表方式（参考 find_similar_ma5.py），
+新增条件只需追加一个 _filter_xxx 函数与一行注册；apply_filters 统一执行并返回未通过原因。
 
 最后，将符合以上条件的股票的ts_code保存在生成一个名称为区间新高加当天日期（如果当前时间在0-15时之间，则取前一天日期）的csv文件，ts_code之间用英文逗号分隔，新建一个名称为区间新高加当天日期（如果当前时间在0-15时之间，则取前一天日期））的文件夹，将csv文件放在该文件夹下，如果文件夹已存在则先删除再新建。
 """
@@ -18,7 +24,7 @@ import shutil
 import pandas as pd
 from datetime import datetime, timedelta
 
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
 
 
@@ -73,8 +79,93 @@ def get_stock_data(conn) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ---------- 灵活过滤条件（新增条件只需在 STOCK_FILTERS 中追加一行） ----------
+NEWHIGH_WINDOW = 120          # 区间窗口（最近120个交易日）
+MAX_AMPLITUDE = 35.0          # 前119日收盘区间振幅上限（%）
+MIN_GAIN = 5.0                # 最新日涨幅下限（%）
+MIN_AMOUNT_YI = 5.0           # 最新日成交额下限（亿元）；amount单位千元，amount×1000为元
+
+
+def build_context(group):
+    """计算单只股票的区间新高特征上下文（group 为按日期升序、已取近120日的 DataFrame）。
+
+    数值口径与原实现一致：max/min 由 pandas 计算（自动跳过 NaN），
+    数据缺失产生的 NaN 在比较时一律不拦截，由各过滤函数按原语义判定。
+    """
+    latest = group.iloc[-1]
+    previous = group.iloc[:-1]
+
+    max_close_119 = previous['close'].max()
+    min_close_119 = previous['close'].min()
+    prev_close = group.iloc[-2]['close']
+    gain = ((latest['close'] - prev_close) / prev_close * 100
+            if prev_close and prev_close != 0 else float('nan'))
+    amplitude = ((max_close_119 - min_close_119) / min_close_119 * 100
+                 if min_close_119 and min_close_119 != 0 else float('nan'))
+
+    return {
+        'bars': len(group),
+        'latest_close': latest['close'],
+        'latest_amount': latest['amount'],
+        'max_close_119': max_close_119,
+        'min_close_119': min_close_119,
+        'amplitude': amplitude,
+        'gain': gain,
+        'stock_name': group.iloc[0].get('stock_name', ''),
+    }
+
+
+def _filter_enough_bars(ctx):
+    """有效交易日不少于120日（不足120日无法定义120日新高）。"""
+    return ctx['bars'] >= NEWHIGH_WINDOW
+
+
+def _filter_close_nonzero(ctx):
+    """前119日收盘价不含0值（最低收盘>0即保证全部为正）。"""
+    return ctx['min_close_119'] is not None and ctx['min_close_119'] != 0 \
+        and ctx['max_close_119'] is not None and ctx['max_close_119'] != 0
+
+
+def _filter_amplitude(ctx):
+    """前119日收盘区间振幅 ≤ 35%。"""
+    return ctx['amplitude'] <= MAX_AMPLITUDE
+
+
+def _filter_new_high(ctx):
+    """最新收盘价严格突破前119日最高收盘价（创120日收盘新高）。"""
+    return ctx['latest_close'] > ctx['max_close_119']
+
+
+def _filter_gain(ctx):
+    """最新日涨幅 > 5%。"""
+    return ctx['gain'] > MIN_GAIN
+
+
+def _filter_amount(ctx):
+    """最新日成交额 > 5亿。"""
+    return ctx['latest_amount'] * 1000 > MIN_AMOUNT_YI * 1e8
+
+
+# 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)；函数入参为单只股票的特征上下文 ctx，返回 True=通过
+STOCK_FILTERS = [
+    (f'有效交易日不足{NEWHIGH_WINDOW}日', _filter_enough_bars),
+    ('前119日收盘价存在0值', _filter_close_nonzero),
+    (f'区间振幅>{MAX_AMPLITUDE:g}%', _filter_amplitude),
+    ('最新收盘未创120日新高', _filter_new_high),
+    (f'最新日涨幅<={MIN_GAIN:g}%', _filter_gain),
+    (f'最新日成交额<={MIN_AMOUNT_YI:g}亿', _filter_amount),
+]
+
+
+def apply_filters(ctx):
+    """依次执行 STOCK_FILTERS 中的全部过滤条件，返回 (是否通过, 未通过的条件名列表)。"""
+    reasons = [name for name, fn in STOCK_FILTERS if not fn(ctx)]
+    return (len(reasons) == 0), reasons
+
+
 def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
     qualified_stocks = []
+    cnt_filtered = {}    # 各过滤条件淘汰数（一只股票可同时计入多个条件）
 
     grouped = df.groupby('ts_code')
 
@@ -82,58 +173,42 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
         group = group.sort_values('trade_date').reset_index(drop=True)
 
         # 取最近120个交易日
-        if len(group) > 120:
-            group = group.tail(120).reset_index(drop=True)
+        if len(group) > NEWHIGH_WINDOW:
+            group = group.tail(NEWHIGH_WINDOW).reset_index(drop=True)
 
-        group['close'] = pd.to_numeric(group['close'], errors='coerce')
-        group['open'] = pd.to_numeric(group['open'], errors='coerce')
-        group['high'] = pd.to_numeric(group['high'], errors='coerce')
-        group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
-        group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
+        for col in ('close', 'open', 'high', 'vol', 'amount'):
+            group[col] = pd.to_numeric(group[col], errors='coerce')
 
-        if len(group) < 120:
+        # 特征上下文 + 注册式过滤
+        ctx = build_context(group)
+        ok, reasons = apply_filters(ctx)
+        if not ok:
+            for name in reasons:
+                cnt_filtered[name] = cnt_filtered.get(name, 0) + 1
             continue
 
-        latest = group.iloc[-1]
-        previous_119_days = group.iloc[:-1]
-
-        if len(previous_119_days) < 60:
-            continue
-
-        # 取前119天收盘价的最高价和最低价
-        max_close_119 = previous_119_days['close'].max()
-        min_close_119 = previous_119_days['close'].min()
-
-        if max_close_119 == 0 or min_close_119 == 0:
-            continue
-
-        # 检查波动幅度 <= 30%
-        amplitude = (max_close_119 - min_close_119) / min_close_119 * 100
-        if amplitude > 35:
-            continue
-
-        if latest['close'] <= max_close_119:
-            continue
-
-        previous_close = group.iloc[-2]['close']
-        gain = (latest['close'] - previous_close) / previous_close * 100
-
-        if gain <= 5:
-            continue
-
-        if latest['amount'] * 1000 <= 500000000:
-            continue
-
-        break_ratio = (latest['close'] - max_close_119) / max_close_119 * 100
+        break_ratio = (ctx['latest_close'] - ctx['max_close_119']) \
+            / ctx['max_close_119'] * 100
 
         qualified_stocks.append({
             'ts_code': ts_code,
-            'stock_name': group.iloc[0].get('stock_name', ''),
-            'latest_close': latest['close'],
-            'max_close_119': max_close_119,
+            'stock_name': ctx['stock_name'],
+            'latest_close': ctx['latest_close'],
+            'max_close_119': ctx['max_close_119'],
             'break_ratio': break_ratio,
-            'gain': gain
+            'gain': ctx['gain']
         })
+
+    # ---------- 漏斗统计 ----------
+    print("\n" + "=" * 60)
+    print("120日区间新高选股策略 · 过滤漏斗")
+    print("-" * 40)
+    print(f"  股票总数量:                 {grouped.ngroups}")
+    for name, cnt in cnt_filtered.items():
+        print(f"  - 过滤[{name}] 淘汰: {cnt}")
+    print("-" * 40)
+    print(f"  最终选出:                   {len(qualified_stocks)}")
+    print("=" * 60)
 
     return qualified_stocks
 

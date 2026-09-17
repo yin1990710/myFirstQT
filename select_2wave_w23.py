@@ -16,6 +16,10 @@
           ⑧大盘环境5（沪深300>MA20，不满足时本项0分且触发门槛+10）
           总分>=70触发买入信号，60~69列入观察池
 
+前置过滤（STOCK_FILTERS 注册式，参考 find_similar_ma5.py；新增条件只需追加一个过滤函数与一行注册）：
+  A股板块（仅沪深）、总市值>100亿、最新交易日短线强弱得分>75、
+  收盘价/成交量无缺失、历史K线不少于 78 个交易日。
+
 数据: stock_daily_t 最近 260 个交易日（按 qfq_adj_factor 前复权）
       + stock_daily_basic_info_t 市值过滤 + stock_index_daily_t 沪深300大盘过滤
 输出: CSV「W23二浪选股.csv」（csv.writer + utf-8-sig）
@@ -30,7 +34,7 @@ import tushare as ts
 
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
@@ -53,9 +57,19 @@ SCORE_THRESHOLD = 70       # 信号触发分数
 WATCH_THRESHOLD = 60       # 观察池分数
 LOOKBACK_DAYS = 260        # 数据回看交易日数
 MIN_MARKET_CAP_WAN = 1_000_000  # 总市值下限（万元）= 100亿
+MIN_SHORT_STRENGTH = 75.0       # 最新交易日短线强弱得分下限（>75）
+MIN_BARS = MA_LONG + WAVE1_MIN_DAYS + WAVE2_MIN_DAYS + 10  # 参与计算的最少交易日数（78）
 TOP_N = 20
 
 # ---------- 灵活过滤条件（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
+# 每个过滤函数入参为单只股票的记录列表（按日期升序），返回 True=通过；
+# 通过前置过滤后才进入 Stage1~3 形态识别与打分卡计算。
+
+def _filter_a_share(records):
+    """仅保留沪深A股（.SH/.SZ），剔除北交所等。"""
+    code = records[-1].get('ts_code') or ''
+    return code.endswith('.SH') or code.endswith('.SZ')
+
 
 def _filter_min_market_cap(records):
     """最近一个交易日总市值 total_mv（万元）> MIN_MARKET_CAP_WAN。"""
@@ -63,8 +77,34 @@ def _filter_min_market_cap(records):
     return mv is not None and mv > MIN_MARKET_CAP_WAN
 
 
+def _filter_short_strength(records):
+    """最新交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = records[-1].get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
+def _filter_close_complete(records):
+    """全部交易日收盘价无缺失。"""
+    return all(r.get('close') is not None for r in records)
+
+
+def _filter_vol_complete(records):
+    """全部交易日成交量无缺失。"""
+    return all(r.get('vol') is not None for r in records)
+
+
+def _filter_enough_bars(records):
+    """历史K线不少于 MIN_BARS 个交易日，保证MA30/1浪/2浪窗口可计算。"""
+    return len(records) >= MIN_BARS
+
+
 STOCK_FILTERS = [
-    (f'市值<={MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    ('非沪深A股', _filter_a_share),
+    (f'总市值<={MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
+    ('存在收盘价缺失日', _filter_close_complete),
+    ('存在成交量缺失日', _filter_vol_complete),
+    (f'历史K线不足{MIN_BARS}日', _filter_enough_bars),
 ]
 
 
@@ -120,7 +160,7 @@ def read_stock_data(start_date, end_date):
         return []
     query_sql = """
         SELECT d.ts_code, d.trade_date, d.open, d.close, d.vol,
-               d.qfq_adj_factor, b.total_mv, i.stock_name
+               d.qfq_adj_factor, d.short_strength_score, b.total_mv, i.stock_name
         FROM stock_daily_t d
         LEFT JOIN stock_daily_basic_info_t b
                ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
@@ -408,6 +448,7 @@ def main():
     print(f"   Stage1: 1浪涨幅>={WAVE1_MIN_GAIN*100:.0f}%且{WAVE1_MIN_DAYS}~{WAVE1_MAX_DAYS}日(金叉+放量)"
           f" | Stage2: 回撤{FIB_LO*100:.1f}%~{FIB_HI*100:.1f}%不破L0+H1后{WAVE2_MIN_DAYS}日+"
           f" | Stage3: 打分>={SCORE_THRESHOLD}触发/{WATCH_THRESHOLD}观察")
+    print(f"   前置过滤: 仅沪深A股 | 总市值>{MIN_MARKET_CAP_WAN/10000:.0f}亿 | 短线强弱得分>{MIN_SHORT_STRENGTH:g}")
     print("=" * 80)
 
     trade_dates = get_last_n_trade_dates(target_date, LOOKBACK_DAYS)
@@ -424,11 +465,14 @@ def main():
     for r in data:
         code = r['ts_code']
         rec = {
+            'ts_code': code,
             'trade_date': r['trade_date'],
             'open': float(r['open']) if r['open'] is not None else None,
             'close': float(r['close']) if r['close'] is not None else None,
             'vol': float(r['vol']) if r['vol'] is not None else None,
             'qfq_adj_factor': float(r['qfq_adj_factor']) if r['qfq_adj_factor'] is not None else None,
+            'short_strength_score': (float(r['short_strength_score'])
+                                     if r.get('short_strength_score') is not None else None),
             'total_mv': float(r['total_mv']) if r['total_mv'] is not None else None,
         }
         stock_data.setdefault(code, []).append(rec)
@@ -436,25 +480,18 @@ def main():
             stock_names[code] = r['stock_name']
 
     latest_date = trade_dates[-1]
-    cnt_no_latest = cnt_not_a = cnt_no_hist = 0
+    cnt_no_latest = 0
     cnt_filter = {name: 0 for name, _ in STOCK_FILTERS}
     cnt_fail = {}
     result = []
 
     for code, recs in stock_data.items():
+        # 最新交易日无行情（停牌等）不参与，与 find_similar_ma5 的日期对齐口径一致
         if recs[-1]['trade_date'] != latest_date:
             cnt_no_latest += 1
             continue
-        if not (code.endswith('.SH') or code.endswith('.SZ')):
-            cnt_not_a += 1
-            continue
-        ok, reasons = apply_filters(recs)
-        if not ok:
-            for name in reasons:
-                cnt_filter[name] += 1
-            continue
 
-        # 前复权调整
+        # 前复权调整（前复权价 = 原始价 × 当日因子 / 最新交易日因子）
         f_latest = recs[-1]['qfq_adj_factor']
         if f_latest and f_latest > 0:
             for rec in recs:
@@ -466,17 +503,14 @@ def main():
                     if rec['close'] is not None:
                         rec['close'] *= k
 
-        # 缺失检查
-        if any(r['close'] is None for r in recs):
-            cnt_fail['收盘价缺失'] = cnt_fail.get('收盘价缺失', 0) + 1
-            continue
-        if any(r['vol'] is None for r in recs):
-            cnt_fail['成交量缺失'] = cnt_fail.get('成交量缺失', 0) + 1
-            continue
-        if len(recs) < MA_LONG + WAVE1_MIN_DAYS + WAVE2_MIN_DAYS + 10:
-            cnt_no_hist += 1
+        # 注册式前置过滤（板块/市值/强弱分/数据完整性/历史长度）
+        ok, reasons = apply_filters(recs)
+        if not ok:
+            for name in reasons:
+                cnt_filter[name] += 1
             continue
 
+        # 通过前置过滤后，进入 Stage1~3 形态识别与打分卡计算
         ind = calc_indicators([r['close'] for r in recs], [r['vol'] for r in recs])
         w, reason = locate_w12(recs, ind)
         if w is None:
@@ -502,6 +536,7 @@ def main():
             'stop_loss': w['L2'] * 0.97,
             'close': recs[-1]['close'],
             'total_mv': recs[-1]['total_mv'],
+            'short_strength_score': recs[-1]['short_strength_score'],
             'detail': {k: v for k, v in detail.items() if not k.startswith('_')},
         })
 
@@ -511,8 +546,6 @@ def main():
     print("\n" + "=" * 72)
     print(f"  股票总数: {len(stock_data)}")
     print(f"  - 最新日停牌无数据: {cnt_no_latest}")
-    print(f"  - 非A股: {cnt_not_a}")
-    print(f"  - 历史不足: {cnt_no_hist}")
     for name, cnt in cnt_filter.items():
         print(f"  - 过滤[{name}]: {cnt}")
     for name, cnt in sorted(cnt_fail.items(), key=lambda x: -x[1])[:10]:
@@ -545,8 +578,10 @@ def main():
 
     print(f"\n🔥 W23信号前{min(TOP_N, len(result))}（按得分降序）：")
     for i, s in enumerate(result[:TOP_N], 1):
+        sss = s.get('short_strength_score')
+        sss_mark = f" 强弱={sss:.1f}" if sss is not None else ""
         print(f"{i:>2}. {s['ts_code']:<11}{s['stock_name']:<6} [{s['signal']}] "
-              f"得分={s['score']} 回撤={s['retr']*100:.1f}% 地量比={s['vol_ratio']:.2f} "
+              f"得分={s['score']}{sss_mark} 回撤={s['retr']*100:.1f}% 地量比={s['vol_ratio']:.2f} "
               f"L0={s['L0']:.2f} H1={s['H1']:.2f} L2={s['L2']:.2f} 距L2={s['days2']}日 "
               f"止损={s['stop_loss']:.2f}")
 

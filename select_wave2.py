@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-波浪理论二浪选股 (select_wave2.py)
+策略名称：经典二浪选股策略
 
 对齐豆包对话《波浪理论：筛选处于第2浪的量化选股策略》：
   1浪 = 底部启动的第一波显著上涨（L1 → H1）
@@ -30,14 +30,21 @@
 波段识别：order=10 的局部极值（收盘价），数值越大浪级越大（短线可降到6）。
 
 其他约定：
-  - 基础过滤：仅A股(.SH/.SZ)、最新交易日有数据（剔除停牌）、
-    最新日总市值 total_mv >= 100亿（1,000,000万元）
+  - 基础过滤（STOCK_FILTERS 注册表，参考 find_similar_ma5.py）：仅A股(.SH/.SZ)、
+    最新交易日有数据（停牌前置闸门）、最新日总市值 total_mv >= 100亿、历史K线≥140日；
+    新增廉价过滤只需追加一个 _filter_xxx 与一行注册
+  - 二浪10条硬条件以 CANDIDATE_CHECKS 候选注册表实现（每个候选(L1,H1)组合执行一次），
+    新增硬条件只需追加一个 _check_xxx（返回 None=通过 / 原因串=不通过）
   - 数据读取 stock_daily_t 最近 250 个交易日（DB 现有 214 个），
     LEFT JOIN stock_daily_basic_info_t 取最新日 total_mv
   - 输出：文件夹「二浪选股+当日日期后缀」（已存在则复用），
     CSV「二浪选股.csv」单列 股票代码（csv.writer + utf-8-sig）
   - 结果为0时不创建文件夹/CSV
   - 风控参考：止损=2浪低点L2下方3%；目标=3浪启动，第一目标位 H1+(H1-L1)
+
+对外兼容（find_similar_wave2.py 依赖，勿改签名）：
+  MIN_SCORE / TOP_N / get_target_date / get_last_n_trade_dates /
+  read_stock_data / add_mas / run_wave2_selection(data, trade_dates) -> (result, stock_data)
 
 用法：
   python3 select_wave2.py
@@ -53,7 +60,7 @@ import tushare as ts
 
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mysql_connection import get_mysql_connection, close_connection
+from module_mysql_connection import get_mysql_connection, close_connection
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
@@ -74,6 +81,40 @@ MIN_SCORE = 60             # 辅助打分输出阈值（100分制）
 TOP_N = 30                 # 最多输出数量
 
 LOOKBACK_DAYS = 250        # 读取交易日数（DB现有214个，请求留缓冲）
+MIN_HISTORY = LONG_MA_DAYS + 20  # 参与二浪识别的最少交易日数（覆盖长期均线+波浪结构空间）
+
+
+# ---------- 基础过滤（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
+# 每个过滤函数入参为单只股票记录（按日期升序、已算好均线），返回 True=通过；
+# 停牌（最新交易日无行情）为日期对齐前置闸门，在主循环中处理，不在此注册。
+
+def _filter_a_share(recs):
+    """仅保留沪深A股（.SH/.SZ），剔除北交所等。代码由主循环注入到末条记录。"""
+    code = recs[-1].get('ts_code') or ''
+    return code.endswith('.SH') or code.endswith('.SZ')
+
+
+def _filter_min_market_cap(recs):
+    """最新一个交易日总市值 total_mv（万元）>= MIN_MARKET_CAP_WAN（100亿）。"""
+    return recs[-1].get('total_mv', 0.0) >= MIN_MARKET_CAP_WAN
+
+
+def _filter_enough_history(recs):
+    """历史K线不少于 MIN_HISTORY 个交易日。"""
+    return len(recs) >= MIN_HISTORY
+
+
+STOCK_FILTERS = [
+    ('非沪深A股', _filter_a_share),
+    (f'市值<{MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
+    (f'上市/数据不足{MIN_HISTORY}日', _filter_enough_history),
+]
+
+
+def apply_filters(recs):
+    """依次执行 STOCK_FILTERS 全部基础条件，返回 (是否通过, 未通过条件名列表)。"""
+    reasons = [name for name, fn in STOCK_FILTERS if not fn(recs)]
+    return (len(reasons) == 0), reasons
 
 
 # ---------- 工具函数 ----------
@@ -194,6 +235,136 @@ def local_extremes(closes, order=ORDER):
     return highs, lows
 
 
+# ---------- 二浪硬条件（CANDIDATE_CHECKS 候选注册表） ----------
+# 每个 check 入参为单个候选 (L1,H1,L2) 组合的特征上下文 cand，
+# 返回 None=通过；返回原因字符串=不通过（原因串与原内联归因文案保持一致）。
+# 顺序即漏斗归因优先级：一个候选多条不通过时取第一条原因。
+
+def _build_candidate(recs, closes, n, i, j, k2):
+    """构造单个 (L1=i, H1=j, L2=k2) 候选组合的特征上下文。"""
+    c_i, c_j, c_k = closes[i], closes[j], closes[k2]
+    wave1_days = j - i
+    wave2_days = (n - 1) - j
+    avg_vol1 = mean([recs[t]['vol'] for t in range(i, j + 1)])
+    avg_vol2 = mean([recs[t]['vol'] for t in range(j + 1, n)])
+    retrace = (c_j - c_k) / (c_j - c_i) if c_j > c_i else -1
+    ma_l_now = recs[-1]['ma_long']
+    ma_l_ref = (recs[n - 6]['ma_long']
+                if n >= 6 and recs[n - 6]['ma_long'] is not None else None)
+    ma_l_ok = (ma_l_now is not None and ma_l_ref is not None
+               and recs[j]['ma_long'] is not None
+               and recs[k2]['ma_long'] is not None)
+    ma30_now = recs[-1]['ma30']
+    ma30_ref = recs[n - 6]['ma30'] if n >= 6 else None
+    return {
+        'recs': recs, 'closes': closes, 'n': n,
+        'i': i, 'j': j, 'k2': k2,
+        'c_i': c_i, 'c_j': c_j, 'c_k': c_k,
+        'wave1_days': wave1_days, 'wave2_days': wave2_days,
+        'avg_vol1': avg_vol1, 'avg_vol2': avg_vol2,
+        'retrace': retrace, 'ratio': wave2_days / wave1_days,
+        'ma_l_now': ma_l_now, 'ma_l_ref': ma_l_ref, 'ma_l_ok': ma_l_ok,
+        'ma30_now': ma30_now, 'ma30_ref': ma30_ref,
+    }
+
+
+def _check_l2_above_l1(c):
+    # a. L2 > L1（2浪低点不跌破浪1起点）
+    if c['c_k'] > c['c_i']:
+        return None
+    return '2浪破浪1起点(L2<=L1)'
+
+
+def _check_retrace(c):
+    # b. 黄金分割回撤区间
+    if RETRACE_MIN <= c['retrace'] <= RETRACE_MAX:
+        return None
+    return f'回撤超出{RETRACE_MIN}~{RETRACE_MAX}'
+
+
+def _check_shrink_volume(c):
+    # c. 浪2均量 < 浪1均量（缩量回调）
+    if c['avg_vol1'] and c['avg_vol2'] and c['avg_vol2'] < c['avg_vol1']:
+        return None
+    return '浪2未缩量(均量>=浪1)'
+
+
+def _check_long_ma_data(c):
+    # d-0. 长期均线相关点位数据齐全
+    if c['ma_l_ok']:
+        return None
+    return '长期均线数据不足'
+
+
+def _check_price_above_long_ma(c):
+    # d-1. 现价站上长期均线
+    if c['ma_l_ok'] and c['closes'][-1] > c['ma_l_now']:
+        return None
+    return '现价在长期均线下方'
+
+
+def _check_h1_above_long_ma(c):
+    # d-2. 浪1高点在长期均线上方
+    if c['ma_l_ok'] and c['c_j'] > c['recs'][c['j']]['ma_long']:
+        return None
+    return '浪1高点未站上长期均线'
+
+
+def _check_l2_hold_long_ma(c):
+    # d-3. 2浪低点守住长期均线
+    if c['ma_l_ok'] and c['c_k'] >= c['recs'][c['k2']]['ma_long']:
+        return None
+    return '2浪低点跌破长期均线'
+
+
+def _check_long_ma_up(c):
+    # d-4. 长期均线向上
+    if c['ma_l_ok'] and c['ma_l_now'] > c['ma_l_ref']:
+        return None
+    return '长期均线未向上'
+
+
+def _check_ma30_up(c):
+    # e. MA30 向上
+    if (c['ma30_now'] is not None and c['ma30_ref'] is not None
+            and c['ma30_now'] > c['ma30_ref']):
+        return None
+    return 'MA30未向上'
+
+
+def _check_time_ratio(c):
+    # f. 浪2/浪1 时间比 0.5 ~ 2.618
+    if TIME_RATIO_MIN <= c['ratio'] <= TIME_RATIO_MAX:
+        return None
+    return (f'浪2/浪1时间比{c["ratio"]:.2f}'
+            f'超出{TIME_RATIO_MIN}~{TIME_RATIO_MAX}')
+
+
+# 硬条件注册表（顺序即原内联 checks 顺序，勿随意调整以免改变漏斗归因）
+CANDIDATE_CHECKS = [
+    _check_l2_above_l1,
+    _check_retrace,
+    _check_shrink_volume,
+    _check_long_ma_data,
+    _check_price_above_long_ma,
+    _check_h1_above_long_ma,
+    _check_l2_hold_long_ma,
+    _check_long_ma_up,
+    _check_ma30_up,
+    _check_time_ratio,
+]
+
+
+def apply_candidate_checks(cand):
+    """对单个候选组合执行全部硬条件，返回未通过原因列表（空列表=全部通过）。"""
+    reasons = []
+    for fn in CANDIDATE_CHECKS:
+        reason = fn(cand)
+        if reason is not None:
+            reasons.append(reason)
+    return reasons
+
+
 def evaluate_wave2(recs):
     """在单只股票上枚举 (L1, H1) 组合，返回满足全部硬条件、得分最高的二浪结构，否则 None。
 
@@ -230,42 +401,12 @@ def evaluate_wave2(recs):
             c_k = closes[k2]
             wave2_days = (n - 1) - j
 
-            # ---- 硬条件逐项校验，统计通过数用于失败归因 ----
-            checks = []
-            # a. L2 > L1
-            checks.append(('2浪破浪1起点(L2<=L1)', c_k > c_i))
-            # b. 黄金分割回撤
-            retrace = (c_j - c_k) / (c_j - c_i) if c_j > c_i else -1
-            checks.append((f'回撤超出{RETRACE_MIN}~{RETRACE_MAX}', RETRACE_MIN <= retrace <= RETRACE_MAX))
-            # c. 缩量回调
-            avg_vol1 = mean([recs[t]['vol'] for t in range(i, j + 1)])
-            avg_vol2 = mean([recs[t]['vol'] for t in range(j + 1, n)])
-            checks.append(('浪2未缩量(均量>=浪1)',
-                           avg_vol1 and avg_vol2 and avg_vol2 < avg_vol1))
-            # d. 长期均线（现价站上 / 浪1高点上方 / 2浪低点守住 / 均线向上）
-            ma_l_now = recs[-1]['ma_long']
-            ma_l_ref = recs[n - 6]['ma_long'] if n >= 6 and recs[n - 6]['ma_long'] is not None else None
-            checks.append(('长期均线数据不足',
-                           ma_l_now is not None and ma_l_ref is not None
-                           and recs[j]['ma_long'] is not None and recs[k2]['ma_long'] is not None))
-            ma_l_ok = (ma_l_now is not None and ma_l_ref is not None
-                       and recs[j]['ma_long'] is not None and recs[k2]['ma_long'] is not None)
-            checks.append(('现价在长期均线下方', ma_l_ok and closes[-1] > ma_l_now))
-            checks.append(('浪1高点未站上长期均线', ma_l_ok and c_j > recs[j]['ma_long']))
-            checks.append(('2浪低点跌破长期均线', ma_l_ok and c_k >= recs[k2]['ma_long']))
-            checks.append(('长期均线未向上', ma_l_ok and ma_l_now > ma_l_ref))
-            # e. MA30 向上
-            ma30_now, ma30_ref = recs[-1]['ma30'], (recs[n - 6]['ma30'] if n >= 6 else None)
-            checks.append(('MA30未向上',
-                           ma30_now is not None and ma30_ref is not None and ma30_now > ma30_ref))
-            # f. 时间比例
-            ratio = wave2_days / wave1_days
-            checks.append((f'浪2/浪1时间比{ratio:.2f}超出{TIME_RATIO_MIN}~{TIME_RATIO_MAX}',
-                           TIME_RATIO_MIN <= ratio <= TIME_RATIO_MAX))
-
-            pass_cnt = sum(1 for _, ok in checks if ok)
-            failed = [name for name, ok in checks if not ok]
+            # ---- 候选特征 + 注册式硬条件校验（CANDIDATE_CHECKS） ----
+            cand = _build_candidate(recs, closes, n, i, j, k2)
+            failed = apply_candidate_checks(cand)
+            pass_cnt = len(CANDIDATE_CHECKS) - len(failed)
             if failed:
+                # 取通过数最多的一组尝试的首条原因，便于漏斗归因
                 if pass_cnt > best_pass_cnt:
                     best_pass_cnt, best_reason = pass_cnt, failed[0]
                 continue
@@ -273,15 +414,15 @@ def evaluate_wave2(recs):
             # ---- 辅助打分（100分制） ----
             score = 0.0
             # 回撤接近0.5（30分）
-            score += 30 * max(0.0, 1 - abs(retrace - 0.5) / 0.118)
+            score += 30 * max(0.0, 1 - abs(cand['retrace'] - 0.5) / 0.118)
             # 缩量程度（25分）：浪2/浪1量比越低越好
-            vol_ratio = avg_vol2 / avg_vol1 if avg_vol1 else 1.0
+            vol_ratio = cand['avg_vol2'] / cand['avg_vol1'] if cand['avg_vol1'] else 1.0
             score += 25 * max(0.0, 1 - vol_ratio)
             # 末端地量（10分）：最近5日最低量 / 浪1均量
             last5_min_vol = min((recs[t]['vol'] for t in range(max(0, n - 5), n)
                                  if recs[t]['vol'] is not None), default=None)
-            if last5_min_vol is not None and avg_vol1:
-                score += 10 * max(0.0, 1 - last5_min_vol / avg_vol1 / 0.6)
+            if last5_min_vol is not None and cand['avg_vol1']:
+                score += 10 * max(0.0, 1 - last5_min_vol / cand['avg_vol1'] / 0.6)
             # 重新站上MA5（10分）
             if recs[-1]['ma5'] is not None and closes[-1] > recs[-1]['ma5']:
                 score += 10
@@ -303,7 +444,7 @@ def evaluate_wave2(recs):
                     'l1_date': recs[i]['trade_date'], 'h1_date': recs[j]['trade_date'],
                     'l2_date': recs[k2]['trade_date'],
                     'l1_close': c_i, 'h1_close': c_j, 'l2_close': c_k,
-                    'retrace': retrace, 'wave1_days': wave1_days,
+                    'retrace': cand['retrace'], 'wave1_days': wave1_days,
                     'wave2_days': wave2_days, 'vol_ratio': vol_ratio,
                     'rsi': rsi, 'dif': dif, 'dea': dea,
                     'score': round(score, 1),
@@ -349,6 +490,7 @@ def run_wave2_selection(data, trade_dates):
     stock_data = {}
     for record in data:
         stock_data.setdefault(record['ts_code'], []).append({
+            'ts_code': record['ts_code'],
             'trade_date': record['trade_date'],
             'close': float(record['close']) if record['close'] is not None else None,
             'vol': float(record['vol']) if record['vol'] is not None else None,
@@ -359,32 +501,32 @@ def run_wave2_selection(data, trade_dates):
         add_mas(recs)
 
     latest_date = trade_dates[-1]
-    min_history = LONG_MA_DAYS + 20   # 至少覆盖长期均线 + 波浪结构空间
 
-    cnt_no_latest = cnt_not_a = cnt_mv = cnt_short = 0
+    cnt_no_latest = 0
+    cnt_filter = {name: 0 for name, _ in STOCK_FILTERS}
     cnt_wave_fail = {}
+    cnt_low_score = 0
     result = []
     for code, recs in stock_data.items():
+        # 停牌（最新交易日无行情）为日期对齐前置闸门
         if recs[-1]['trade_date'] != latest_date:
             cnt_no_latest += 1
             continue
-        if not (code.endswith('.SH') or code.endswith('.SZ')):
-            cnt_not_a += 1
-            continue
-        if recs[-1]['total_mv'] < MIN_MARKET_CAP_WAN:
-            cnt_mv += 1
-            continue
-        if len(recs) < min_history:
-            cnt_short += 1
+
+        # 注册式基础过滤：A股 / 市值>=100亿 / 历史>=MIN_HISTORY
+        ok, reasons = apply_filters(recs)
+        if not ok:
+            for name in reasons:
+                cnt_filter[name] += 1
             continue
 
+        # 形态枚举 + 候选硬条件注册表（evaluate_wave2 内部）
         best, fail_reason = evaluate_wave2(recs)
         if best is None:
             cnt_wave_fail[fail_reason] = cnt_wave_fail.get(fail_reason, 0) + 1
             continue
         if best['score'] < MIN_SCORE:
-            cnt_low_score = getattr(run_wave2_selection, '_low', 0)
-            run_wave2_selection._low = cnt_low_score + 1
+            cnt_low_score += 1
             continue
 
         best['ts_code'] = code
@@ -401,17 +543,15 @@ def run_wave2_selection(data, trade_dates):
     print("-" * 44)
     print(f"  股票总数:                 {len(stock_data)}")
     print(f"  - 最新日停牌无数据:       {cnt_no_latest}")
-    print(f"  - 非A股:                  {cnt_not_a}")
-    print(f"  - 市值<100亿:             {cnt_mv}")
-    print(f"  - 上市/数据不足{min_history}日: {cnt_short}")
+    for name, cnt in cnt_filter.items():
+        print(f"  - 过滤[{name}]:           {cnt}")
     for name, cnt in sorted(cnt_wave_fail.items(), key=lambda x: -x[1])[:8]:
         print(f"  - {name}: {cnt}")
-    print(f"  - 打分<{MIN_SCORE}分:      {getattr(run_wave2_selection, '_low', 0)}")
+    print(f"  - 打分<{MIN_SCORE}分:      {cnt_low_score}")
     print("-" * 44)
     print(f"  入选: {len(result)}（score>={MIN_SCORE}，按打分降序）")
     print("=" * 64)
 
-    run_wave2_selection._low = 0
     return result, stock_data
 
 
