@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>个股数据详情 - 力矩量化选股平台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px;
+         background: #f7f8fa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; margin: -24px -24px 20px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap; color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #fff;
+         padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 12px; font-size: 13px; }
+  .bar label { color: #555; white-space: nowrap; }
+  .bar input[type="text"], .bar input[type="date"], .bar select {
+    padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
+  .bar input#code { width: 200px; }
+  .bar input#date { width: 150px; }
+  .bar select { max-width: 130px; }
+  .bar button { padding: 6px 14px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
+                font-size: 13px; cursor: pointer; }
+  .bar button.reset { background: #888; }
+  .bar button.export { background: #0f9d58; }
+  .bar button:disabled { background: #bbb; cursor: not-allowed; }
+  #msg { font-size: 13px; color: #d93025; }
+  #stat { font-size: 13px; color: #666; margin-bottom: 8px; }
+  /* 进度条 */
+  .progress { height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden; margin-bottom: 12px; display: none; }
+  .progress.show { display: block; }
+  .progress .pbar { height: 100%; width: 0; background: linear-gradient(90deg,#1a73e8,#4dabf5);
+                    transition: width .3s ease; }
+  /* 表格 */
+  .tbl-wrap { overflow-x: auto; background: #fff; border-radius: 8px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 1500px; }
+  thead th { background: #1a73e8; color: #fff; padding: 8px 10px; text-align: right; white-space: nowrap;
+             position: sticky; top: 0; z-index: 5; }
+  thead th:first-child, thead th:nth-child(2) { text-align: left; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { background: #1558b0; }
+  thead th .arrow { font-size: 10px; margin-left: 3px; color: rgba(255,255,255,.5); }
+  thead th .arrow.active { color: #fff; }
+  tbody td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  tbody td:first-child { text-align: left; color: #1a73e8; font-weight: 600; }
+  tbody td:nth-child(2) { text-align: left; }
+  tbody tr:hover { background: #eef4ff; }
+  .pos { color: #d93025; }
+  .neg { color: #0f9d58; }
+  .null { color: #bbb; }
+  .empty { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
+  /* 分页器 */
+  .pager { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end;
+           background: #fff; padding: 10px 16px; border-radius: 8px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-top: 10px; font-size: 13px; color: #555; }
+  .pager .info { margin-right: auto; }
+  .pager button { min-width: 32px; padding: 4px 9px; border: 1px solid #ccc; border-radius: 6px;
+                  background: #fff; color: #333; font-size: 13px; cursor: pointer; }
+  .pager button:hover:not(:disabled):not(.active) { border-color: #1a73e8; color: #1a73e8; }
+  .pager button.active { background: #1a73e8; border-color: #1a73e8; color: #fff; cursor: default; }
+  .pager button:disabled { color: #bbb; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/stock-detail" class="active">个股详情</a>
+    <a href="/cron">任务运行监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<h1>📊 个股数据详情</h1>
+
+<div class="bar">
+  <label>股票代码/名称</label>
+  <input type="text" id="code" placeholder="输入代码或名称筛选（空=全部）" autocomplete="off">
+  <label>交易日期</label>
+  <input type="date" id="date">
+  <label>总市值</label>
+  <select id="fMv">
+    <option value="">全部</option>
+    <option value="|50">50亿以下</option>
+    <option value="50|200">50-200亿</option>
+    <option value="200|300">200-300亿</option>
+    <option value="300|500">300-500亿</option>
+    <option value="500|1000">500-1000亿</option>
+    <option value="1000|3000">1000-3000亿</option>
+    <option value="3000|5000">3000-5000亿</option>
+    <option value="5000|">大于5000亿</option>
+  </select>
+  <label>股息率TTM</label>
+  <select id="fDv">
+    <option value="">全部</option>
+    <option value="|1">1%以下</option>
+    <option value="1|2">1-2%</option>
+    <option value="2|3">2-3%</option>
+    <option value="3|4">3-4%</option>
+    <option value="4|5">4-5%</option>
+    <option value="5|">大于5%</option>
+  </select>
+  <label>换手率</label>
+  <select id="fTr">
+    <option value="">全部</option>
+    <option value="|5">5%以下</option>
+    <option value="5|10">5-10%</option>
+    <option value="10|15">10-15%</option>
+    <option value="15|20">15-20%</option>
+    <option value="20|30">20-30%</option>
+    <option value="30|">大于30%</option>
+  </select>
+  <label>成交额</label>
+  <select id="fAmt">
+    <option value="">全部</option>
+    <option value="|1">1亿以下</option>
+    <option value="1|5">1-5亿</option>
+    <option value="5|10">5-10亿</option>
+    <option value="10|20">10-20亿</option>
+    <option value="20|30">20-30亿</option>
+    <option value="30|50">30-50亿</option>
+    <option value="50|100">50-100亿</option>
+    <option value="100|">大于100亿</option>
+  </select>
+  <label>短线强弱得分</label>
+  <select id="fSss">
+    <option value="">全部</option>
+    <option value="|50">50以下</option>
+    <option value="50|70">50-70</option>
+    <option value="70|85">70-85</option>
+    <option value="85|">85以上</option>
+  </select>
+  <button id="queryBtn">查询</button>
+  <button class="reset" id="resetBtn">重置</button>
+  <button class="export" id="exportBtn">导出CSV</button>
+  <span id="msg"></span>
+</div>
+
+<div id="progress" class="progress"><div class="pbar" id="pbar"></div></div>
+<div id="stat"></div>
+
+<div class="tbl-wrap">
+  <table id="tbl">
+    <thead><tr id="thead"></tr></thead>
+    <tbody id="tbody">
+      <tr><td colspan="17" class="empty">输入条件后点查询，或直接点查询加载最新交易日全市场数据</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="pager" id="pager"></div>
+
+<script>
+const PAGE_SIZE = 30;
+// 列定义：(key, label, sortable, digits, isPct)
+const COLS = [
+  ['ts_code',            '股票代码',     false, 0, false],
+  ['stock_name',         '股票名称',     false, 0, false],
+  ['trade_date',         '交易日期',     true,  0, false],
+  ['short_strength_score','短线强弱得分', true,  1, false],   // 默认排序
+  ['open',               '开盘价',       false, 2, false],
+  ['close',              '收盘价',       false, 2, false],
+  ['pct_chg',            '涨跌幅',       true,  2, true],
+  ['amount_yi',           '成交额(亿)',   true,  1, false],
+  ['turnover_rate_f',     '换手率',       true,  2, true],
+  ['pe',                  '市盈率',       true,  2, false],
+  ['pe_ttm',              '动态市盈率',   true,  2, false],
+  ['pb',                  '市净率',       true,  2, false],
+  ['total_mv_yi',         '总市值(亿)',   true,  1, false],
+  ['circ_mv_yi',          '流通市值(亿)', true,  1, false],
+  ['dv_ttm',              '股息率TTM',    true,  2, true],
+  ['ma5',                 'ma5',          false, 2, false],
+  ['ma30',                'ma30',         false, 2, false],
+];
+
+const codeInput = document.getElementById('code');
+const dateInput = document.getElementById('date');
+const fMv = document.getElementById('fMv');
+const fDv = document.getElementById('fDv');
+const fTr = document.getElementById('fTr');
+const fAmt = document.getElementById('fAmt');
+const fSss = document.getElementById('fSss');
+const queryBtn = document.getElementById('queryBtn');
+const resetBtn = document.getElementById('resetBtn');
+const exportBtn = document.getElementById('exportBtn');
+const msgEl = document.getElementById('msg');
+const statEl = document.getElementById('stat');
+const progress = document.getElementById('progress');
+const pbar = document.getElementById('pbar');
+const thead = document.getElementById('thead');
+const tbody = document.getElementById('tbody');
+const pager = document.getElementById('pager');
+
+let allData = [];           // 当前交易日全量数据（后端返回）
+let curDate = '';           // 当前交易日 YYYYMMDD
+let sortBy = 'short_strength_score';
+let sortDir = 'desc';
+let curPage = 1;
+
+// ---------- 工具 ----------
+function fmtDate(yyyymmdd) {
+  if (!yyyymmdd || yyyymmdd.length !== 8) return yyyymmdd || '';
+  return yyyymmdd.slice(0,4) + '-' + yyyymmdd.slice(4,6) + '-' + yyyymmdd.slice(6,8);
+}
+function toISO(yyyymmdd) { return fmtDate(yyyymmdd); }
+function fromISO(iso) { return (iso || '').replace(/-/g, ''); }
+function fmtCell(v, digits, isPct) {
+  if (v === null || v === undefined || v === '') return '<span class="null">—</span>';
+  if (typeof v === 'string') return v;                          // 字符串直接返回（如格式化后的日期）
+  const n = Number(v);
+  if (Number.isNaN(n)) return v;                                // 非数字兜底返回原值
+  let s = n.toFixed(digits);
+  if (isPct) {
+    const cls = n > 0 ? 'pos' : (n < 0 ? 'neg' : '');
+    const sign = n > 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${s}%</span>`;
+  }
+  return s;
+}
+function inRange(v, range) {
+  if (!range) return true;
+  if (v === null || v === undefined) return false;
+  const [lo, hi] = range.split('|');
+  const min = lo === '' ? -Infinity : Number(lo);
+  const max = hi === '' ? Infinity : Number(hi);
+  return v >= min && v < max;
+}
+
+// ---------- 表头 ----------
+function renderHead() {
+  thead.innerHTML = COLS.map(([k, label, sortable]) => {
+    if (!sortable) return `<th>${label}</th>`;
+    const active = k === sortBy;
+    const arrow = active ? (sortDir === 'desc' ? '▼' : '▲') : '↕';
+    return `<th class="sortable" data-key="${k}">${label}<span class="arrow ${active ? 'active' : ''}">${arrow}</span></th>`;
+  }).join('');
+  thead.querySelectorAll('th.sortable').forEach(th => {
+    th.onclick = () => {
+      const k = th.dataset.key;
+      if (sortBy === k) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+      else { sortBy = k; sortDir = 'desc'; }
+      curPage = 1;
+      renderHead();
+      renderBody();
+    };
+  });
+}
+
+// ---------- 过滤+排序+分页 ----------
+function getFiltered() {
+  const kw = codeInput.value.trim().toLowerCase();
+  const mv = fMv.value, dv = fDv.value, tr = fTr.value, amt = fAmt.value, sss = fSss.value;
+  let data = allData.filter(r => {
+    if (kw) {
+      const code = (r.ts_code || '').toLowerCase();
+      const name = (r.stock_name || '').toLowerCase();
+      if (!code.includes(kw) && !name.includes(kw)) return false;
+    }
+    if (!inRange(r.total_mv_yi, mv)) return false;
+    if (!inRange(r.dv_ttm, dv)) return false;
+    if (!inRange(r.turnover_rate_f, tr)) return false;
+    if (!inRange(r.amount_yi, amt)) return false;
+    if (!inRange(r.short_strength_score, sss)) return false;
+    return true;
+  });
+  // 排序：null 排末尾
+  data.sort((a, b) => {
+    const av = a[sortBy], bv = b[sortBy];
+    const aNull = av === null || av === undefined, bNull = bv === null || bv === undefined;
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    let cmp;
+    if (typeof av === 'string') cmp = av < bv ? -1 : (av > bv ? 1 : 0);
+    else cmp = av - bv;
+    return sortDir === 'desc' ? -cmp : cmp;
+  });
+  return data;
+}
+
+function renderBody() {
+  const data = getFiltered();
+  const total = data.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (curPage > pages) curPage = pages;
+  const start = (curPage - 1) * PAGE_SIZE;
+  const pageData = data.slice(start, start + PAGE_SIZE);
+  if (total === 0) {
+    tbody.innerHTML = '<tr><td colspan="17" class="empty">📭 没有符合条件的数据</td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map(r =>
+      '<tr>' + COLS.map(([k, , , digits, isPct]) => {
+        let v = r[k];
+        if (k === 'trade_date') v = fmtDate(v);
+        if (k === 'ts_code') return `<td>${v || '—'}</td>`;
+        if (k === 'stock_name') return `<td>${v || '—'}</td>`;
+        return `<td>${fmtCell(v, digits, isPct)}</td>`;
+      }).join('') + '</tr>'
+    ).join('');
+  }
+  statEl.textContent = `共 ${allData.length} 只，筛选后 ${total} 只，第 ${curPage}/${pages} 页`;
+  renderPager(total, pages);
+}
+
+function renderPager(total, pages) {
+  if (total === 0) { pager.innerHTML = ''; return; }
+  const btns = [];
+  btns.push(`<button ${curPage === 1 ? 'disabled' : ''} data-p="1">首页</button>`);
+  btns.push(`<button ${curPage === 1 ? 'disabled' : ''} data-p="${curPage - 1}">上一页</button>`);
+  // 页码：当前±2，最多5个
+  let from = Math.max(1, curPage - 2), to = Math.min(pages, from + 4);
+  from = Math.max(1, to - 4);
+  for (let p = from; p <= to; p++) {
+    btns.push(`<button class="${p === curPage ? 'active' : ''}" data-p="${p}">${p}</button>`);
+  }
+  btns.push(`<button ${curPage === pages ? 'disabled' : ''} data-p="${curPage + 1}">下一页</button>`);
+  btns.push(`<button ${curPage === pages ? 'disabled' : ''} data-p="${pages}">末页</button>`);
+  pager.innerHTML = `<span class="info">共 ${total} 条 / ${pages} 页（每页 ${PAGE_SIZE} 条）</span>` + btns.join('');
+  pager.querySelectorAll('button[data-p]').forEach(b => {
+    if (b.disabled) return;
+    b.onclick = () => { curPage = Number(b.dataset.p); renderBody(); };
+  });
+}
+
+// ---------- 进度条 ----------
+let pbarTimer = null;
+function showProgress() {
+  progress.classList.add('show');
+  pbar.style.width = '0%';
+  clearTimeout(pbarTimer);
+  pbarTimer = setTimeout(() => pbar.style.width = '50%', 200);
+  pbarTimer = setTimeout(() => pbar.style.width = '85%', 700);
+}
+function hideProgress() {
+  clearTimeout(pbarTimer);
+  pbar.style.width = '100%';
+  setTimeout(() => progress.classList.remove('show'), 350);
+}
+
+// ---------- 查询 ----------
+async function doQuery() {
+  msgEl.textContent = '';
+  const dateISO = dateInput.value;
+  const date = fromISO(dateISO) || '';  // 空则后端取最新交易日
+  showProgress();
+  tbody.innerHTML = '<tr><td colspan="17" class="empty">⏳ 加载中…</td></tr>';
+  try {
+    const url = '/api/stock_list' + (date ? '?date=' + encodeURIComponent(date) : '');
+    const d = await fetch(url).then(r => r.json());
+    if (d.error) {
+      msgEl.textContent = d.error;
+      tbody.innerHTML = `<tr><td colspan="17" class="empty">⚠️ ${d.error}</td></tr>`;
+      return;
+    }
+    curDate = d.trade_date || date;
+    allData = d.items || [];
+    // 同步日期框（后端可能用了最新交易日）
+    dateInput.value = toISO(curDate);
+    curPage = 1;
+    renderHead();
+    renderBody();
+  } catch (e) {
+    msgEl.textContent = '查询失败: ' + e;
+    tbody.innerHTML = `<tr><td colspan="17" class="empty">⚠️ 查询失败: ${e}</td></tr>`;
+  } finally {
+    hideProgress();
+  }
+}
+
+queryBtn.addEventListener('click', doQuery);
+dateInput.addEventListener('change', doQuery);
+// 代码框 + 4 个下拉框：前端即时过滤（不重新请求）
+[codeInput, fMv, fDv, fTr, fAmt, fSss].forEach(el => {
+  el.addEventListener('input', () => { if (allData.length) { curPage = 1; renderBody(); } });
+  el.addEventListener('change', () => { if (allData.length) { curPage = 1; renderBody(); } });
+});
+resetBtn.addEventListener('click', () => {
+  codeInput.value = ''; fMv.value = ''; fDv.value = ''; fTr.value = ''; fAmt.value = ''; fSss.value = '';
+  if (allData.length) { curPage = 1; renderBody(); }
+});
+
+// ---------- 导出 CSV（当前筛选+排序后的全部数据，不受分页限制） ----------
+function exportCsv() {
+  const data = getFiltered();
+  if (!data.length) { msgEl.textContent = '无数据可导出'; return; }
+  msgEl.textContent = '';
+  const headers = COLS.map(c => c[1]);                       // 中文表头
+  const rows = data.map(r => COLS.map(([k, , , digits]) => {
+    let v = r[k];
+    if (k === 'trade_date') v = fmtDate(v);                  // YYYY-MM-DD
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'number') return v.toFixed(digits);     // 数值保留精度（便于 Excel 排序计算）
+    return v;
+  }));
+  const esc = cell => {                                       // 含逗号/引号/换行则引号包裹+双引号转义
+    const s = String(cell);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [headers, ...rows].map(row => row.map(esc).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });  // UTF-8 BOM 避免 Excel 中文乱码
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `个股数据详情_${curDate || 'export'}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+exportBtn.addEventListener('click', exportCsv);
+
+// ---------- 初始化：渲染表头并自动查询最新交易日 ----------
+renderHead();
+doQuery();
+</script>
+</body>
+</html>

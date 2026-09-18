@@ -387,6 +387,106 @@ def stock_detail():
     return send_from_directory(PAGE_DIR, '个股详情.html')
 
 
+@app.route('/stock-detail')
+def stock_detail_page():
+    """个股数据详情页：展示单只股票某交易日的完整字段快照。"""
+    return send_from_directory(PAGE_DIR, '个股数据详情.html')
+
+
+@app.route('/api/stock_detail')
+def api_stock_detail():
+    """返回单股单日完整字段快照 JSON（成交额/总市值/流通市值已换算为亿元，保留1位小数）。"""
+    code = request.args.get('code', '').strip()
+    date = request.args.get('date', '').strip()
+    if not code:
+        return jsonify({'error': '缺少 code 参数'}), 400
+    if not date:
+        return jsonify({'error': '缺少 date 参数'}), 400
+    from module_query_stock_detail import get_stock_detail
+    row = get_stock_detail(code, date)
+    if not row:
+        return jsonify({'error': f'未找到 {code} 在 {date} 的数据'}), 404
+    # 单位换算：amount 千元→亿元；total_mv/circ_mv 万元→亿元（均保留1位小数）
+    def _yi_yi(kv, divisor):  # 通用：千元/万元 → 亿元
+        return round(kv / divisor, 1) if kv is not None else None
+    return jsonify({
+        'ts_code':              row['ts_code'],
+        'stock_name':           row['stock_name'],
+        'trade_date':           row['trade_date'],
+        'short_strength_score': row['short_strength_score'],
+        'open':                 row['open'],
+        'close':                row['close'],
+        'pct_chg':              row['pct_chg'],
+        'amount_yi':            _yi_yi(row['amount'], 100000),
+        'turnover_rate_f':      row['turnover_rate_f'],
+        'pe':                   row['pe'],
+        'pe_ttm':               row['pe_ttm'],
+        'pb':                   row['pb'],
+        'total_mv_yi':          _yi_yi(row['total_mv'], 10000),
+        'circ_mv_yi':           _yi_yi(row['circ_mv'], 10000),
+        'dv_ttm':               row['dv_ttm'],
+        'ma5':                  row['ma5'],
+        'ma30':                 row['ma30'],
+    })
+
+
+@app.route('/api/stock_search')
+def api_stock_search():
+    """股票代码/名称联想补全，返回 {suggestions: [{ts_code, stock_name}, ...]}。"""
+    q = request.args.get('q', '').strip()
+    from module_query_stock_detail import search_stocks
+    return jsonify({'suggestions': search_stocks(q)})
+
+
+@app.route('/api/stock_latest_date')
+def api_stock_latest_date():
+    """返回该股最近一个交易日（YYYYMMDD），用于详情页日期框初始值/max。"""
+    code = request.args.get('code', '').strip()
+    if not code:
+        return jsonify({'error': '缺少 code 参数'}), 400
+    from module_query_stock_detail import get_latest_trade_date
+    return jsonify({'latest_date': get_latest_trade_date(code)})
+
+
+@app.route('/api/stock_list')
+def api_stock_list():
+    """返回某交易日全市场股票列表 JSON（成交额/总市值/流通市值已换算为亿元，保留1位小数）。
+    前端按总市值/股息率/换手率/成交额区间过滤、按字段排序、分页展示（每页30条）。"""
+    date = request.args.get('date', '').strip()
+    if not date:
+        # 未传 date 时自动取全市场最新交易日
+        from module_query_stock_detail import get_global_latest_trade_date
+        date = get_global_latest_trade_date()
+        if not date:
+            return jsonify({'error': '暂无行情数据'}), 404
+    from module_query_stock_detail import get_stock_list
+    rows = get_stock_list(date)
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    def _yi(v, divisor):  # 千元/万元 → 亿元（保留1位）
+        return round(v / divisor, 1) if v is not None else None
+    items = [{
+        'ts_code':              r['ts_code'],
+        'stock_name':           r['stock_name'],
+        'trade_date':           r['trade_date'],
+        'short_strength_score': r['short_strength_score'],
+        'open':                 r['open'],
+        'close':                r['close'],
+        'pct_chg':              r['pct_chg'],
+        'amount_yi':            _yi(r['amount'], 100000),
+        'turnover_rate_f':      r['turnover_rate_f'],
+        'pe':                   r['pe'],
+        'pe_ttm':               r['pe_ttm'],
+        'pb':                   r['pb'],
+        'total_mv_yi':          _yi(r['total_mv'], 10000),
+        'circ_mv_yi':           _yi(r['circ_mv'], 10000),
+        'dv_ttm':               r['dv_ttm'],
+        'ma5':                  r['ma5'],
+        'ma30':                 r['ma30'],
+    } for r in rows]
+    return jsonify({'trade_date': date, 'count': len(items), 'items': items})
+
+
 @app.route('/market')
 def market_monitor():
     """大盘整体情况页（静态模板），由前端 JS 调用 /api/market_data 拉取数据渲染。"""
