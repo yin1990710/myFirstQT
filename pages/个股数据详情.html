@@ -36,6 +36,7 @@
                 font-size: 13px; cursor: pointer; }
   .bar button.reset { background: #888; }
   .bar button.export { background: #0f9d58; }
+  .bar button.add-pool { background: #f57c00; }
   .bar button:disabled { background: #bbb; cursor: not-allowed; }
   #msg { font-size: 13px; color: #d93025; }
   #stat { font-size: 13px; color: #666; margin-bottom: 8px; }
@@ -88,6 +89,7 @@
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
     <a href="/stock-detail" class="active">个股详情</a>
+    <a href="/my_stocks">我的股票池</a>
     <a href="/cron">任务运行监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
@@ -155,6 +157,7 @@
   <button id="queryBtn">查询</button>
   <button class="reset" id="resetBtn">重置</button>
   <button class="export" id="exportBtn">导出CSV</button>
+  <button class="add-pool" id="addPoolBtn">加入我的股票池</button>
   <span id="msg"></span>
 </div>
 
@@ -205,6 +208,7 @@ const fSss = document.getElementById('fSss');
 const queryBtn = document.getElementById('queryBtn');
 const resetBtn = document.getElementById('resetBtn');
 const exportBtn = document.getElementById('exportBtn');
+const addPoolBtn = document.getElementById('addPoolBtn');
 const msgEl = document.getElementById('msg');
 const statEl = document.getElementById('stat');
 const progress = document.getElementById('progress');
@@ -250,12 +254,16 @@ function inRange(v, range) {
 
 // ---------- 表头 ----------
 function renderHead() {
-  thead.innerHTML = COLS.map(([k, label, sortable]) => {
+  thead.innerHTML = '<th class="chk-col" style="width:40px"><input type="checkbox" id="selectAll"></th>'
+    + COLS.map(([k, label, sortable]) => {
     if (!sortable) return `<th>${label}</th>`;
     const active = k === sortBy;
     const arrow = active ? (sortDir === 'desc' ? '▼' : '▲') : '↕';
     return `<th class="sortable" data-key="${k}">${label}<span class="arrow ${active ? 'active' : ''}">${arrow}</span></th>`;
   }).join('');
+  document.getElementById('selectAll').onchange = (e) => {
+    document.querySelectorAll('input.row-cb').forEach(cb => cb.checked = e.target.checked);
+  };
   thead.querySelectorAll('th.sortable').forEach(th => {
     th.onclick = () => {
       const k = th.dataset.key;
@@ -308,10 +316,12 @@ function renderBody() {
   const start = (curPage - 1) * PAGE_SIZE;
   const pageData = data.slice(start, start + PAGE_SIZE);
   if (total === 0) {
-    tbody.innerHTML = '<tr><td colspan="17" class="empty">📭 没有符合条件的数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" class="empty">📭 没有符合条件的数据</td></tr>';
   } else {
     tbody.innerHTML = pageData.map(r =>
-      '<tr>' + COLS.map(([k, , , digits, isPct]) => {
+      '<tr>'
+      + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${r.trade_date||''}"></td>`
+      + COLS.map(([k, , , digits, isPct]) => {
         let v = r[k];
         if (k === 'trade_date') v = fmtDate(v);
         if (k === 'ts_code') return `<td>${v || '—'}</td>`;
@@ -429,6 +439,36 @@ function exportCsv() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ---------- 加入我的股票池（参考策略选股结果页 addToMyStocks） ----------
+function addToMyStocks() {
+  const checked = Array.from(document.querySelectorAll('input.row-cb:checked'));
+  if (!checked.length) { msgEl.textContent = '请先勾选要加入的股票'; return; }
+  const stocks = checked.map(cb => ({
+    ts_code: cb.dataset.code,
+    stock_name: cb.dataset.name,
+    selected_date: cb.dataset.date,
+    strategy_name: '个股数据详情',
+  }));
+  const btn = addPoolBtn;
+  btn.disabled = true; btn.textContent = '加入中…';
+  msgEl.textContent = '';
+  fetch('/api/my_stocks/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stocks })
+  }).then(r => r.json()).then(d => {
+    if (d.error) { msgEl.textContent = '加入失败: ' + d.error; }
+    else {
+      msgEl.textContent = `✅ 已加入 ${d.count} 只股票到我的股票池`;
+      checked.forEach(cb => cb.checked = false);
+      const selAll = document.getElementById('selectAll');
+      if (selAll) selAll.checked = false;
+    }
+  }).catch(err => { msgEl.textContent = '加入失败: ' + err; })
+    .finally(() => { btn.disabled = false; btn.textContent = '加入我的股票池'; });
+}
+addPoolBtn.addEventListener('click', addToMyStocks);
 exportBtn.addEventListener('click', exportCsv);
 
 // ---------- 初始化：渲染表头并自动查询最新交易日 ----------
