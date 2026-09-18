@@ -9,23 +9,21 @@ Flask 回测结果查询 Web 应用 (app.py)
   2. GET /about           → 返回 pages/关于我们.html 项目介绍页；
   3. GET /backtest        → 返回 pages/策略选股结果.html 策略选股结果查询页面；
      GET /backtest_analysis → 返回 pages/策略回测.html 策略回测页面（开发中）；
-  4. GET /stock?code=xxx  → 返回 pages/个股详情.html 个股K线详情页；
-  5. GET /market          → 返回 pages/大盘整体情况.html 大盘整体情况页（静态模板），
-                            GET /api/market_data 返回 JSON 数据
-                            （由 report_market_overall_html.py 生成 market_overall_data.json）；
-  6. GET /cron            → 返回 pages/任务运行监控.html 任务运行监控页，
+  4. GET /market-overview  → 返回 pages/大盘指标概览.html 大盘指标概览页；
+     GET /mri               → 返回 pages/A股大盘风险指数MRI.html；
+  5. GET /cron            → 返回 pages/任务运行监控.html 任务运行监控页，
                             /api/cron_tasks 实时解析 cron_logs 编排日志，
                             /api/cron_log 读取单个任务明细日志；
-  7. GET /api/strategies  → 返回 strategy_selected_stock_daily_t 表中所有策略名
+  6. GET /api/strategies  → 返回 strategy_selected_stock_daily_t 表中所有策略名
                             （strategy 字段为逗号串，拆分为独立策略名并去重排序）；
-  8. GET /api/strategies_meta → AST 扫描所有 select_*.py，返回策略中文名、
+  7. GET /api/strategies_meta → AST 扫描所有 select_*.py，返回策略中文名、
                             STRATEGY_NAME 与选股条件说明（取自模块 docstring）；
-  9. GET /api/results     → 按策略名称（FIND_IN_SET 匹配逗号串）+ 日期范围
+  8. GET /api/results     → 按策略名称（FIND_IN_SET 匹配逗号串）+ 日期范围
                             （trade_date，YYYYMMDD）查询回测结果，返回 JSON；
-  10. GET /api/kline       → 返回个股最近 200 个交易日的前复权日K数据
+  9. GET /api/kline       → 返回个股最近 200 个交易日的前复权日K数据
                             （OHLC/成交量）及策略选中日期标记；
-  11. GET /api/selected_stocks → 去重返回所有被策略选中过的股票（详情页导航兜底）；
-  12. POST /api/strategies_run + GET /api/strategies_status → 选股策略手动执行与状态查询。
+  10. GET /api/selected_stocks → 去重返回所有被策略选中过的股票（详情页导航兜底）；
+  11. POST /api/strategies_run + GET /api/strategies_status → 选股策略手动执行与状态查询。
 
 页面展示字段：股票代码、股票名称、交易日、策略、是否选中、10日/20日最大涨幅、10日/20日最大跌幅，
 前端点击表头可按任意涨跌幅列（及交易日）升序/降序排序，空值始终排在最后。
@@ -487,28 +485,6 @@ def api_stock_list():
     return jsonify({'trade_date': date, 'count': len(items), 'items': items})
 
 
-@app.route('/market')
-def market_monitor():
-    """大盘整体情况页（静态模板），由前端 JS 调用 /api/market_data 拉取数据渲染。"""
-    report_path = os.path.join(PAGE_DIR, '大盘整体情况.html')
-    if not os.path.exists(report_path):
-        return ('<!DOCTYPE html><meta charset="utf-8">'
-                '<div style="font-family:sans-serif;text-align:center;margin-top:120px">'
-                '<h2>大盘整体情况页面缺失</h2>'
-                '<p>pages/大盘整体情况.html 不存在，请检查项目文件。</p>'
-                '<p><a href="/">← 返回首页</a></p></div>'), 404
-    return send_from_directory(PAGE_DIR, '大盘整体情况.html')
-
-
-@app.route('/api/market_data')
-def api_market_data():
-    """返回大盘风险监测数据 JSON（由 report_market_overall_html.py 生成到 pages/market_overall_data.json）。"""
-    path = os.path.join(PAGE_DIR, 'market_overall_data.json')
-    if not os.path.exists(path):
-        return jsonify({'error': '数据尚未生成，请先运行 .venv/bin/python report_market_overall_html.py'}), 404
-    with open(path, encoding='utf-8') as f:
-        return jsonify(json.load(f))
-
 
 @app.route('/cron')
 def cron_monitor():
@@ -805,49 +781,6 @@ def api_mri_status():
     """查询 MRI 报告生成状态。"""
     with _mri_lock:
         return jsonify(dict(_mri_state))
-
-
-# 大盘整体情况：重新计算 market_overall_data.json（数据计算层 = report_market_overall_html.py）
-_MARKET_SCRIPT = 'report_market_overall_html.py'
-_market_state = {'status': 'idle'}  # idle | running | success | failed
-_market_lock = threading.Lock()
-
-
-def _reap_market_process(proc, started):
-    rc = proc.wait()
-    ended = datetime.now()
-    with _market_lock:
-        _market_state.update(status='success' if rc == 0 else 'failed',
-                             end=ended.strftime('%Y-%m-%d %H:%M:%S'), rc=rc,
-                             duration=round((ended - started).total_seconds(), 1))
-
-
-@app.route('/api/market_refresh', methods=['POST'])
-def api_market_refresh():
-    """立即刷新大盘整体情况：后台运行 report_market_overall_html.py 重算数据。"""
-    with _market_lock:
-        if _market_state.get('status') == 'running':
-            return jsonify({'error': '数据正在计算中，请勿重复触发',
-                            'state': dict(_market_state)}), 409
-        script_path = os.path.join(BASE_DIR, _MARKET_SCRIPT)
-        if not os.path.isfile(script_path):
-            return jsonify({'error': '脚本不存在'}), 404
-        started = datetime.now()
-        try:
-            proc = subprocess.Popen([sys.executable, script_path], cwd=BASE_DIR)
-        except OSError as e:
-            return jsonify({'error': f'启动失败: {e}'}), 500
-        _market_state.update(status='running', start=started.strftime('%Y-%m-%d %H:%M:%S'),
-                             end=None, rc=None, duration=None, pid=proc.pid)
-    threading.Thread(target=_reap_market_process, args=(proc, started), daemon=True).start()
-    return jsonify({'ok': True, 'state': dict(_market_state)}), 202
-
-
-@app.route('/api/market_refresh_status')
-def api_market_refresh_status():
-    """查询大盘整体情况数据计算状态。"""
-    with _market_lock:
-        return jsonify(dict(_market_state))
 
 
 # ---------------------------------------------------------------------------
