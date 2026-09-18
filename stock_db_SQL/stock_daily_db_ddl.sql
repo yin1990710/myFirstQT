@@ -489,6 +489,24 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `strategy_result_analysis_t`
+--
+DROP TABLE IF EXISTS `strategy_result_analysis_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `strategy_result_analysis_t` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `strategy` varchar(100) NOT NULL COMMENT '策略名称',
+  `avg_gain_10d` decimal(10,4) DEFAULT NULL COMMENT '10日算术平均涨幅(%,各股票max_gain_10d的算术平均)',
+  `stock_count` int NOT NULL DEFAULT '0' COMMENT '样本股票数(已回填max_gain_10d的记录数)',
+  `latest_trade_date` varchar(8) DEFAULT NULL COMMENT '该策略最新选入交易日',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_strategy` (`strategy`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略结果分析统计表(按策略聚合10日平均涨幅)';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `task_run_log_t`
 --
 

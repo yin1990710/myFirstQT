@@ -79,6 +79,9 @@
                            animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
   .muted { color: #b4bdc8; }
+  .cancel-btn { background: #e5484d; color: #fff; border: none; border-radius: 4px;
+                padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  .cancel-btn:hover { background: #c93a3f; }
   .log-link { color: #1a73e8; cursor: pointer; text-decoration: none; font-size: 12.5px; }
   .log-link:hover { text-decoration: underline; }
   tr.detail td { background: #f8fafd; padding: 0; }
@@ -99,13 +102,13 @@
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest">策略回测</a>
+    <a href="/backtest">策略回测与分析</a>
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
     <a href="/stock-detail">个股详情</a>
     <a href="/my_stocks">我的股票池</a>
-    <a href="/cron" class="active">任务和数据监控</a>
+    <a href="/cron" class="active">任务与数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -152,10 +155,11 @@
         <th style="width:160px">提交时间</th>
         <th style="width:160px">结束时间</th>
         <th style="width:100px">运行时间</th>
+        <th style="width:140px">操作</th>
         <th style="width:90px">明细日志</th>
       </tr></thead>
       <tbody id="taskBody">
-        <tr><td colspan="9" class="empty">加载中…</td></tr>
+        <tr><td colspan="10" class="empty">加载中…</td></tr>
       </tbody>
     </table>
   </section>
@@ -213,10 +217,25 @@ function toggleDetail(tr, task) {
   expanded.add(task.run_id);
   const dr = document.createElement('tr');
   dr.className = 'detail';
-  dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+  dr.innerHTML = '<td colspan="10"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
   tr.after(dr);
   if (task.log) loadLog(task.log, dr.querySelector('.detail-box'));
   else dr.querySelector('.detail-box pre').textContent = '该任务暂无明细日志文件';
+}
+
+async function cancelTask(run_id, script) {
+  if (!confirm('确定取消 ' + script + ' 吗？')) return;
+  try {
+    const r = await fetch('/api/manual_task_cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id, script })
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { alert(d.error || d.message || '取消失败'); return; }
+    alert(d.message || '已发送取消请求');
+    refresh();
+  } catch (e) { alert('取消失败：' + e.message); }
 }
 
 function render() {
@@ -224,13 +243,17 @@ function render() {
   const tasks = fv ? allTasks.filter(t => t.status === fv) : allTasks;
 
   if (!tasks.length) {
-    taskBody.innerHTML = '<tr><td colspan="9" class="empty">暂无手动任务记录（条件选股页面点击【运行策略】后在此展示）</td></tr>';
+    taskBody.innerHTML = '<tr><td colspan="10" class="empty">暂无手动任务记录（条件选股页面点击【运行策略】后在此展示）</td></tr>';
     return;
   }
 
   taskBody.innerHTML = tasks.map((t, i) => {
     const logCell = t.log
       ? '<a class="log-link" data-idx="' + i + '">查看</a>'
+      : '<span class="muted">-</span>';
+    // 运行中任务显示取消按钮
+    const opCell = (t.status === 'running')
+      ? '<button class="cancel-btn" data-idx="' + i + '">取消</button>'
       : '<span class="muted">-</span>';
     return '<tr data-run="' + esc(t.run_id) + '">'
       + '<td>' + (i + 1) + '</td>'
@@ -241,9 +264,19 @@ function render() {
       + '<td>' + fmtFull(t.start) + '</td>'
       + '<td>' + fmtFull(t.end) + '</td>'
       + '<td>' + fmtDuration(t.duration) + '</td>'
+      + '<td>' + opCell + '</td>'
       + '<td>' + logCell + '</td>'
       + '</tr>';
   }).join('');
+
+  // 绑定取消按钮
+  taskBody.querySelectorAll('.cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const task = tasks[idx];
+      cancelTask(task.run_id, task.script);
+    });
+  });
 
   // 绑定日志展开
   taskBody.querySelectorAll('.log-link').forEach(a => {

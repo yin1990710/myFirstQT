@@ -61,6 +61,7 @@ import tushare as ts
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from module_mysql_connection import get_mysql_connection, close_connection
+from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
@@ -142,11 +143,11 @@ def get_last_n_trade_dates(target_date, n):
 
 
 def get_folder_name():
-    return f"二浪选股{get_target_date()}"
+    return f"经典二浪选股{get_target_date()}"
 
 
 def get_folder_path():
-    """文件夹「二浪选股+日期后缀」，已存在则复用。"""
+    """文件夹「经典二浪选股+日期后缀」，已存在则复用。"""
     folder_name = get_folder_name()
     folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), folder_name)
     if not os.path.exists(folder_path):
@@ -560,10 +561,12 @@ def main():
     parser = argparse.ArgumentParser(description='波浪理论二浪选股')
     parser.add_argument('--min-score', type=float, default=MIN_SCORE,
                         help=f'辅助打分阈值（100分制），默认{MIN_SCORE}')
+    parser.add_argument('--target-date', type=str, default=None,
+                        help='指定目标交易日 YYYYMMDD（不指定则自动判断）')
     args = parser.parse_args()
     MIN_SCORE = args.min_score
 
-    target_date = get_target_date()
+    target_date = args.target_date or get_target_date()
     print("=" * 80)
     print(f"🌊 波浪理论二浪选股 — 目标日期 {target_date}")
     print("=" * 80)
@@ -580,7 +583,7 @@ def main():
         return
 
     folder_path = get_folder_path()
-    csv_path = os.path.join(folder_path, '二浪选股.csv')
+    csv_path = os.path.join(folder_path, '经典二浪选股.csv')
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow(['股票代码'])
@@ -595,6 +598,12 @@ def main():
               f"L2={s['l2_date']}({s['l2_close']:.2f}) 回撤={s['retrace']:.3f} "
               f"量比={s['vol_ratio']:.2f} 量/时=1:{s['wave2_days'] / s['wave1_days']:.2f} "
               f"RSI={s['rsi']:.0f} 市值={s['total_mv'] / 10000:.0f}亿")
+
+    # 选股结果入库（便于回测）：全部满足条件的股票（不限于 TOP_N）
+    record_selected_stocks(
+        '经典二浪选股策略',
+        [{'ts_code': s['ts_code'], 'selected': 1} for s in result],
+        target_date)
 
 
 if __name__ == '__main__':

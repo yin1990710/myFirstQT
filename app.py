@@ -11,7 +11,7 @@ Flask 回测结果查询 Web 应用 (app.py)
      GET /backtest_analysis → 返回 pages/策略回测.html 策略回测页面（开发中）；
   4. GET /market-overview  → 返回 pages/大盘指标概览.html 大盘指标概览页；
      GET /mri               → 返回 pages/A股大盘风险指数MRI.html；
-  5. GET /cron            → 返回 pages/任务运行监控.html 任务运行监控页，
+  5. GET /cron            → 返回 pages/任务与数据监控.html 任务与数据监控页，
                             /api/cron_tasks 实时解析 cron_logs 编排日志，
                             /api/cron_log 读取单个任务明细日志；
   6. GET /api/strategies  → 返回 strategy_selected_stock_daily_t 表中所有策略名
@@ -41,6 +41,8 @@ import re
 import subprocess
 import sys
 import threading
+import fcntl
+import tempfile
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -329,6 +331,12 @@ def my_stocks_page():
     return send_from_directory(PAGE_DIR, '我的股票池.html')
 
 
+@app.route('/strategy_analysis')
+def strategy_analysis_page():
+    """策略结果分析页面（各策略 10 日平均涨幅柱状图）。"""
+    return send_from_directory(PAGE_DIR, '策略结果分析.html')
+
+
 @app.route('/api/my_stocks')
 def api_my_stocks():
     """查询用户股票池中所有股票的区间收益指标。
@@ -492,8 +500,8 @@ def api_stock_list():
 
 @app.route('/cron')
 def cron_monitor():
-    """任务运行监控页：展示当天定时任务（run_daily_stock_tasks.sh）执行情况。"""
-    return send_from_directory(PAGE_DIR, '任务运行监控.html')
+    """任务与数据监控页：展示当天定时任务（run_daily_stock_tasks.sh）执行情况。"""
+    return send_from_directory(PAGE_DIR, '任务与数据监控.html')
 
 
 @app.route('/data-monitor')
@@ -527,7 +535,8 @@ def api_manual_tasks():
 
     # 合并进程内实时状态（Flask 重启后 DB 中 running 记录无法自动收口，以内存为准）
     with _manual_lock:
-        live = {name: dict(st) for name, st in _manual_state.items()}
+        live = {name: {k: v for k, v in st.items() if k != 'proc'}
+                for name, st in _manual_state.items()}
     for t in tasks:
         st = live.get(t['script'])
         if st and (t['status'] == 'running' or st.get('status') == 'running'):
@@ -541,6 +550,57 @@ def api_manual_tasks():
     if summary is None:
         summary = {'total': 0, 'success': 0, 'failed': 0, 'running': 0}
     return jsonify({'summary': summary, 'tasks': tasks})
+
+
+@app.route('/api/manual_task_cancel', methods=['POST'])
+def api_manual_task_cancel():
+    """取消手动任务（终止运行中的子进程）。
+
+    请求体：{run_id? : 运行编号, script? : 脚本名}
+    至少传一个。返回：{ok, pid, message}
+    """
+    payload = request.get_json(silent=True) or {}
+    run_id = (payload.get('run_id') or '').strip()
+    script = (payload.get('script') or '').strip()
+    if not run_id and not script:
+        return jsonify({'ok': False, 'error': '需传 run_id 或 script'}), 400
+
+    target_pid = None
+    killed = False
+    with _manual_lock:
+        if script:
+            st = _manual_state.get(script)
+        else:
+            # 按 run_id 反查脚本名
+            st = None
+            for nm, s in _manual_state.items():
+                if s.get('run_id') == run_id:
+                    st = s; script = nm; break
+        if not st or st.get('status') != 'running':
+            return jsonify({'ok': False, 'error': '任务不在运行中或已结束'}), 404
+        target_pid = st.get('pid')
+        proc = st.get('proc')
+        try:
+            if proc and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                killed = True
+        except Exception:
+            pass
+        # 状态标记为 cancelled，后台 reap 线程若未结束会检测到 rc != 0 写 failed，
+        # 但我们已显式 kill，rc 会返回非 0；这里 reap 线程会写 failed。
+        # 为了让用户感知到「已取消」，显式更新状态标签（DB 记录保留 reap 线程写入）。
+        if killed:
+            st['status'] = 'cancelled'
+            st['end'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            st['rc'] = -15
+            st['duration'] = round((datetime.now() - datetime.strptime(st['start'], '%Y-%m-%d %H:%M:%S')).total_seconds(), 1) if st.get('start') else None
+    return jsonify({'ok': True, 'pid': target_pid, 'killed': killed,
+                    'message': ('已终止进程 PID=%s' % target_pid) if killed else '进程已不存在'})
 
 
 @app.route('/api/stock_data_monitor')
@@ -841,10 +901,42 @@ def api_mri_status():
 _manual_state = {}   # {脚本名: {status,start,end,rc,duration,log,pid}}
 _manual_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# 跨进程文件锁：防止多个 Flask 进程/并发请求同时启动同一脚本
+# （文件锁比 threading.Lock 强，能跨进程防重）
+# ---------------------------------------------------------------------------
+_TASK_LOCK_DIR = tempfile.gettempdir()
+_task_lock_fds = {}   # {脚本名: 文件描述符}
+
+def _acquire_task_lock(script):
+    """为脚本获取跨进程文件锁（非阻塞）。获取成功返回 True，锁已被持有返回 False。"""
+    lock_path = os.path.join(_TASK_LOCK_DIR, f'myfirstqt_task_{script}.lock')
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        os.close(fd)
+        return False
+    _task_lock_fds[script] = fd
+    os.ftruncate(fd, 0)
+    os.write(fd, f'{os.getpid()}\n{datetime.now()}\n'.encode())
+    os.lseek(fd, 0, os.SEEK_SET)
+    return True
+
+def _release_task_lock(script):
+    """释放脚本的跨进程文件锁。"""
+    fd = _task_lock_fds.pop(script, None)
+    if fd is not None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        except Exception:
+            pass
+
 
 def _manual_snapshot(script):
     st = _manual_state.get(script)
-    return dict(st) if st else None
+    return {k: v for k, v in st.items() if k != 'proc'} if st else None
 
 
 def _reap_manual_process(script, proc, started, log_fp,
@@ -930,7 +1022,7 @@ def api_cron_run():
         current = _manual_state.get(script)
         if current and current.get('status') == 'running':
             return jsonify({'error': '该任务正在执行中，请勿重复触发',
-                            'state': dict(current)}), 409
+                            'state': {k: v for k, v in current.items() if k != 'proc'}}), 409
 
         os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
         started = datetime.now()
@@ -1004,7 +1096,8 @@ def api_cron_run_batch():
             current = _manual_state.get(script)
             if current and current.get('status') == 'running':
                 results.append({'script': script, 'ok': False,
-                                'error': '正在执行中，已跳过', 'state': dict(current)})
+                                'error': '正在执行中，已跳过',
+                                'state': {k: v for k, v in current.items() if k != 'proc'}})
                 continue
 
             os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
@@ -1125,7 +1218,14 @@ def api_strategies_run():
     if target_date:
         if not re.fullmatch(r'\d{8}', target_date):
             return jsonify({'error': 'target_date 格式应为 YYYYMMDD'}), 400
-        cmd_args.append(target_date)
+        cmd_args.extend(['--target-date', target_date])
+
+    # 脚本级命令行参数（key=脚本名，value=参数字典）：
+    #   支持脚本通过 argparse 接收 --xxx 参数，如 select_wave2.py 的 --min-score
+    #   每项 (key, value) 依次拼接为 "--{key} {value}" 追加到该脚本命令行末尾
+    scripts_args = payload.get('scripts_args') or {}
+    if not isinstance(scripts_args, dict):
+        scripts_args = {}
 
     results = []
     for script in scripts:
@@ -1141,33 +1241,60 @@ def api_strategies_run():
             results.append({'script': script, 'ok': False, 'error': '脚本不存在'})
             continue
 
-        with _manual_lock:
-            current = _manual_state.get(script)
+        # 组装本脚本的完整命令行：target_date（位置参数）+ 脚本级 --key value 参数
+        script_cmd = list(cmd_args)
+        extra = scripts_args.get(script)
+        if isinstance(extra, dict):
+            for k, v in extra.items():
+                if v is None or v == '':
+                    continue
+                script_cmd.extend(['--%s' % k, str(v)])
+
+        # 跨进程文件锁：防止多 Flask 进程/并发请求同时启动同一脚本
+        if not _acquire_task_lock(script):
+            with _manual_lock:
+                current = _manual_state.get(script)
             if current and current.get('status') == 'running':
                 results.append({'script': script, 'ok': False,
-                                'error': '正在执行中，已跳过', 'state': dict(current)})
-                continue
+                                'error': '正在执行中（被并发锁拦截）',
+                                'state': {k: v for k, v in current.items() if k != 'proc'}})
+            else:
+                results.append({'script': script, 'ok': False,
+                                'error': '有并发请求正在启动此脚本，请稍后再试'})
+            continue
 
-            os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
-            started = datetime.now()
-            run_id = 'strategy_%s_%s' % (started.strftime('%Y%m%d_%H%M%S'),
-                                         script[:-3])
-            log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
-            log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
-            try:
-                proc = subprocess.Popen([sys.executable, script_path] + cmd_args,
-                                        cwd=BASE_DIR,
-                                        stdout=log_fp, stderr=subprocess.STDOUT)
-            except OSError as e:
-                log_fp.close()
-                results.append({'script': script, 'ok': False, 'error': f'启动失败: {e}'})
-                continue
+        try:
+            with _manual_lock:
+                current = _manual_state.get(script)
+                if current and current.get('status') == 'running':
+                    results.append({'script': script, 'ok': False,
+                                    'error': '正在执行中，已跳过',
+                                    'state': {k: v for k, v in current.items() if k != 'proc'}})
+                    continue
 
-            state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
-                     'end': None, 'rc': None, 'duration': None,
-                     'log': log_name, 'pid': proc.pid, 'run_id': run_id,
-                     'biz_date': target_date or None}
-            _manual_state[script] = state
+                os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
+                started = datetime.now()
+                run_id = 'strategy_%s_%s' % (started.strftime('%Y%m%d_%H%M%S'),
+                                             script[:-3])
+                log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
+                log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
+                try:
+                    proc = subprocess.Popen([sys.executable, script_path] + script_cmd,
+                                            cwd=BASE_DIR,
+                                            stdout=log_fp, stderr=subprocess.STDOUT)
+                except OSError as e:
+                    log_fp.close()
+                    results.append({'script': script, 'ok': False, 'error': f'启动失败: {e}'})
+                    continue
+
+                state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
+                         'end': None, 'rc': None, 'duration': None,
+                         'log': log_name, 'pid': proc.pid, 'run_id': run_id,
+                         'biz_date': target_date or None, 'proc': proc}
+                _manual_state[script] = state
+        finally:
+            # Popen 启动 + 内存状态写入完成 → 释放跨进程锁（后续请求靠内存 running 标记拦截）
+            _release_task_lock(script)
 
         threading.Thread(target=_reap_manual_process,
                          args=(script, proc, started, log_fp),
@@ -1180,7 +1307,8 @@ def api_strategies_run():
                                  biz_date=target_date or None, run_id=run_id)
         except Exception:
             pass
-        results.append({'script': script, 'ok': True, 'state': state})
+        results.append({'script': script, 'ok': True,
+                        'state': {k: v for k, v in state.items() if k != 'proc'}})
 
     return jsonify({'results': results}), 202
 
@@ -1196,7 +1324,8 @@ def api_strategies_status():
         return jsonify({'statuses': {}})
     names = [s.strip() for s in scripts.split(',') if s.strip()]
     with _manual_lock:
-        statuses = {n: dict(_manual_state[n]) for n in names if n in _manual_state}
+        statuses = {n: {k: v for k, v in _manual_state[n].items() if k != 'proc'}
+                    for n in names if n in _manual_state}
     return jsonify({'statuses': statuses})
 
 
@@ -1307,6 +1436,14 @@ def _load_strategies_meta():
     return _strategy_meta_cache['data']
 
 
+@app.route('/api/latest_trade_date')
+def api_latest_trade_date():
+    """返回全市场最近一个交易日（YYYYMMDD）。"""
+    from module_query_stock_detail import get_global_latest_trade_date
+    d = get_global_latest_trade_date()
+    return jsonify({'latest_date': d})
+
+
 @app.route('/api/strategies')
 def api_strategies():
     """返回所有策略名（strategy 逗号串拆分去重）。"""
@@ -1316,6 +1453,27 @@ def api_strategies():
     names = sorted({s.strip() for r in rows
                     for s in (r['strategy'] or '').split(',') if s.strip()})
     return jsonify({'strategies': names})
+
+
+@app.route('/api/strategy_analysis')
+def api_strategy_analysis():
+    """各策略 10 日算术平均涨幅（用于策略结果分析柱状图）。
+
+    数据来源：strategy_result_analysis_t 表（由 calc_strategy_result_analysis.py 计算写入）。
+    返回：{strategies: [{strategy, avg_gain_10d, stock_count, latest_trade_date}, ...]}，
+          按 avg_gain_10d 降序。
+    """
+    rows = query_db(
+        "SELECT strategy, avg_gain_10d, stock_count, latest_trade_date "
+        "FROM strategy_result_analysis_t ORDER BY avg_gain_10d DESC")
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    data = [{'strategy': r['strategy'],
+             'avg_gain_10d': float(r['avg_gain_10d']) if r['avg_gain_10d'] is not None else None,
+             'stock_count': int(r['stock_count']),
+             'latest_trade_date': r['latest_trade_date']}
+            for r in rows]
+    return jsonify({'strategies': data})
 
 
 @app.route('/api/strategies_meta')
@@ -2324,6 +2482,20 @@ def api_kline_range():
 
 
 if __name__ == '__main__':
+    # 单实例锁：防止重复启动多个 Flask 进程导致任务重复生成
+    import fcntl, tempfile
+    _PID_FILE = os.path.join(tempfile.gettempdir(), 'myfirstqt_flask.pid')
+    _pid_fd = open(_PID_FILE, 'w')
+    try:
+        fcntl.flock(_pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        sys.exit(f'❌ 已有 Flask 实例在运行（{_PID_FILE} 被占用）。\n'
+                 f'   请先执行：lsof -ti:5000 | xargs kill -9\n'
+                 f'   然后重新启动。')
+    _pid_fd.write(str(os.getpid()))
+    _pid_fd.flush()
+    print(f'🔒 Flask 单实例锁已获取（PID={os.getpid()}, lock={_PID_FILE}）')
+
     from controller_auth import init_user_table
     init_user_table()   # 建表并初始化默认账号
     app.run(host='127.0.0.1', port=5000, debug=False)

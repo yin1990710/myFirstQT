@@ -163,18 +163,19 @@
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest" class="active">策略回测</a>
+    <a href="/backtest" class="active">策略回测与分析</a>
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
     <a href="/stock-detail">个股详情</a>
-    <a href="/my_stocks">我的股票池</a>    <a href="/cron">任务和数据监控</a>
+    <a href="/my_stocks">我的股票池</a>    <a href="/cron">任务与数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 
 <div class="page-tabs">
   <a href="/backtest" class="active">策略选股结果</a>
+  <a href="/strategy_analysis">策略结果分析</a>
   <a href="/backtest_analysis">策略回测</a>
   <a href="/my_stocks">我的股票池</a>
 </div>
@@ -302,13 +303,28 @@ document.querySelectorAll('th[data-key]').forEach(th => th.onclick = async e => 
 });
 // 支持 URL 预筛选，如 /backtest?strategy=limitup_1d
 const urlStrategy = new URLSearchParams(location.search).get('strategy') || '';
+
+// 起始/结束日期默认取全市场最近一个交易日（YYYYMMDD → YYYY-MM-DD）
+async function setDefaultDates() {
+  try {
+    const r = await fetch('/api/latest_trade_date');
+    const d = await r.json();
+    const ld = d.latest_date;
+    if (ld && /^\d{8}$/.test(ld)) {
+      const v = ld.slice(0, 4) + '-' + ld.slice(4, 6) + '-' + ld.slice(6, 8);
+      document.getElementById('startDate').value = v;
+      document.getElementById('endDate').value = v;
+    }
+  } catch (e) { /* 无数据则保持空 */ }
+}
+
 fetch('/api/strategies').then(r => r.json()).then(d => {
   const sel = document.getElementById('strategy');
   (d.strategies || []).forEach(s => {
     const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
   });
   if (urlStrategy) sel.value = urlStrategy;
-}).finally(() => query());
+}).finally(async () => { await setDefaultDates(); query(); });
 
 // ---- 策略执行面板：条件选股 / 以股选股 两个可切换卡片 ----
 let _strategyMeta = [];   // 来自 /api/strategies_meta 的全部策略元数据
@@ -434,36 +450,61 @@ function setScriptStatus(script, cls, text) {
   if (span) { span.className = 'status ' + cls; span.textContent = text; }
 }
 
-function runStrategies() {
+let _runBusy = false;   // 运行策略全局防重标记
+
+async function runStrategies() {
   const scripts = [..._selectedFiles];
   if (!scripts.length) { alert('请至少勾选一个策略'); return; }
+  if (_runBusy) { alert('已有策略在运行中，请等待完成'); return; }
+
+  // 立即上锁+禁用按钮（必须在任何 await 之前，防止快速双击导致重复提交）
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = '启动中…';
+  _runBusy = true;
+
+  // 先查后端是否已有 running 中的脚本（多 Flask 进程/跨标签页场景）
+  try {
+    const sr = await fetch('/api/strategies_status?scripts=' + encodeURIComponent(scripts.join(',')));
+    const sd = await sr.json();
+    const runningNow = (sd.statuses || {});
+    const conflict = scripts.filter(s => runningNow[s] && runningNow[s].status === 'running');
+    if (conflict.length) {
+      alert('以下策略已在运行中，请勿重复提交：\n' + conflict.join('\n'));
+      btn.disabled = false; btn.textContent = '运行策略'; _runBusy = false;
+      return;
+    }
+  } catch (e) { /* 查询失败不阻断 */ }
+
   const runDate = document.getElementById('runDate').value;
   const body = { scripts };
   if (runDate) body.target_date = compactDate(runDate);
-  const btn = document.getElementById('runBtn');
-  btn.disabled = true; btn.textContent = '启动中…';
-  fetch('/api/strategies_run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  }).then(r => r.json()).then(d => {
-    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '运行策略'; return; }
+
+  try {
+    const r = await fetch('/api/strategies_run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '运行策略'; _runBusy = false; return; }
     // 标记每个策略的启动结果
     (d.results || []).forEach(r => {
       if (r.ok) setScriptStatus(r.script, 'running', '运行中');
+      else if ((r.error || '').includes('正在执行中')) setScriptStatus(r.script, 'running', '已在运行');
       else setScriptStatus(r.script, 'skipped', r.error || '跳过');
     });
-    btn.disabled = false; btn.textContent = '运行策略';
-    startStatusPolling(scripts);
-  }).catch(err => {
+    startStatusPolling(scripts);   // 轮询内会在全部完成后恢复按钮
+  } catch (err) {
     alert('启动失败: ' + err);
     btn.disabled = false; btn.textContent = '运行策略';
-  });
+    _runBusy = false;
+  }
 }
 
 function startStatusPolling(scripts) {
   if (_statusTimer) clearInterval(_statusTimer);
   const queryStr = scripts.join(',');
+  const btn = document.getElementById('runBtn');
   const poll = () => {
     fetch('/api/strategies_status?scripts=' + encodeURIComponent(queryStr))
       .then(r => r.json()).then(d => {
@@ -477,11 +518,15 @@ function startStatusPolling(scripts) {
             allDone = false;
           } else if (st.status === 'success') {
             setScriptStatus(s, 'success', '✓ 完成');
-          } else if (st.status === 'failed') {
-            setScriptStatus(s, 'failed', '✗ 失败');
+          } else if (st.status === 'failed' || st.status === 'cancelled') {
+            setScriptStatus(s, 'failed', st.status === 'cancelled' ? '✗ 已取消' : '✗ 失败');
           }
         }
-        if (allDone) { clearInterval(_statusTimer); _statusTimer = null; }
+        if (allDone) {
+          clearInterval(_statusTimer); _statusTimer = null;
+          btn.disabled = false; btn.textContent = '运行策略';
+          _runBusy = false;
+        }
       }).catch(() => {});
   };
   poll();
@@ -706,9 +751,7 @@ function showFindSimilarResults(script) {
 
 function resetFilters() {
   document.getElementById('strategy').value = '';
-  document.getElementById('startDate').value = '';
-  document.getElementById('endDate').value = '';
-  query();
+  setDefaultDates().then(() => query());
 }
 
 // 日历控件值为 YYYY-MM-DD，后端 trade_date 为 YYYYMMDD，去掉连字符即可

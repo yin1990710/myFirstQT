@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>策略结果分析</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; background: #f7f8fa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; margin: -24px -24px 20px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap; color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+  .page-tabs { display: flex; gap: 0; margin: 16px 0 0; border-bottom: 2px solid #e0e0e0; }
+  .page-tabs a { padding: 10px 24px; text-decoration: none; font-size: 15px; color: #666;
+                 border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s; }
+  .page-tabs a:hover { color: #1a1a1a; }
+  .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  .chart-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+                padding: 20px; margin-top: 16px; }
+  .chart-card .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .chart-card .chart-hint { font-size: 13px; color: #888; margin-bottom: 12px; line-height: 1.6; }
+  #strategyChart { width: 100%; height: 480px; }
+  .empty { text-align: center; color: #999; font-size: 14px; padding: 60px 0; }
+  .summary { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 13px; color: #555; }
+  .summary .item { background: #f0f4ff; border: 1px solid #d0e0ff; border-radius: 6px; padding: 8px 14px; }
+  .summary .item .label { color: #888; margin-right: 6px; }
+  .summary .item .val { font-weight: 600; color: #1a73e8; }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest" class="active">策略回测与分析</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/cron">任务与数据监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="page-tabs">
+  <a href="/backtest">策略选股结果</a>
+  <a href="/strategy_analysis" class="active">策略结果分析</a>
+  <a href="/backtest_analysis">策略回测</a>
+  <a href="/my_stocks">我的股票池</a>
+</div>
+
+<div class="chart-card">
+  <div class="chart-title">各策略选股结果 · 10 日算术平均涨幅</div>
+  <div class="chart-hint">横轴：策略名称　|　纵轴：选入后 T+1～T+10 个交易日内最高收盘相对 T 日收盘的平均最大涨幅（%）　|　数据来源：strategy_result_analysis_t（由 calc_strategy_result_analysis.py 计算）</div>
+  <div id="strategyChart"><div class="empty">加载中…</div></div>
+  <div class="summary" id="summary"></div>
+</div>
+
+<script>
+let _chart = null;
+
+function renderChart(list) {
+  const dom = document.getElementById('strategyChart');
+  if (typeof echarts === 'undefined') {
+    dom.innerHTML = '<div class="empty">图表库 echarts 加载失败，请检查网络后刷新</div>';
+    return;
+  }
+  if (!list || !list.length) {
+    dom.innerHTML = '<div class="empty">暂无回测数据。<br/>请先运行 update_strategy_selected_stock_daily.py 回填 max_gain_10d，再运行 calc_strategy_result_analysis.py 生成统计数据。</div>';
+    document.getElementById('summary').innerHTML = '';
+    return;
+  }
+
+  if (_chart) { _chart.dispose(); _chart = null; }
+  _chart = echarts.init(dom);
+
+  _chart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: function (params) {
+        const p = params[0];
+        const d = list[p.dataIndex];
+        return `<b>${d.strategy}</b><br/>10日平均涨幅：<b>${Number(d.avg_gain_10d).toFixed(1)}%</b><br/>样本数：${d.stock_count}<br/>最新选入日：${d.latest_trade_date || '-'}`;
+      }
+    },
+    grid: { left: 60, right: 30, top: 30, bottom: 90 },
+    xAxis: {
+      type: 'category',
+      data: list.map(d => d.strategy),
+      axisLabel: { rotate: 30, fontSize: 12, interval: 0 },
+      axisTick: { alignWithLabel: true }
+    },
+    yAxis: {
+      type: 'value',
+      name: '平均涨幅 (%)',
+      axisLabel: { formatter: '{value}%' }
+    },
+    series: [{
+      type: 'bar',
+      data: list.map(d => ({
+        value: d.avg_gain_10d,
+        itemStyle: { color: d.avg_gain_10d >= 0 ? '#d93025' : '#0f9d58' }
+      })),
+      barMaxWidth: 50,
+      label: { show: true, position: 'top', formatter: p => Number(p.value).toFixed(1) + '%', fontSize: 11, color: '#555' }
+    }]
+  });
+
+  const totalSamples = list.reduce((s, d) => s + d.stock_count, 0);
+  const best = list[0];
+  const worst = list[list.length - 1];
+  const posCnt = list.filter(d => d.avg_gain_10d >= 0).length;
+  document.getElementById('summary').innerHTML =
+    `<div class="item"><span class="label">策略数</span><span class="val">${list.length}</span></div>` +
+    `<div class="item"><span class="label">总样本</span><span class="val">${totalSamples}</span></div>` +
+    `<div class="item"><span class="label">正收益策略</span><span class="val">${posCnt}</span></div>` +
+    (best ? `<div class="item"><span class="label">最佳</span><span class="val">${best.strategy} ${Number(best.avg_gain_10d).toFixed(1)}%</span></div>` : '') +
+    (worst ? `<div class="item"><span class="label">最差</span><span class="val">${worst.strategy} ${Number(worst.avg_gain_10d).toFixed(1)}%</span></div>` : '');
+}
+
+async function loadAnalysis() {
+  try {
+    const r = await fetch('/api/strategy_analysis');
+    const d = await r.json();
+    renderChart(d.strategies || []);
+  } catch (e) {
+    document.getElementById('strategyChart').innerHTML = `<div class="empty">加载失败：${e}</div>`;
+  }
+}
+
+window.addEventListener('resize', () => { if (_chart) _chart.resize(); });
+loadAnalysis();
+</script>
+</body>
+</html>
