@@ -99,7 +99,7 @@
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf" class="active">ETF专区</a>
     <a href="/stock-detail">个股详情</a>
-    <a href="/my_stocks">我的股票池</a>    <a href="/cron">任务运行监控</a>
+    <a href="/my_stocks">我的股票池</a>    <a href="/cron">任务和数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -196,7 +196,7 @@ function fmtAmount(n) {
   return v.toFixed(0);
 }
 
-const PAGE_SIZE = 30;        // 每页最多展示 30 只
+const PAGE_SIZE = 12;        // 每页最多展示 12 只
 let _allEtfs = [];          // 当前筛选条件下的全部 ETF 数据
 let _curPage = 1;           // 当前页码（从 1 开始）
 
