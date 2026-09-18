@@ -198,11 +198,11 @@ fi
 log "========== 第三批任务：选股结果回测回填 =========="
 
 # 步骤19：选股结果回测回填
-log "[步骤19/23] 开始执行 选股结果回测回填 (strategy_results.py)..."
-if ${VENV_PYTHON} strategy_results.py >> "${LOG_DIR}/strategy_results_${DATE}.log" 2>&1; then
-    log "[步骤19/23] ✅ 选股结果回测回填 (strategy_results.py) 执行成功"
+log "[步骤19/23] 开始执行 选股结果回测回填 (backtest_strategy_results.py)..."
+if ${VENV_PYTHON} backtest_strategy_results.py >> "${LOG_DIR}/backtest_strategy_results_${DATE}.log" 2>&1; then
+    log "[步骤19/23] ✅ 选股结果回测回填 (backtest_strategy_results.py) 执行成功"
 else
-    log "[步骤19/23] ❌ 选股结果回测回填 (strategy_results.py) 执行失败，停止任务"
+    log "[步骤19/23] ❌ 选股结果回测回填 (backtest_strategy_results.py) 执行失败，停止任务"
     exit 1
 fi
 

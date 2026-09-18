@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-选股结果回测回填 (strategy_results.py)
+选股结果回测回填 (backtest_strategy_results.py)
 
 核心功能：
   1. 读取 strategy_selected_stock_daily_t 表中最近 22 个交易日的选股记录。
@@ -17,9 +17,9 @@
   4. 结果按主键（ts_code + trade_date）更新回 strategy_selected_stock_daily_t 表。
 
 日期范围参数化：
-  python3 strategy_results.py                          # 默认：表内最近 22 个交易日的记录
-  python3 strategy_results.py 20260701                 # 指定起始日：回测该日期（含）之后所有记录
-  python3 strategy_results.py 20260701 20260815        # 指定起止日：回测区间内所有记录
+  python3 backtest_strategy_results.py                          # 默认：表内最近 22 个交易日的记录
+  python3 backtest_strategy_results.py 20260701                 # 指定起始日：回测该日期（含）之后所有记录
+  python3 backtest_strategy_results.py 20260701 20260815        # 指定起止日：回测区间内所有记录
 
 回填规则：
   - 未来数据不足（T+10 / T+20 未完整落在已入库数据内）的字段保持 NULL，
@@ -118,7 +118,7 @@ def main():
     args = parse_args()
 
     print("=" * 80)
-    print("📈 选股结果回测回填 (strategy_results.py)")
+    print("📈 选股结果回测回填 (backtest_strategy_results.py)")
     print("=" * 80)
 
     conn = get_mysql_connection()
