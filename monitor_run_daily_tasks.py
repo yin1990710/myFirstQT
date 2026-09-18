@@ -357,13 +357,14 @@ def write_run_log(data=None):
 
     sql = """
         INSERT INTO task_run_log_t
-            (run_id, run_date, batch_phase, step, script_name, task_name, status,
+            (source, run_id, run_date, batch_phase, step, script_name, task_name, status,
              start_time, end_time, duration_sec, detail_log,
              batch_status, batch_start, batch_end, batch_duration_sec,
              total_tasks, success_tasks, failed_tasks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES ('cron', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
+            source='cron',
             task_name=VALUES(task_name), batch_phase=VALUES(batch_phase),
             status=VALUES(status), start_time=VALUES(start_time),
             end_time=VALUES(end_time), duration_sec=VALUES(duration_sec),
@@ -397,7 +398,7 @@ def write_run_log(data=None):
 
 
 def write_manual_run_log(script, status, start, end, duration, rc=None, log=None,
-                         task_name=None):
+                         task_name=None, source='manual', biz_date=None, run_id=None):
     """将手动执行的任务记录写入 task_run_log_t 表。
 
     参数：
@@ -409,13 +410,25 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
       rc:        退出码（可 None）
       log:       手动日志文件名（可 None）
       task_name: 任务名称（如 '指数日交易数据'，可 None 时从 shell 脚本提取）
+      source:    任务来源：'manual'（例行任务监控页手动触发，默认）或
+                 'strategy'（策略选股结果页运行选股策略）
+      biz_date:  业务目标日 'YYYYMMDD'（选股策略提交的目标交易日，可 None）
+      run_id:    显式运行编号（可 None）。例行手动触发用
+                 'manual_<YYYYMMDD>_<script_stem>'（同日同脚本覆盖更新）；
+                 选股策略每次提交独立编号
+                 'strategy_<YYYYMMDD_HHMMSS>_<script_stem>'（由调用方生成并透传，
+                 保证 running→success 两次写入命中同一行）。
 
-    使用 run_id='manual_<YYYYMMDD>_<script_stem>' 区分定时批次与手动执行。
+    使用 run_id 区分定时批次（YYYYMMDD_HHMMSS）与手动执行。
     """
-    from mysql_connection import get_mysql_connection, close_connection
+    from module_mysql_connection import get_mysql_connection, close_connection
 
     now = datetime.now()
-    run_id = 'manual_' + now.strftime('%Y%m%d') + '_' + script[:-3]
+    if run_id is None:
+        if source == 'strategy':
+            run_id = 'strategy_' + now.strftime('%Y%m%d_%H%M%S') + '_' + script[:-3]
+        else:
+            run_id = 'manual_' + now.strftime('%Y%m%d') + '_' + script[:-3]
     run_date = now.strftime('%Y-%m-%d')
 
     # 若未传入 task_name，尝试从 shell 脚本注释中提取
@@ -424,13 +437,15 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
 
     sql = """
         INSERT INTO task_run_log_t
-            (run_id, run_date, batch_phase, step, script_name, task_name, status,
+            (source, biz_date, run_id, run_date, batch_phase, step, script_name,
+             task_name, status,
              start_time, end_time, duration_sec, detail_log,
              batch_status, batch_start, batch_end, batch_duration_sec,
              total_tasks, success_tasks, failed_tasks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
+            source=VALUES(source), biz_date=VALUES(biz_date),
             task_name=VALUES(task_name), batch_phase=VALUES(batch_phase),
             status=VALUES(status), start_time=VALUES(start_time),
             end_time=VALUES(end_time), duration_sec=VALUES(duration_sec),
@@ -440,6 +455,7 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
             total_tasks=VALUES(total_tasks), success_tasks=VALUES(success_tasks),
             failed_tasks=VALUES(failed_tasks)
     """
+    phase = '选股策略手动执行' if source == 'strategy' else '手动执行'
     batch_status = 'success' if status == 'success' else ('failed' if status == 'failed' else 'running')
     conn = get_mysql_connection()
     if not conn:
@@ -447,8 +463,9 @@ def write_manual_run_log(script, status, start, end, duration, rc=None, log=None
     try:
         with conn.cursor() as cursor:
             cursor.execute(sql, (
+                source, biz_date,
                 run_id, run_date,
-                '手动执行', '-', script, task_name, status,
+                phase, '-', script, task_name, status,
                 start, end, duration, log,
                 batch_status, start, end, duration,
                 1,

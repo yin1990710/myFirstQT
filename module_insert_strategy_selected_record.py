@@ -150,6 +150,12 @@ def record_selected_stocks(strategy, rows, selection_date):
         with conn.cursor() as cursor:
             cursor.execute(CREATE_TABLE_SQL)
             _ensure_stock_name_column(cursor)
+            # 先清除同策略同交易日的旧记录，避免条件变更后残留
+            # 注意：strategy 字段是逗号拼接的多策略名，需用 FIND_IN_SET 匹配包含
+            cursor.execute(
+                "DELETE FROM strategy_selected_stock_daily_t "
+                "WHERE trade_date = %s AND FIND_IN_SET(%s, strategy) > 0",
+                (selection_date, strategy))
             name_map = _fetch_stock_name_map(
                 cursor, [r.get('ts_code') for r in rows])
             values = [

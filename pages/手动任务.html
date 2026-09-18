@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>手动任务 - 力矩量化选股平台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f5f7fa; color: #1f2933; }
+  /* 与首页一致的导航栏 */
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap;
+                  color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .wrap { max-width: 1200px; margin: 24px auto 48px; padding: 0 24px; }
+
+  /* 二级页面 tabs（与例行任务监控/数据完整性监控一致） */
+  .tabs { display: flex; gap: 0; margin-top: 18px; border-bottom: 2px solid #e0e6ed; }
+  .tabs a.tab { padding: 10px 24px; font-size: 14px; color: #6b7684;
+                border-bottom: 3px solid transparent; margin-bottom: -2px;
+                text-decoration: none; }
+  .tabs a.tab:hover { color: #1a73e8; }
+  .tabs a.tab.active { color: #1a73e8; font-weight: 600; border-bottom-color: #1a73e8; }
+
+  .page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .page-head h1 { font-size: 22px; margin: 0; }
+  .head-tools { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #6b7684; }
+  .btn { border: 1px solid #1a73e8; background: #fff; color: #1a73e8; border-radius: 6px;
+         padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn:hover { background: #eef4ff; }
+  .head-tools select { border: 1px solid #d0d7de; border-radius: 5px;
+    padding: 6px 8px; font-size: 13px; background: #fff; color: #1f2937; }
+  .head-tools select:focus { outline: none; border-color: #1a73e8; }
+
+  .notice { margin-top: 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .notice.warn { display: block; background: #fff6e8; color: #9a6404; border: 1px solid #f5d59a; }
+  .notice.err { display: block; background: #fdecec; color: #b02a2a; border: 1px solid #f3bcbc; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 18px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+  .kpi { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
+         padding: 14px 16px; }
+  .kpi .label { font-size: 12.5px; color: #6b7684; }
+  .kpi .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .kpi .sub { font-size: 12px; color: #8a94a3; margin-top:2px; }
+  .v-blue { color: #1a73e8; } .v-green { color: #159947; }
+  .v-red { color: #d83a3a; } .v-gray { color: #6b7684; }
+
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
+          padding: 18px 20px; margin-top: 18px; }
+  .hint { margin: 0 0 4px; font-size: 12.5px; color: #8a94a3; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+  th, td { padding: 10px 8px; text-align: center; border-bottom: 1px solid #edf0f4; }
+  th { white-space: nowrap; background: #f0f5ff; color: #1a4480; font-weight: 600; }
+  tbody tr:hover { background: #f8fafd; }
+  td.left, th.left { text-align: left; }
+  .script-file { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: #6b7684; }
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 600; }
+  .badge.success { background: #e6f6ec; color: #159947; }
+  .badge.failed { background: #fdecec; color: #d83a3a; }
+  .badge.running { background: #e8f1fe; color: #1a73e8; }
+  .badge.running::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                           background: #1a73e8; margin-right: 6px; vertical-align: 1px;
+                           animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  .muted { color: #b4bdc8; }
+  .log-link { color: #1a73e8; cursor: pointer; text-decoration: none; font-size: 12.5px; }
+  .log-link:hover { text-decoration: underline; }
+  tr.detail td { background: #f8fafd; padding: 0; }
+  .detail-box { text-align: left; padding: 10px 16px; }
+  .detail-box pre { margin: 0; max-height: 360px; overflow: auto; background: #10233a;
+                    color: #d6e2f0; padding: 12px 14px; border-radius: 8px;
+                    font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+  .detail-head { font-size: 12px; color: #6b7684; margin: 0 0 6px; }
+  .empty { text-align: center; color: #8a94a3; padding: 70px 0; font-size: 15px; }
+</style>
+</head>
+<body>
+
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/cron" class="active">任务和数据监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="tabs">
+    <a class="tab" href="/cron">例行任务监控</a>
+    <a class="tab active" href="/manual-tasks">手动任务</a>
+    <a class="tab" href="/data-monitor">数据完整性监控</a>
+  </div>
+
+  <div class="page-head" style="margin-top:18px">
+    <h1>手动任务</h1>
+    <div class="head-tools">
+      <label for="fStatus">状态</label>
+      <select id="fStatus">
+        <option value="">全部状态</option>
+        <option value="running">运行中</option>
+        <option value="success">成功</option>
+        <option value="failed">失败</option>
+      </select>
+      <button class="btn" id="refreshBtn">立即刷新</button>
+    </div>
+  </div>
+
+  <div class="notice" id="notice"></div>
+
+  <div class="cards">
+    <div class="kpi"><div class="label">今日提交</div><div class="value v-gray" id="kTotal">-</div><div class="sub">今日手动任务总数</div></div>
+    <div class="kpi"><div class="label">成功</div><div class="value v-green" id="kSuccess">-</div><div class="sub">✅ 执行成功</div></div>
+    <div class="kpi"><div class="label">失败</div><div class="value v-red" id="kFailed">-</div><div class="sub">❌ 执行失败</div></div>
+    <div class="kpi"><div class="label">运行中</div><div class="value v-blue" id="kRunning">-</div><div class="sub">正在执行</div></div>
+  </div>
+
+  <section class="card">
+    <p class="hint">提示：本页展示「策略回测 → 策略选股结果 → 条件选股」页面点击【运行策略】后提交的选股脚本任务（select_*.py / find_similar_*.py）；明细日志取自 manual_logs/。</p>
+    <table>
+      <thead><tr>
+        <th style="width:60px">序号</th>
+        <th class="left">策略名称</th>
+        <th style="width:210px">脚本文件</th>
+        <th style="width:110px">目标日期</th>
+        <th style="width:90px">状态</th>
+        <th style="width:160px">提交时间</th>
+        <th style="width:160px">结束时间</th>
+        <th style="width:100px">运行时间</th>
+        <th style="width:90px">明细日志</th>
+      </tr></thead>
+      <tbody id="taskBody">
+        <tr><td colspan="9" class="empty">加载中…</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+let allTasks = [];
+let pollTimer = null;
+const expanded = new Set();   // 保持刷新后展开状态：run_id
+const taskBody = document.getElementById('taskBody');
+const notice = document.getElementById('notice');
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDate(s) {
+  if (!s) return '';
+  // YYYYMMDD → YYYY-MM-DD
+  return /^\d{8}$/.test(s) ? s.slice(0,4) + '-' + s.slice(4,6) + '-' + s.slice(6,8) : s;
+}
+function fmtFull(s) { return s ? esc(s) : '<span class="muted">-</span>'; }
+function fmtDuration(sec) {
+  if (sec == null) return '<span class="muted">-</span>';
+  if (sec < 60) return sec.toFixed(1) + ' 秒';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return m + ' 分 ' + s + ' 秒';
+}
+function statusBadge(st) {
+  if (st === 'success') return '<span class="badge success">成功</span>';
+  if (st === 'failed') return '<span class="badge failed">失败</span>';
+  return '<span class="badge running">运行中</span>';
+}
+
+async function loadLog(name, box) {
+  box.querySelector('.detail-head').textContent = '日志加载中…';
+  try {
+    const r = await fetch('/api/cron_log?src=manual&file=' + encodeURIComponent(name) + '&tail=500');
+    const d = await r.json();
+    if (!r.ok) { box.querySelector('pre').textContent = '读取失败：' + (d.error || r.status); return; }
+    box.querySelector('.detail-head').textContent =
+      'manual_logs/' + d.file + (d.truncated ? '（仅显示末尾 500 行）' : '（全部内容）');
+    box.querySelector('pre').textContent = d.content || '（日志为空）';
+  } catch (e) {
+    box.querySelector('pre').textContent = '读取失败：' + e.message;
+  }
+}
+
+function toggleDetail(tr, task) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('detail')) {
+    next.remove(); expanded.delete(task.run_id);
+    return;
+  }
+  expanded.add(task.run_id);
+  const dr = document.createElement('tr');
+  dr.className = 'detail';
+  dr.innerHTML = '<td colspan="9"><div class="detail-box"><p class="detail-head"></p><pre></pre></div></td>';
+  tr.after(dr);
+  if (task.log) loadLog(task.log, dr.querySelector('.detail-box'));
+  else dr.querySelector('.detail-box pre').textContent = '该任务暂无明细日志文件';
+}
+
+function render() {
+  const fv = document.getElementById('fStatus').value;
+  const tasks = fv ? allTasks.filter(t => t.status === fv) : allTasks;
+
+  if (!tasks.length) {
+    taskBody.innerHTML = '<tr><td colspan="9" class="empty">暂无手动任务记录（条件选股页面点击【运行策略】后在此展示）</td></tr>';
+    return;
+  }
+
+  taskBody.innerHTML = tasks.map((t, i) => {
+    const logCell = t.log
+      ? '<a class="log-link" data-idx="' + i + '">查看</a>'
+      : '<span class="muted">-</span>';
+    return '<tr data-run="' + esc(t.run_id) + '">'
+      + '<td>' + (i + 1) + '</td>'
+      + '<td class="left">' + esc(t.strategy_name || t.task_name || t.script) + '</td>'
+      + '<td><span class="script-file">' + esc(t.script) + '</span></td>'
+      + '<td>' + (t.biz_date ? esc(fmtDate(t.biz_date)) : '<span class="muted">-</span>') + '</td>'
+      + '<td>' + statusBadge(t.status) + '</td>'
+      + '<td>' + fmtFull(t.start) + '</td>'
+      + '<td>' + fmtFull(t.end) + '</td>'
+      + '<td>' + fmtDuration(t.duration) + '</td>'
+      + '<td>' + logCell + '</td>'
+      + '</tr>';
+  }).join('');
+
+  // 绑定日志展开
+  taskBody.querySelectorAll('.log-link').forEach(a => {
+    a.addEventListener('click', () => {
+      const idx = Number(a.dataset.idx);
+      toggleDetail(a.closest('tr'), tasks[idx]);
+    });
+  });
+  // 恢复展开状态（刷新日志内容）
+  taskBody.querySelectorAll('tr[data-run]').forEach(tr => {
+    if (expanded.has(tr.dataset.run)) {
+      const task = tasks.find(t => t.run_id === tr.dataset.run);
+      if (task) toggleDetail(tr, task);
+    }
+  });
+}
+
+function schedulePoll(hasRunning) {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (hasRunning) {
+    pollTimer = setInterval(refresh, 5000);
+  }
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/manual_tasks?limit=200');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    allTasks = d.tasks || [];
+    const s = d.summary || {};
+    document.getElementById('kTotal').textContent = s.total ?? 0;
+    document.getElementById('kSuccess').textContent = s.success ?? 0;
+    document.getElementById('kFailed').textContent = s.failed ?? 0;
+    document.getElementById('kRunning').textContent = s.running ?? 0;
+    notice.className = 'notice';
+    notice.textContent = '';
+    render();
+    schedulePoll(allTasks.some(t => t.status === 'running'));
+  } catch (e) {
+    notice.className = 'notice err';
+    notice.textContent = '查询失败：' + e.message;
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('fStatus').addEventListener('change', render);
+refresh();
+</script>
+</body>
+</html>

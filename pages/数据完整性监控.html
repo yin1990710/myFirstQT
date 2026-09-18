@@ -25,7 +25,7 @@
   .navbar nav a:hover { background: #1558b0; color: #fff; }
   .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
 
-  .wrap { max-width: 1200px; margin: 24px auto 48px; padding: 0 24px; }
+  .wrap { max-width: 1280px; margin: 24px auto 48px; padding: 0 24px; }
   .page-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
   .page-head h1 { font-size: 22px; margin: 0; }
   .head-tools { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #6b7684; }
@@ -34,7 +34,7 @@
   .btn:hover { background: #eef4ff; }
   .btn.primary { background: #1a73e8; color: #fff; }
   .btn.primary:hover { background: #1558b0; }
-  .date-input { width: 140px; border: 1px solid #d0d7de; border-radius: 6px;
+  .date-input { width: 150px; border: 1px solid #d0d7de; border-radius: 6px;
                 padding: 6px 10px; font-size: 13px; color: #3d4752; }
   .date-input:focus { outline: none; border-color: #1a73e8; }
   .date-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px;
@@ -50,11 +50,10 @@
   .tab:hover { color: #1a73e8; }
   .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
 
-  .sub { font-size: 13px; color: #6b7684; margin-top: 8px; }
-
   .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(16,42,72,.08);
           padding: 18px 20px; margin-top: 18px; overflow-x: auto; }
-  .card h3 { margin: 0 0 12px; font-size: 15px; color: #1a4480; }
+  .card h3 { margin: 0 0 4px; font-size: 15px; color: #1a4480; }
+  .card .card-sub { margin: 0 0 12px; font-size: 12.5px; color: #8a94a3; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #edf0f4; white-space: nowrap; }
   th { background: #f0f5ff; color: #1a4480; font-weight: 600; }
@@ -63,6 +62,7 @@
   .ok { color: #159947; font-weight: 600; }
   .zero { color: #d83a3a; font-weight: 600; }
   .muted { color: #b4bdc8; }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: #3d4752; }
   .loading { text-align: center; padding: 60px 0; color: #8a94a3; font-size: 15px; }
   .empty { text-align: center; color: #8a94a3; padding: 60px 0; font-size: 15px; }
 </style>
@@ -81,14 +81,16 @@
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
     <a href="/stock-detail">个股详情</a>
-    <a href="/my_stocks">我的股票池</a>    <a href="/cron" class="active">任务运行监控</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/cron" class="active">任务和数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 
 <main class="wrap">
   <div class="tabs">
-    <a class="tab" href="/cron">任务运行监控</a>
+    <a class="tab" href="/cron">例行任务监控</a>
+    <a class="tab" href="/manual-tasks">手动任务</a>
     <a class="tab active" href="/data-monitor">数据完整性监控</a>
   </div>
 
@@ -101,10 +103,9 @@
   </div>
 
   <div class="date-bar">
-    <span style="font-size:13px;color:#3d4752;font-weight:600;">日期范围：</span>
+    <span style="font-size:13px;color:#3d4752;font-weight:600;">起始日期：</span>
     <input type="date" class="date-input" id="startDate">
-    <span class="date-sep">~</span>
-    <input type="date" class="date-input" id="endDate">
+    <span class="date-sep">（查询该日期至最新交易日的数据）</span>
     <button class="btn primary" id="queryBtn">查询</button>
     <button class="btn" id="resetBtn">重置（最近10日）</button>
   </div>
@@ -119,29 +120,41 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-
-function valClass(v) {
-  if (v === 0) return 'zero';
-  if (v > 0) return 'ok';
-  return 'muted';
+function fmtYmd(s) {
+  // 20260917 → 2026-09-17；已是带横杠格式则原样返回
+  return s && /^\d{8}$/.test(s) ? s.slice(0,4) + '-' + s.slice(4,6) + '-' + s.slice(6,8) : s;
+}
+function fmtNum(v) {
+  if (v === null || v === undefined) return '<span class="muted">-</span>';
+  return '<span class="' + (v > 0 ? 'ok' : 'zero') + '">' + Number(v).toLocaleString() + '</span>';
 }
 
-function renderTable(tbl, dates) {
-  if (!tbl || !tbl.rows) return '';
+function renderCard(tbl, opts) {
+  if (!tbl || !tbl.rows || tbl.rows.length <= 1) {
+    return '<div class="card"><h3>' + esc(tbl ? tbl.title : '') + '</h3>'
+      + '<div class="empty">暂无数据</div></div>';
+  }
   var head = tbl.rows[0];
   var body = tbl.rows.slice(1);
-  var html = '<div class="card"><h3>' + esc(tbl.title) + '</h3><table>';
-  html += '<thead><tr>' + head.map(function(h) {
-    return '<th>' + esc(h) + '</th>';
+  var html = '<div class="card"><h3>' + esc(tbl.title) + '</h3>';
+  if (tbl.ref_label) {
+    html += '<p class="card-sub">基准交易日：' + esc(fmtYmd(tbl.ref_label)) + '</p>';
+  }
+  html += '<table><thead><tr>' + head.map(function(h, i) {
+    return '<th class="' + (i === 0 ? 'left' : '') + '">' + esc(h) + '</th>';
   }).join('') + '</tr></thead><tbody>';
   body.forEach(function(row) {
     html += '<tr>';
     row.forEach(function(cell, i) {
-      if (i === 0) {
-        html += '<td class="left">' + esc(cell) + '</td>';
+      if (i === 0 && opts && opts.firstColDate) {
+        html += '<td class="left">' + esc(fmtYmd(cell)) + '</td>';
+      } else if (i === 0) {
+        html += '<td class="left mono">' + esc(cell) + '</td>';
+      } else if (typeof cell === 'number') {
+        html += '<td>' + fmtNum(cell) + '</td>';
       } else {
-        var cls = valClass(cell);
-        html += '<td class="' + cls + '">' + esc(cell) + '</td>';
+        html += '<td>' + (cell === null || cell === undefined
+          ? '<span class="muted">-</span>' : esc(cell)) + '</td>';
       }
     });
     html += '</tr>';
@@ -156,34 +169,26 @@ function render(d) {
     c.innerHTML = '<div class="card"><div class="empty">加载失败：' + esc(d.error) + '</div></div>';
     return;
   }
-  if (!d.tables || Object.keys(d.tables).length === 0) {
-    c.innerHTML = '<div class="card"><div class="empty">暂无数据（数据库可能为空）</div></div>';
+  if (!d.dates || !d.dates.length) {
+    c.innerHTML = '<div class="card"><div class="empty">所选范围内暂无交易日数据</div></div>';
+    document.getElementById('genInfo').textContent = '';
     return;
   }
   document.getElementById('genInfo').textContent =
-    '生成时间 ' + esc(d.generated_at) +
-    (d.date_range
-      ? ' · 范围 ' + d.date_range.start + ' ~ ' + d.date_range.end + '（共 ' + d.dates.length + ' 个交易日）'
-      : ' · 最近 ' + d.days + ' 个交易日');
+    '生成时间 ' + esc(d.generated_at)
+      + ' · 交易日 ' + esc(fmtYmd(d.dates[0])) + ' ~ ' + esc(fmtYmd(d.dates[d.dates.length - 1]))
+      + '（共 ' + d.dates.length + ' 个交易日）';
 
-  var html = '';
-  var order = ['ts_code', 'turning_point', 'ma', 'qfq', 'basic_info', 'task_runs'];
-  for (var i = 0; i < order.length; i++) {
-    var key = order[i];
-    if (d.tables[key]) {
-      html += renderTable(d.tables[key], d.dates);
-    }
-  }
+  var html = renderCard(d.stock_daily, {firstColDate: true})
+           + renderCard(d.other_tables);
   c.innerHTML = html;
 }
 
 async function loadData() {
   var url = '/api/stock_data_monitor';
   var sd = document.getElementById('startDate').value;
-  var ed = document.getElementById('endDate').value;
-  if (sd && ed) {
-    url += '?start_date=' + sd.replace(/-/g, '') + '&end_date=' + ed.replace(/-/g, '');
-  }
+  if (sd) url += '?start_date=' + sd.replace(/-/g, '');
+  document.getElementById('content').innerHTML = '<div class="loading">加载中…</div>';
   try {
     var r = await fetch(url);
     var d = await r.json();
@@ -196,24 +201,13 @@ async function loadData() {
 
 document.getElementById('queryBtn').addEventListener('click', function() {
   var sd = document.getElementById('startDate').value;
-  var ed = document.getElementById('endDate').value;
-  if (!sd || !ed) {
-    alert('请同时选择开始日期和结束日期');
-    return;
-  }
-  if (sd > ed) {
-    alert('结束日期不能早于开始日期');
-    return;
-  }
+  if (!sd) { alert('请选择起始日期'); return; }
   loadData();
 });
-
 document.getElementById('resetBtn').addEventListener('click', function() {
   document.getElementById('startDate').value = '';
-  document.getElementById('endDate').value = '';
   loadData();
 });
-
 document.getElementById('refreshBtn').addEventListener('click', loadData);
 loadData();
 </script>

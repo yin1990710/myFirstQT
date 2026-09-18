@@ -65,6 +65,10 @@ from monitor_run_daily_tasks import (
     CRON_LOG_DIR,
     MANUAL_LOG_DIR,
 )
+from module_query_manual_tasks import (
+    query_strategy_tasks,
+    query_strategy_today_summary,
+)
 
 PAGE_DIR = os.path.join(BASE_DIR, 'pages')
 
@@ -498,11 +502,55 @@ def data_monitor():
     return send_from_directory(PAGE_DIR, '数据完整性监控.html')
 
 
+@app.route('/manual-tasks')
+def manual_tasks():
+    """手动任务页：展示策略选股结果页【运行策略】提交的选股脚本执行记录。"""
+    return send_from_directory(PAGE_DIR, '手动任务.html')
+
+
+@app.route('/api/manual_tasks')
+def api_manual_tasks():
+    """手动任务数据：选股策略手动执行记录（task_run_log_t.source='strategy'）。
+
+    查询参数：
+      limit=200   最多返回记录数（按开始时间倒序）
+    响应：{summary: 今日KPI, tasks: [...]}；运行中的任务合并进程内存实时状态。
+    """
+    try:
+        limit = max(1, min(int(request.args.get('limit', 200)), 1000))
+    except (TypeError, ValueError):
+        limit = 200
+
+    tasks = query_strategy_tasks(limit)
+    if tasks is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+
+    # 合并进程内实时状态（Flask 重启后 DB 中 running 记录无法自动收口，以内存为准）
+    with _manual_lock:
+        live = {name: dict(st) for name, st in _manual_state.items()}
+    for t in tasks:
+        st = live.get(t['script'])
+        if st and (t['status'] == 'running' or st.get('status') == 'running'):
+            t['status'] = st.get('status', t['status'])
+            t['start'] = st.get('start') or t['start']
+            t['end'] = st.get('end')
+            t['duration'] = st.get('duration')
+            t['log'] = st.get('log') or t['log']
+
+    summary = query_strategy_today_summary()
+    if summary is None:
+        summary = {'total': 0, 'success': 0, 'failed': 0, 'running': 0}
+    return jsonify({'summary': summary, 'tasks': tasks})
+
+
 @app.route('/api/stock_data_monitor')
 def api_stock_data_monitor():
     """数据完整性监控 API：实时查询数据库返回监控数据 JSON。
 
-    可选参数 start_date / end_date（YYYYMMDD），指定时查询日期范围内的交易日。
+    可选参数：
+      start_date（YYYYMMDD）：起始交易日，截止最新交易日
+      end_date（YYYYMMDD）：结束交易日（需与 start_date 同时传）
+    不传日期时默认最近 10 个交易日。
     """
     try:
         from monitor_stock_data import collect_data, _json_default
@@ -510,6 +558,8 @@ def api_stock_data_monitor():
         end_date = (request.args.get('end_date') or '').strip()
         if start_date and end_date:
             data = collect_data(start_date=start_date, end_date=end_date)
+        elif start_date:
+            data = collect_data(start_date=start_date)
         else:
             data = collect_data(days=10)
         # batch_duration_sec 等 DECIMAL 字段经 _json_default 转为 float
@@ -797,8 +847,14 @@ def _manual_snapshot(script):
     return dict(st) if st else None
 
 
-def _reap_manual_process(script, proc, started, log_fp):
-    """后台等待子进程结束并回写状态。"""
+def _reap_manual_process(script, proc, started, log_fp,
+                         source='manual', biz_date=None):
+    """后台等待子进程结束并回写状态。
+
+    source/biz_date 透传给 write_manual_run_log：
+      source='strategy' 时 run_id 取自进程启动时生成的 state['run_id']，
+      保证 running→success 两次写入命中同一行。
+    """
     rc = proc.wait()
     log_fp.close()
     ended = datetime.now()
@@ -813,7 +869,9 @@ def _reap_manual_process(script, proc, started, log_fp):
             try:
                 write_manual_run_log(script, status,
                                      st.get('start'), end_str, duration,
-                                     rc=rc, log=st.get('log'))
+                                     rc=rc, log=st.get('log'),
+                                     source=source, biz_date=biz_date,
+                                     run_id=st.get('run_id'))
             except Exception:
                 pass
 
@@ -1092,6 +1150,8 @@ def api_strategies_run():
 
             os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
             started = datetime.now()
+            run_id = 'strategy_%s_%s' % (started.strftime('%Y%m%d_%H%M%S'),
+                                         script[:-3])
             log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
             log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
             try:
@@ -1105,13 +1165,19 @@ def api_strategies_run():
 
             state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
                      'end': None, 'rc': None, 'duration': None,
-                     'log': log_name, 'pid': proc.pid}
+                     'log': log_name, 'pid': proc.pid, 'run_id': run_id,
+                     'biz_date': target_date or None}
             _manual_state[script] = state
 
         threading.Thread(target=_reap_manual_process,
-                         args=(script, proc, started, log_fp), daemon=True).start()
+                         args=(script, proc, started, log_fp),
+                         kwargs={'source': 'strategy',
+                                 'biz_date': target_date or None},
+                         daemon=True).start()
         try:
-            write_manual_run_log(script, 'running', state['start'], None, None, log=log_name)
+            write_manual_run_log(script, 'running', state['start'], None, None,
+                                 log=log_name, source='strategy',
+                                 biz_date=target_date or None, run_id=run_id)
         except Exception:
             pass
         results.append({'script': script, 'ok': True, 'state': state})

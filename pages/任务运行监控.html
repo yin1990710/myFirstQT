@@ -6,7 +6,7 @@
 <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>任务运行监控 - 力矩量化选股平台</title>
+<title>例行任务监控 - 力矩量化选股平台</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -142,19 +142,20 @@
     <a href="/mri">A股大盘风险指数</a>
     <a href="/etf">ETF专区</a>
     <a href="/stock-detail">个股详情</a>
-    <a href="/my_stocks">我的股票池</a>    <a href="/cron" class="active">任务运行监控</a>
+    <a href="/my_stocks">我的股票池</a>    <a href="/cron" class="active">任务和数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 
 <main class="wrap">
   <div class="tabs" style="display:flex;gap:0;margin-top:18px;border-bottom:2px solid #e0e6ed;">
-    <a href="/cron" style="padding:10px 24px;font-size:14px;font-weight:600;color:#1a73e8;border-bottom:3px solid #1a73e8;margin-bottom:-2px;text-decoration:none;">任务运行监控</a>
+    <a href="/cron" style="padding:10px 24px;font-size:14px;font-weight:600;color:#1a73e8;border-bottom:3px solid #1a73e8;margin-bottom:-2px;text-decoration:none;">例行任务监控</a>
+    <a href="/manual-tasks" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">手动任务</a>
     <a href="/data-monitor" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">数据完整性监控</a>
   </div>
 
   <div class="page-head" style="margin-top:18px">
-    <h1>任务运行监控</h1>
+    <h1>例行任务监控</h1>
     <div class="head-tools">
       <button class="btn" id="refreshBtn">立即刷新</button>
     </div>

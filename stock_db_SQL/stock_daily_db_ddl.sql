@@ -497,6 +497,8 @@ DROP TABLE IF EXISTS `task_run_log_t`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `task_run_log_t` (
   `id` bigint NOT NULL AUTO_INCREMENT,
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cron' COMMENT '任务来源(cron例行定时/manual例行页手动/strategy选股策略手动)',
+  `biz_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '业务目标日YYYYMMDD(选股策略手动提交的目标交易日)',
   `run_id` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
   `run_date` date NOT NULL COMMENT '运行日期',
   `batch_phase` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '批次阶段(数据更新/选股分析与报告)',
@@ -518,6 +520,7 @@ CREATE TABLE `task_run_log_t` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
+  KEY `idx_source` (`source`),
   KEY `idx_run_date` (`run_date`),
   KEY `idx_script` (`script_name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6519 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
