@@ -39,6 +39,19 @@ YI = 100000000          # 元 → 亿元
 WAN = 10000             # 万元 → 亿元
 QIAN = 100000           # 千元 → 亿元（1亿=10万元=100,000千元）
 
+# 期指 / 股指 代码映射（basis = 期指收盘价 - 股指收盘价）
+INDEX_FUTURE_PAIRS = [
+    ('000300.SH', 'IF', 'IF'),   # 沪深300  vs  IF 合约
+    ('000905.SH', 'IC', 'IC'),   # 中证500   vs  IC 合约
+    ('000852.SH', 'IM', 'IM'),   # 中证1000  vs  IM 合约
+]
+
+
+def _fmt_date(d):
+    """YYYYMMDD → YYYY-MM-DD。"""
+    s = str(d)
+    return f'{s[0:4]}-{s[4:6]}-{s[6:8]}' if len(s) == 8 else s
+
 
 # ===============================================================
 # 板块归属（按代码前缀）
@@ -184,6 +197,56 @@ def collect_szse_summary(conn, trade_date: str) -> dict:
         'szse_amount':   _float(all_row.get('total_amount')),
         'szse_date':     rows.get('_actual_date'),
     }
+
+
+def collect_index_daily(conn, trade_date: str, days: int = 90) -> pd.DataFrame:
+    """采集层：读取三大股指日线（沪深300/中证500/中证1000），用于计算期现差。"""
+    start = (datetime.strptime(trade_date, '%Y%m%d')
+             - timedelta(days=days * 2 + 15)).strftime('%Y%m%d')
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT ts_code, trade_date, close
+           FROM stock_index_daily_t
+           WHERE trade_date >= %s AND trade_date <= %s
+             AND ts_code IN ('000300.SH', '000905.SH', '000852.SH')
+           ORDER BY trade_date""",
+        (start, trade_date))
+    rows = cursor.fetchall()
+    cursor.close()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def collect_future_daily(conn, trade_date: str, days: int = 90) -> pd.DataFrame:
+    """采集层：读取股指期货日线（IF/IC/IM 全合约），主力合约取每日最后一条。"""
+    start = (datetime.strptime(trade_date, '%Y%m%d')
+             - timedelta(days=days * 2 + 15)).strftime('%Y%m%d')
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT ts_code, trade_date, close
+           FROM stock_index_future_daily_t
+           WHERE trade_date >= %s AND trade_date <= %s
+             AND (ts_code LIKE 'IF%%' OR ts_code LIKE 'IC%%' OR ts_code LIKE 'IM%%')
+           ORDER BY trade_date""",
+        (start, trade_date))
+    rows = cursor.fetchall()
+    cursor.close()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def collect_rzrq_full(conn, trade_date: str, days: int = 400) -> pd.DataFrame:
+    """采集层：读取完整融资融券数据（6 字段），用于走势图。"""
+    start = (datetime.strptime(trade_date, '%Y%m%d')
+             - timedelta(days=days * 2)).strftime('%Y%m%d')
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT trade_date, rzye, rzmre, rzche, rqye, rqmcl, rqyl
+           FROM rzrq_ye_t
+           WHERE trade_date >= %s AND trade_date <= %s
+           ORDER BY trade_date""",
+        (start, trade_date))
+    rows = cursor.fetchall()
+    cursor.close()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 # ===============================================================
@@ -385,6 +448,64 @@ def compute_c_class(basic_df: pd.DataFrame, sse: dict, szse: dict) -> dict:
 
 
 # ===============================================================
+# 计算层补充：basis（期现差）和 rzrq（融资融券时序）
+# ===============================================================
+def build_basis_series(index_df: pd.DataFrame, future_df: pd.DataFrame,
+                       index_code: str, future_prefix: str) -> list:
+    """计算单个股指的期现差序列（主力合约取每日最后一条）。
+
+    返回 [[YYYY-MM-DD, basis值], ...]；无数据返回空列表。
+    """
+    if index_df.empty or future_df.empty:
+        return []
+    idx = index_df[index_df['ts_code'] == index_code].copy()
+    fut = future_df[future_df['ts_code'].str.startswith(future_prefix)].copy()
+    if idx.empty or fut.empty:
+        return []
+    # 主力合约：每日最后一条（合约代码排序最大 = 临近交割）
+    fut = fut.sort_values('trade_date').groupby('trade_date').last().reset_index()
+    merged = pd.merge(idx, fut, on='trade_date', suffixes=('_index', '_future'))
+    merged['basis'] = merged['close_future'] - merged['close_index']
+    return [
+        [_fmt_date(r['trade_date']), round(float(r['basis']), 2)]
+        for _, r in merged.sort_values('trade_date').iterrows()
+    ]
+
+
+def build_all_basis(index_df: pd.DataFrame, future_df: pd.DataFrame) -> dict:
+    """计算 IF/IC/IM 三组期现差序列，返回 {key: series}。"""
+    return {
+        key: build_basis_series(index_df, future_df, idx_code, prefix)
+        for idx_code, prefix, key in INDEX_FUTURE_PAIRS
+    }
+
+
+def build_rzrq_series(rzrq_df: pd.DataFrame) -> dict:
+    """融资/融券时序，金额单位转换为亿元。
+
+    返回 {dates, rzye, rzmre, rzche, rqye, rqmcl, rqyl}；无数据返回空结构。
+    """
+    if rzrq_df.empty:
+        return {'dates': [], 'rzye': [], 'rzmre': [], 'rzche': [],
+                'rqye': [], 'rqmcl': [], 'rqyl': []}
+    g = rzrq_df.groupby('trade_date').agg({
+        'rzye': 'sum', 'rzmre': 'sum', 'rzche': 'sum',
+        'rqye': 'sum', 'rqmcl': 'sum', 'rqyl': 'sum',
+    }).reset_index().sort_values('trade_date')
+
+    yi = lambda col: [round(float(v) / YI, 2) for v in g[col]]
+    return {
+        'dates': [_fmt_date(d) for d in g['trade_date']],
+        'rzye': yi('rzye'),
+        'rzmre': yi('rzmre'),
+        'rzche': yi('rzche'),
+        'rqye': yi('rqye'),
+        'rqmcl': [round(float(v), 0) for v in g['rqmcl']],
+        'rqyl': [round(float(v), 0) for v in g['rqyl']],
+    }
+
+
+# ===============================================================
 # 指标组装：原始数值 → 标准化 Metric 列表
 # ===============================================================
 def build_metrics(v: dict) -> list:
@@ -544,6 +665,18 @@ def main():
     rzrq_df = collect_rzrq(conn, trade_date)
     print(f'  → {len(rzrq_df)} 条两融记录')
 
+    print('  读取三大股指日线（期现差计算）...')
+    index_df = collect_index_daily(conn, trade_date)
+    print(f'  → {len(index_df)} 条股指日线')
+
+    print('  读取股指期货日线（期现差计算）...')
+    future_df = collect_future_daily(conn, trade_date)
+    print(f'  → {len(future_df)} 条期指日线')
+
+    print('  读取完整融资融券时序（走势图）...')
+    rzrq_full_df = collect_rzrq_full(conn, trade_date)
+    print(f'  → {len(rzrq_full_df)} 条两融时序记录')
+
     print('  读取上交所总貌（exchange_market_overview_t）...')
     sse = collect_sse_summary(conn, trade_date)
     if sse.get('sse_date') and sse['sse_date'] != trade_date:
@@ -571,6 +704,13 @@ def main():
     ok_count = sum(1 for m in metrics if m['status'] == 'ok')
     print(f'  → {ok_count}/15 指标计算成功')
 
+    # 走势图数据：basis + rzrq_series
+    print('\n[计算层] 计算走势图数据（basis + rzrq）...')
+    basis = build_all_basis(index_df, future_df)
+    rzrq_series = build_rzrq_series(rzrq_full_df)
+    print(f'  → 期现差 IF/IC/IM = {len(basis["IF"])}/{len(basis["IC"])}/{len(basis["IM"])} 交易日')
+    print(f'  → 融资融券时序 = {len(rzrq_series["dates"])} 日')
+
     # 储存层：写入快照表
     print('\n[储存层] 写入指标快照表...')
     conn = get_mysql_connection()
@@ -587,6 +727,8 @@ def main():
         'ok_count': ok_count,
         'total_count': len(metrics),
         'metrics': metrics,
+        'basis': basis,
+        'rzrq': rzrq_series,
     }
     path = write_json(payload, OUTPUT_JSON)
     print(f'  → {path}')

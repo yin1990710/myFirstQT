@@ -432,7 +432,7 @@ document.getElementById('metricDate').addEventListener('change', function() {
 
 // ---- 走势图：从 /api/market_data 获取数据并用 ECharts 渲染 ----
 function loadChartData() {
-  fetch('/api/market_data').then(function(r) { return r.json(); }).then(function(D) {
+  fetch('/api/market_overview_charts').then(function(r) { return r.json(); }).then(function(D) {
     if (D.error) return;
     renderCharts(D);
   }).catch(function() {});

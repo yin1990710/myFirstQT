@@ -631,6 +631,24 @@ def api_market_overview_metrics():
         return jsonify(json.load(f))
 
 
+@app.route('/api/market_overview_charts')
+def api_market_overview_charts():
+    """返回大盘指标概览页走势图数据：basis（期现差 IF/IC/IM）+ rzrq（融资融券时序）。
+
+    数据来源：report_market_overview_metricx.py 写入的 market_overview_metrics.json，
+    不再依赖旧的 market_overall_data.json / report_market_overall_html.py。
+    """
+    path = os.path.join(PAGE_DIR, 'market_overview_metrics.json')
+    if not os.path.exists(path):
+        return jsonify({'error': '数据尚未生成，请先运行 report_market_overview_metricx.py'}), 404
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    return jsonify({
+        'basis': data.get('basis', {}),
+        'rzrq': data.get('rzrq', {}),
+    })
+
+
 @app.route('/api/market_overview_metrics_dates')
 def api_market_overview_metrics_dates():
     """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""
