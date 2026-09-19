@@ -736,7 +736,7 @@ def api_market_overview_charts():
 
 
 # 头部指数概览支持K线查询的指数白名单（与 report_market_overview_metricx.INDEX_OVERVIEW_CODES 一致）
-_INDEX_KLINE_WHITELIST = {'000001.SH', '399001.SZ', '399006.SZ', '000985.CSI'}
+_INDEX_KLINE_WHITELIST = {'000001.SH', '000688.SH', '399006.SZ', '000985.CSI'}
 
 
 @app.route('/api/market_overview_index_kline')

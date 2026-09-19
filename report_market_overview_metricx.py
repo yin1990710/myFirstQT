@@ -49,7 +49,7 @@ INDEX_FUTURE_PAIRS = [
 # 头部指数概览：4个市场核心指数（index_daily_t 由 update_index_daily.py 每日采集）
 INDEX_OVERVIEW_CODES = [
     ('000001.SH', '上证指数'),
-    ('399001.SZ', '深证成指'),
+    ('000688.SH', '科创50'),
     ('399006.SZ', '创业板指'),
     ('000985.CSI', '中证全指'),
 ]
