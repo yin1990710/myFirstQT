@@ -735,6 +735,52 @@ def api_market_overview_charts():
     })
 
 
+# 头部指数概览支持K线查询的指数白名单（与 report_market_overview_metricx.INDEX_OVERVIEW_CODES 一致）
+_INDEX_KLINE_WHITELIST = {'000001.SH', '399001.SZ', '399006.SZ', '000985.CSI'}
+
+
+@app.route('/api/market_overview_index_kline')
+def api_market_overview_index_kline():
+    """返回指定指数近 N 个交易日（默认120）的日K线数据（index_daily_t，升序）。
+
+    头部指数卡片点击展开K线图用；code 仅限白名单内指数。
+    """
+    code = (request.args.get('code') or '').strip()
+    days = (request.args.get('days') or '120').strip()
+    if code not in _INDEX_KLINE_WHITELIST:
+        return jsonify({'error': '不支持的指数代码'}), 400
+    try:
+        days = max(1, min(int(days), 500))
+    except ValueError:
+        days = 120
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT trade_date, open, high, low, close, pct_chg, vol, amount "
+            "FROM index_daily_t WHERE ts_code = %s "
+            "ORDER BY trade_date DESC LIMIT %s", (code, days))
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        close_connection(conn)
+    # 升序返回，便于K线按时间正序渲染
+    rows = sorted(rows, key=lambda r: str(r['trade_date']))
+    klines = [{
+        'trade_date': str(r['trade_date']),
+        'open': float(r['open']) if r['open'] is not None else None,
+        'high': float(r['high']) if r['high'] is not None else None,
+        'low': float(r['low']) if r['low'] is not None else None,
+        'close': float(r['close']) if r['close'] is not None else None,
+        'pct_chg': float(r['pct_chg']) if r['pct_chg'] is not None else None,
+        'vol': float(r['vol']) if r['vol'] is not None else None,
+        'amount': float(r['amount']) if r['amount'] is not None else None,
+    } for r in rows]
+    return jsonify({'ts_code': code, 'count': len(klines), 'klines': klines})
+
+
 @app.route('/api/market_overview_metrics_dates')
 def api_market_overview_metrics_dates():
     """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""

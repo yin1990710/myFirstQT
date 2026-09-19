@@ -46,6 +46,14 @@ INDEX_FUTURE_PAIRS = [
     ('000852.SH', 'IM', 'IM'),   # 中证1000  vs  IM 合约
 ]
 
+# 头部指数概览：4个市场核心指数（index_daily_t 由 update_index_daily.py 每日采集）
+INDEX_OVERVIEW_CODES = [
+    ('000001.SH', '上证指数'),
+    ('399001.SZ', '深证成指'),
+    ('399006.SZ', '创业板指'),
+    ('000985.CSI', '中证全指'),
+]
+
 
 def _fmt_date(d):
     """YYYYMMDD → YYYY-MM-DD。"""
@@ -214,6 +222,50 @@ def collect_index_daily(conn, trade_date: str, days: int = 90) -> pd.DataFrame:
     rows = cursor.fetchall()
     cursor.close()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def collect_index_overview(conn) -> list:
+    """采集层：读取头部4个核心指数各自最近一个交易日的快照（index_daily_t）。
+
+    各指数最新日期可能不同，逐指数取 MAX(trade_date) 对应行。
+    """
+    codes = [c for c, _ in INDEX_OVERVIEW_CODES]
+    placeholders = ','.join(['%s'] * len(codes))
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""SELECT t.ts_code, t.trade_date, t.close, t.`change`, t.pct_chg, t.amount
+            FROM index_daily_t t
+            JOIN (SELECT ts_code, MAX(trade_date) AS max_date
+                  FROM index_daily_t
+                  WHERE ts_code IN ({placeholders})
+                  GROUP BY ts_code) m
+              ON t.ts_code = m.ts_code AND t.trade_date = m.max_date""",
+        codes)
+    rows = cursor.fetchall()
+    cursor.close()
+    return rows
+
+
+def compute_index_overview(rows: list) -> list:
+    """计算层：组装头部指数概览（收盘点位/涨跌额/涨跌幅/成交额亿元）。
+
+    输出按 INDEX_OVERVIEW_CODES 定义顺序排列，供展示层头部卡片渲染。
+    """
+    name_map = dict(INDEX_OVERVIEW_CODES)
+    out = {}
+    for r in rows:
+        amount = _float(r.get('amount'))
+        out[r['ts_code']] = {
+            'ts_code': r['ts_code'],
+            'name': name_map.get(r['ts_code'], r['ts_code']),
+            'trade_date': str(r['trade_date']),
+            'close': _float(r.get('close')),
+            'change': _float(r.get('change')),
+            'pct_chg': _float(r.get('pct_chg')),
+            # amount 单位千元（QIAN=100000 → 亿元）
+            'amount_yi': round(amount / QIAN, 1) if amount else None,
+        }
+    return [out[c] for c, _ in INDEX_OVERVIEW_CODES if c in out]
 
 
 def collect_future_daily(conn, trade_date: str, days: int = 90) -> pd.DataFrame:
@@ -677,6 +729,10 @@ def main():
     rzrq_full_df = collect_rzrq_full(conn, trade_date)
     print(f'  → {len(rzrq_full_df)} 条两融时序记录')
 
+    print('  读取头部核心指数概览（index_daily_t）...')
+    idx_overview_rows = collect_index_overview(conn)
+    print(f'  → {len(idx_overview_rows)} 个指数快照')
+
     print('  读取上交所总貌（exchange_market_overview_t）...')
     sse = collect_sse_summary(conn, trade_date)
     if sse.get('sse_date') and sse['sse_date'] != trade_date:
@@ -711,6 +767,11 @@ def main():
     print(f'  → 期现差 IF/IC/IM = {len(basis["IF"])}/{len(basis["IC"])}/{len(basis["IM"])} 交易日')
     print(f'  → 融资融券时序 = {len(rzrq_series["dates"])} 日')
 
+    # 头部指数概览：4个核心指数最新交易日快照
+    print('\n[计算层] 组装头部指数概览...')
+    indices = compute_index_overview(idx_overview_rows)
+    print(f'  → {len(indices)} 个指数（' + '、'.join(f'{x["name"]}{x["close"]}' for x in indices) + '）')
+
     # 储存层：写入快照表
     print('\n[储存层] 写入指标快照表...')
     conn = get_mysql_connection()
@@ -727,6 +788,7 @@ def main():
         'ok_count': ok_count,
         'total_count': len(metrics),
         'metrics': metrics,
+        'indices': indices,
         'basis': basis,
         'rzrq': rzrq_series,
     }

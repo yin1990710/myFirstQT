@@ -36,6 +36,13 @@
   .kpi .kpi-card .fold { position: absolute; top: 6px; right: 9px; font-size: 11px; color: #9aa4b1; }
   .kpi b { display: block; font-size: 22px; margin: 2px 0; color: #d93025; }
   .kpi span { color: #5a6472; font-size: 12px; }
+  /* 头部核心指数卡片：红涨绿跌（A股习惯），覆盖 .kpi b 默认红色 */
+  .kpi b.idx-up { color: #d93025; }
+  .kpi b.idx-down { color: #0f9d58; }
+  .idx-pct { font-size: 13px; font-weight: 600; }
+  .idx-pct.idx-up { color: #d93025; }
+  .idx-pct.idx-down { color: #0f9d58; }
+  .idx-amt { color: #8a93a1 !important; }
   /* KPI 卡片展开的走势图 */
   .kpi-chart-wrap { display: none; margin: 12px 0 18px; border: 1px solid #c6dafc; background: #f7faff;
                     border-radius: 8px; padding: 12px 16px; }
@@ -104,6 +111,16 @@
     <span id="status"></span>
   </div>
 
+  <!-- 头部核心指数概览：上证指数/深证成指/创业板指/中证全指，点击卡片展开近120日K线 -->
+  <div class="kpi" id="idxKpi" style="display:none;"></div>
+  <div class="kpi-chart-wrap" id="idxChartWrap">
+    <div class="kc-head">
+      <span class="kc-title" id="idxChartTitle">指数K线</span>
+      <button class="kc-close" onclick="closeIndexChart()">收起 ✕</button>
+    </div>
+    <div id="idxChart" class="chart-inline"></div>
+  </div>
+
   <div class="kpi" id="kpi">
     <div class="kpi-card" data-key="A1" onclick="toggleKpiChart('A1')"><span class="fold">点击看走势</span><span>MA5 上方占比</span><b id="kpi-a1">—</b></div>
     <div class="kpi-card" data-key="A2" onclick="toggleKpiChart('A2')"><span class="fold">点击看走势</span><span>MA30 上方占比</span><b id="kpi-a2">—</b></div>
@@ -156,9 +173,13 @@ function render(data) {
   // 数据切换（换日期/重算）：收起所有已展开的走势图，释放 echarts 实例
   closeKpiChart();
   disposeAllRowCharts();
+  closeIndexChart();
 
   document.getElementById('sub').textContent =
     `3 大类 ${data.total_count} 指标 · 交易日 ${data.trade_date} · 生成于 ${data.generated_at} · 实测 ${data.ok_count}/${data.total_count}`;
+
+  // 头部核心指数概览（仅最新 JSON 提供；历史日快照无该数据则隐藏）
+  renderIndices(data.indices);
 
   var metrics = data.metrics || [];
   // KPI 卡片
@@ -203,6 +224,8 @@ function clearPanels() {
   ['a1', 'a2', 'a3', 'b4'].forEach(function(k) {
     document.getElementById('kpi-' + k).textContent = '—';
   });
+  document.getElementById('idxKpi').style.display = 'none';
+  closeIndexChart();
   closeKpiChart();
   disposeAllRowCharts();
   document.getElementById('metricGroups').innerHTML = '';
@@ -261,6 +284,7 @@ function closeKpiChart() {
 function toggleKpiChart(key) {
   if (_kpiOpenKey === key) { closeKpiChart(); return; }
   closeKpiChart();
+  closeIndexChart();   // 与头部指数K线展开区互斥
   _kpiOpenKey = key;
   var card = document.querySelector('.kpi .kpi-card[data-key="' + key + '"]');
   if (card) card.classList.add('open');
@@ -279,6 +303,132 @@ function toggleKpiChart(key) {
     if (_kpiChart) _kpiChart.hideLoading();
     document.getElementById('kpiChartTitle').textContent = key + ' 走势加载失败：' + e.message;
   });
+}
+
+// ---- 头部核心指数概览：卡片渲染 + 点击展开近120日K线 ----
+var _idxChart = null;       // 指数K线 echarts 实例
+var _idxOpenCode = '';      // 当前展开K线的指数代码
+var _idxNameMap = {};       // ts_code -> 指数名称（renderIndices 时填充）
+
+function renderIndices(indices) {
+  var wrap = document.getElementById('idxKpi');
+  if (!indices || !indices.length) {
+    wrap.style.display = 'none';
+    closeIndexChart();
+    return;
+  }
+  wrap.style.display = '';
+  wrap.innerHTML = indices.map(function(x) {
+    _idxNameMap[x.ts_code] = x.name;
+    var cls = x.pct_chg > 0 ? 'idx-up' : (x.pct_chg < 0 ? 'idx-down' : '');
+    var sign = x.pct_chg > 0 ? '+' : '';
+    var pct = (x.pct_chg === null || x.pct_chg === undefined) ? 'N/A' : sign + x.pct_chg.toFixed(2) + '%';
+    var chg = (x.change === null || x.change === undefined) ? '' :
+      '（' + (x.change > 0 ? '+' : '') + x.change.toFixed(2) + '）';
+    var amt = (x.amount_yi === null || x.amount_yi === undefined) ? '' :
+      ' · 成交' + (x.amount_yi >= 10000 ? (x.amount_yi / 10000).toFixed(2) + '万亿' : x.amount_yi.toFixed(0) + '亿');
+    return '<div class="kpi-card idx-card" data-code="' + x.ts_code + '" title="' + x.name + ' ' + x.trade_date + '，点击查看近120日K线"'
+      + ' onclick="toggleIndexChart(\'' + x.ts_code + '\')">'
+      + '<span class="fold">点击看K线</span>'
+      + '<span>' + x.name + '</span>'
+      + '<b class="' + cls + '">' + (x.close === null || x.close === undefined ? 'N/A' : x.close.toFixed(2)) + '</b>'
+      + '<span class="idx-pct ' + cls + '">' + pct + chg + '</span>'
+      + (amt ? '<span class="idx-amt">' + amt + '</span>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function closeIndexChart() {
+  if (_idxChart) { _idxChart.dispose(); _idxChart = null; }
+  _idxOpenCode = '';
+  document.getElementById('idxChartWrap').style.display = 'none';
+  var opens = document.querySelectorAll('#idxKpi .kpi-card.open');
+  for (var i = 0; i < opens.length; i++) opens[i].classList.remove('open');
+}
+
+function toggleIndexChart(code) {
+  if (_idxOpenCode === code) { closeIndexChart(); return; }
+  closeIndexChart();
+  closeKpiChart();   // 与15指标KPI展开区互斥
+  _idxOpenCode = code;
+  var card = document.querySelector('#idxKpi .kpi-card[data-code="' + code + '"]');
+  if (card) card.classList.add('open');
+  var name = _idxNameMap[code] || code;
+  document.getElementById('idxChartWrap').style.display = 'block';
+  document.getElementById('idxChartTitle').textContent = name + '（' + code + '）近120个交易日K线加载中…';
+  if (_idxChart) { _idxChart.dispose(); _idxChart = null; }
+  _idxChart = echarts.init(document.getElementById('idxChart'));
+  _idxChart.showLoading();
+  fetch('/api/market_overview_index_kline?code=' + encodeURIComponent(code) + '&days=120')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      if (_idxOpenCode !== code) return;   // 加载期间已切换
+      _idxChart.hideLoading();
+      document.getElementById('idxChartTitle').textContent =
+        name + '（' + code + '）近' + d.klines.length + '个交易日K线';
+      _idxChart.setOption(indexKlineOption(d.klines, name));
+    })
+    .catch(function(e) {
+      if (_idxChart) _idxChart.hideLoading();
+      document.getElementById('idxChartTitle').textContent = name + ' K线加载失败：' + e.message;
+    });
+}
+
+// 指数日K线 ECharts 配置：蜡烛图（红涨绿跌）+ MA5/MA10
+function indexKlineOption(klines, name) {
+  var RED = '#d83a3a', GREEN = '#0f9d58';
+  var dates = klines.map(function(k) { return shortDate(k.trade_date); });
+  // ECharts candlestick 数据格式：[open, close, lowest, highest]
+  var kdata = klines.map(function(k) { return [k.open, k.close, k.low, k.high]; });
+  // 收盘价 N 日均线（数据不足前置 null）
+  function ma(n) {
+    var out = [];
+    for (var i = 0; i < kdata.length; i++) {
+      if (i < n - 1) { out.push(null); continue; }
+      var s = 0;
+      for (var j = i - n + 1; j <= i; j++) s += kdata[j][1];
+      out.push(+(s / n).toFixed(2));
+    }
+    return out;
+  }
+  function f(v) { return (v === null || v === undefined) ? '-' : Number(v).toFixed(2); }
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: function(params) {
+        var i = params[0].dataIndex;
+        var k = klines[i];
+        if (!k) return '';
+        var cls = k.pct_chg > 0 ? 'idx-up' : (k.pct_chg < 0 ? 'idx-down' : '');
+        var html = shortDate(k.trade_date) + '<br/>'
+          + '开 ' + f(k.open) + '　收 <span class="' + cls + '">' + f(k.close) + '</span><br/>'
+          + '低 ' + f(k.low) + '　高 ' + f(k.high) + '<br/>'
+          + '涨跌幅 <span class="' + cls + '">' + (k.pct_chg > 0 ? '+' : '') + f(k.pct_chg) + '%</span>';
+        for (var p = 1; p < params.length; p++) {
+          if (params[p].seriesName && params[p].value !== null && params[p].value !== undefined && params[p].value !== '-') {
+            html += '<br/>' + params[p].marker + params[p].seriesName + ' ' + params[p].value;
+          }
+        }
+        return html;
+      }
+    },
+    legend: { top: 0, textStyle: { fontSize: 11 }, data: ['MA5', 'MA10'] },
+    grid: { left: 64, right: 24, top: 30, bottom: 58 },
+    xAxis: { type: 'category', data: dates, boundaryGap: true,
+             axisLabel: { fontSize: 10, interval: Math.max(0, Math.floor(dates.length / 8) - 1) } },
+    yAxis: { type: 'value', scale: true },
+    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 18 }],
+    series: [
+      { name: name, type: 'candlestick', data: kdata,
+        itemStyle: { color: RED, color0: GREEN, borderColor: RED, borderColor0: GREEN } },
+      { name: 'MA5', type: 'line', data: ma(5), showSymbol: false, smooth: true,
+        lineStyle: { width: 1, color: '#e8820c' } },
+      { name: 'MA10', type: 'line', data: ma(10), showSymbol: false, smooth: true,
+        lineStyle: { width: 1, color: '#1a73e8' } },
+    ]
+  };
 }
 
 // 表格指标行：行下方插入一行走势图，再次点击移除
@@ -325,6 +475,7 @@ document.getElementById('metricGroups').addEventListener('click', function(e) {
 
 window.addEventListener('resize', function() {
   if (_kpiChart) _kpiChart.resize();
+  if (_idxChart) _idxChart.resize();
   Object.keys(_rowCharts).forEach(function(k) { _rowCharts[k].resize(); });
 });
 
