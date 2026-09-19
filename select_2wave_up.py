@@ -97,6 +97,7 @@ def read_stock_data(start_date, end_date):
             d.amount,
             d.ma5,
             d.ma30,
+            d.short_strength_score,
             d.turning_point,
             b.total_mv
         FROM stock_daily_t d
@@ -138,6 +139,7 @@ TROUGH_RECENT_DAYS = 8         # N日 > A日-8日：波谷须出现在最近8个
 MIN_VOL_RATIO = 1.5            # T-5~T日均额 >= N-5~N日均额 × 1.5
 MAX_CLOSE_RATIO = 0.70         # N日收盘 / T日收盘 < 70%
 ABOVE_MA5_DAYS = 4             # A-3~A日（共4日）收盘价均高于ma5
+MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
 
 
 def _peak_trough_idxs(window):
@@ -252,6 +254,12 @@ def _filter_above_ma5(records):
                for r in records[-ABOVE_MA5_DAYS:])
 
 
+def _filter_short_strength(records):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = records[-1].get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)；函数入参为该股票记录（按日期升序、已剔除close<=0脏数据），返回 True=通过
 STOCK_FILTERS = [
     (f'有效交易日不足{MIN_BARS}日', _filter_enough_bars),
@@ -263,6 +271,7 @@ STOCK_FILTERS = [
     (f'峰谷量能比(T/N均额)<{MIN_VOL_RATIO:g}', _filter_volume_expand),
     (f'N收盘/T收盘>={MAX_CLOSE_RATIO*100:.0f}%', _filter_deep_pullback),
     (f'近{ABOVE_MA5_DAYS}日存在close<=ma5', _filter_above_ma5),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -286,6 +295,9 @@ def analyze_stocks(data):
             'close':         float(record['close']) if record['close'] else None,
             'amount':        float(record['amount']) if record['amount'] else None,
             'ma5':           float(record['ma5']) if record['ma5'] else None,
+            'ma30':           float(record['ma30']) if record['ma30'] else None,
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
             'turning_point': record['turning_point'],
             'total_mv':      float(record['total_mv']) if record['total_mv'] else 0.0,
         })

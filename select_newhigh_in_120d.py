@@ -58,6 +58,7 @@ def get_stock_data(conn) -> pd.DataFrame:
                 d.close,
                 d.vol,
                 d.amount,
+                d.short_strength_score,
                 i.stock_name
             FROM stock_daily_t d
             LEFT JOIN stock_info_t i ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
@@ -84,6 +85,7 @@ NEWHIGH_WINDOW = 120          # 区间窗口（最近120个交易日）
 MAX_AMPLITUDE = 35.0          # 前119日收盘区间振幅上限（%）
 MIN_GAIN = 5.0                # 最新日涨幅下限（%）
 MIN_AMOUNT_YI = 5.0           # 最新日成交额下限（亿元）；amount单位千元，amount×1000为元
+MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
 
 
 def build_context(group):
@@ -112,6 +114,8 @@ def build_context(group):
         'amplitude': amplitude,
         'gain': gain,
         'stock_name': group.iloc[0].get('stock_name', ''),
+        'short_strength_score': (float(latest['short_strength_score'])
+                                 if latest.get('short_strength_score') is not None else None),
     }
 
 
@@ -146,6 +150,12 @@ def _filter_amount(ctx):
     return ctx['latest_amount'] * 1000 > MIN_AMOUNT_YI * 1e8
 
 
+def _filter_short_strength(ctx):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = ctx.get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)；函数入参为单只股票的特征上下文 ctx，返回 True=通过
 STOCK_FILTERS = [
     (f'有效交易日不足{NEWHIGH_WINDOW}日', _filter_enough_bars),
@@ -154,6 +164,7 @@ STOCK_FILTERS = [
     ('最新收盘未创120日新高', _filter_new_high),
     (f'最新日涨幅<={MIN_GAIN:g}%', _filter_gain),
     (f'最新日成交额<={MIN_AMOUNT_YI:g}亿', _filter_amount),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 

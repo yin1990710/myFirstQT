@@ -24,6 +24,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
 
+MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
+
 def get_target_date():
     now = datetime.now()
     current_hour = now.hour
@@ -67,6 +69,7 @@ def read_stock_data(days=10):
         d.trade_date,
         d.close,
         d.pre_close,
+        d.short_strength_score,
         i.stock_name,
         i.total_mv
     FROM stock_daily_t d
@@ -101,7 +104,9 @@ def analyze_stocks(data):
         stock_data[ts_code]['records'].append({
             'trade_date': record['trade_date'],
             'close': float(record['close'] or 0),
-            'pre_close': float(record['pre_close'] or 0)
+            'pre_close': float(record['pre_close'] or 0),
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
         })
 
     result = []
@@ -132,6 +137,11 @@ def analyze_stocks(data):
         pct_chg = (close - pre_close) / pre_close * 100
 
         if pct_chg <= 9:
+            continue
+
+        # 最新日短线强弱得分 > 60
+        sss = latest_record.get('short_strength_score')
+        if sss is None or sss <= MIN_SHORT_STRENGTH:
             continue
 
         result.append({

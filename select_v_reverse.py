@@ -39,6 +39,7 @@ RECENT_DAYS = 30           # 「最近N个交易日」窗口：最低点必须�
 AMP_RATIO_MAX = 0.50       # 最低收盘价 / 最高收盘价 < 此值
 MIN_RISE_DAYS = 10         # 最近30日 turning_point="上升" 的最少天数
 MIN_MARKET_CAP_WAN = 1_000_000  # 总市值下限（万元）= 100亿
+MIN_SHORT_STRENGTH = 60.0       # 最新日短线强弱得分>60
 TOP_N = 50
 
 # ---------- 灵活过滤条件（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
@@ -83,6 +84,8 @@ def build_context(records):
         'ma30': latest.get('ma30'),
         'total_mv': latest.get('total_mv'),
         'close': latest.get('close'),
+        'short_strength_score': (float(latest.get('short_strength_score'))
+                                 if latest.get('short_strength_score') is not None else None),
     }
 
 
@@ -129,6 +132,12 @@ def _filter_ma_bull(ctx):
     return ma5 is not None and ma30 is not None and ma30 > 0 and ma5 > ma30
 
 
+def _filter_short_strength(ctx):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = ctx.get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
 STOCK_FILTERS = [
     ('非沪深A股', _filter_a_share),
@@ -139,6 +148,7 @@ STOCK_FILTERS = [
     (f'最低收盘不在最近{RECENT_DAYS}日内', _filter_low_in_recent),
     (f'近{RECENT_DAYS}日上升天数<{MIN_RISE_DAYS}', _filter_rise_days),
     ('最新日ma5未大于ma30', _filter_ma_bull),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -197,7 +207,7 @@ def read_stock_data(start_date, end_date):
         return []
     query_sql = """
         SELECT d.ts_code, d.trade_date, d.close, d.ma5, d.ma30,
-               d.turning_point, b.total_mv
+               d.short_strength_score, d.turning_point, b.total_mv
         FROM stock_daily_t d
         LEFT JOIN stock_daily_basic_info_t b
                ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date

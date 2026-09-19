@@ -77,6 +77,7 @@ LOOKBACK_DAYS = 10              # 换手率统计/数据读取窗口（最近交
 MIN_HIT_DAYS = 5                # 窗口内换手率达标的最少天数
 ABOVE_MA_DAYS = 2               # close>ma5>ma30 需连续满足的交易日数
 MIN_MARKET_CAP_WAN = 1_000_000  # 最新日总市值下限（万元）= 100亿
+MIN_SHORT_STRENGTH = 60.0       # 最新日短线强弱得分>60
 
 # 换手率分档表（万元总市值下限, 换手率阈值%）：按顺序匹配首个 mv>=下界 的档位
 MV_TR_TIERS = [
@@ -127,6 +128,8 @@ def build_context(ts_code, records):
         'latest_mv': latest_mv,
         'threshold': threshold,
         'hit_days': hit_days,
+        'short_strength_score': (float(records[-1].get('short_strength_score'))
+                                 if records and records[-1].get('short_strength_score') is not None else None),
     }
 
 
@@ -160,6 +163,12 @@ def _filter_ma_bull(ctx):
     )
 
 
+def _filter_short_strength(ctx):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = ctx.get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
 STOCK_FILTERS = [
     ('非沪深A股', _filter_a_share),
@@ -167,6 +176,7 @@ STOCK_FILTERS = [
     (f'有效交易日不足{LOOKBACK_DAYS}日', _filter_enough_bars),
     (f'近{LOOKBACK_DAYS}日高换手达标<{MIN_HIT_DAYS}天', _filter_turnover_hits),
     (f'近{ABOVE_MA_DAYS}日close<=ma5或ma5<=ma30', _filter_ma_bull),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -196,6 +206,7 @@ def read_stock_data(start_date, end_date):
             d.close,
             d.ma5,
             d.ma30,
+            d.short_strength_score,
             b.total_mv,
             b.turnover_rate_f
         FROM stock_daily_t d

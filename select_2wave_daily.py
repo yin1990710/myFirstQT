@@ -14,7 +14,7 @@
 4. 最近一个交易日涨幅 > 5%，或最近 3 个交易日内 turning_point 出现「波谷」
 5. 最近一个交易日总市值 total_mv（万元）> 2亿（20,000 万元）
 6. 最近一个交易日成交额 amount × 1000 > 5亿
-7. 最近一个交易日短线强弱得分 short_strength_score > 75
+7. 最近一个交易日短线强弱得分 short_strength_score > 60
 
 基础门槛：流通市值 circ_mv ≥ 50亿、有效交易日数据 ≥ 45 日。
 过滤条件采用 STOCK_FILTERS 注册表方式，新增条件只需追加一个过滤函数与一行注册。
@@ -148,7 +148,7 @@ MIN_FIRST_WAVE_GAIN = 15.0     # 第一波涨幅≥15%
 MA30_BREAK_TOLERANCE = 0.90    # 回调收盘价不低于当日MA30×0.9（允许10%误差）
 MAX_ADJUST_VOL_RATIO = 0.60    # 调整期均量≤放量上涨阶段均量的60%
 MIN_TODAY_GAIN = 5.0           # 最新日涨幅≥5%
-MIN_SHORT_STRENGTH = 75.0      # 最新日短线强弱得分>75
+MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
 
 
 def _filter_circ_mv(ctx):

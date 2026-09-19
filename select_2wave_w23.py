@@ -57,7 +57,7 @@ SCORE_THRESHOLD = 70       # 信号触发分数
 WATCH_THRESHOLD = 60       # 观察池分数
 LOOKBACK_DAYS = 260        # 数据回看交易日数
 MIN_MARKET_CAP_WAN = 1_000_000  # 总市值下限（万元）= 100亿
-MIN_SHORT_STRENGTH = 75.0       # 最新交易日短线强弱得分下限（>75）
+MIN_SHORT_STRENGTH = 60.0       # 最新交易日短线强弱得分下限（>60）
 MIN_BARS = MA_LONG + WAVE1_MIN_DAYS + WAVE2_MIN_DAYS + 10  # 参与计算的最少交易日数（78）
 TOP_N = 20
 

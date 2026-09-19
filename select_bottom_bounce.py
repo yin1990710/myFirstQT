@@ -30,6 +30,8 @@ from module_insert_strategy_selected_record import record_selected_stocks
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
+MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
+
 
 # ---------- 工具函数 ----------
 
@@ -87,6 +89,7 @@ def read_stock_data(start_date, end_date):
             d.close,
             d.ma5,
             d.ma30,
+            d.short_strength_score,
             b.total_mv,
             b.turnover_rate_f
         FROM stock_daily_t d
@@ -129,6 +132,8 @@ def analyze_stocks(data):
             'close':           float(record['close'] or 0),
             'ma5':             float(record['ma5']   or 0),
             'ma30':            float(record['ma30']  or 0),
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
             'total_mv':        total_mv,
             'turnover_rate_f': turnover,
         })
@@ -215,6 +220,11 @@ def analyze_stocks(data):
         ma_ok = all(r['ma5'] > 0 and r['ma30'] > 0 and r['ma5'] > r['ma30'] for r in last_2)
         if not ma_ok:
             cnt_fail_ma += 1
+            continue
+
+        # ---------- 最新日短线强弱得分 > 60 ----------
+        sss = records[-1].get('short_strength_score')
+        if sss is None or sss <= MIN_SHORT_STRENGTH:
             continue
 
         result.append({

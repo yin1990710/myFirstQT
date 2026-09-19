@@ -78,6 +78,7 @@ LONG_MA_DAYS = 120         # 长期均线（DB仅214个交易日，MA250不可�
 MID_MA_DAYS = 30           # 中期均线
 SHORT_MA_DAYS = 5          # 短期均线
 MIN_MARKET_CAP_WAN = 1_000_000  # 最新日总市值下限（万元）= 100亿
+MIN_SHORT_STRENGTH = 60.0    # 最新日短线强弱得分>60
 MIN_SCORE = 60             # 辅助打分输出阈值（100分制）
 TOP_N = 30                 # 最多输出数量
 
@@ -105,10 +106,17 @@ def _filter_enough_history(recs):
     return len(recs) >= MIN_HISTORY
 
 
+def _filter_short_strength(recs):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = recs[-1].get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 STOCK_FILTERS = [
     ('非沪深A股', _filter_a_share),
     (f'市值<{MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
     (f'上市/数据不足{MIN_HISTORY}日', _filter_enough_history),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -172,7 +180,8 @@ def read_stock_data(start_date, end_date):
         print("❌ 数据库连接失败")
         return []
     query_sql = """
-        SELECT d.ts_code, d.trade_date, d.close, d.vol, d.amount, b.total_mv
+        SELECT d.ts_code, d.trade_date, d.close, d.vol, d.amount,
+               d.short_strength_score, b.total_mv
         FROM stock_daily_t d
         LEFT JOIN stock_daily_basic_info_t b
                ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
@@ -496,6 +505,8 @@ def run_wave2_selection(data, trade_dates):
             'close': float(record['close']) if record['close'] is not None else None,
             'vol': float(record['vol']) if record['vol'] is not None else None,
             'amount': float(record['amount']) if record['amount'] is not None else None,
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
             'total_mv': float(record['total_mv']) if record['total_mv'] is not None else 0.0,
         })
     for recs in stock_data.values():
