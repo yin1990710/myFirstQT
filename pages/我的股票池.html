@@ -146,7 +146,7 @@ function fmtPrice(v) {
 }
 
 let ROWS = [];                  // 全部股票记录
-const PAGE_SIZE = 12;           // 每页最多 12 条
+const PAGE_SIZE = 20;           // 每页最多 20 条
 let currentPage = 1;            // 当前页码
 // ---- 排序状态 ----
 let _sortKey = null;            // 排序字段: max_gain / max_drop / gain_to_date / sss
@@ -192,7 +192,6 @@ function renderTable() {
 
   let html = '<table><thead><tr>';
   html += '<th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th>';
-  html += '<th>序号</th>';
   html += '<th class="left">股票代码</th><th class="left">股票名称</th>';
   html += '<th>入选日期</th><th>入选价</th><th>至今收盘</th>';
   html += '<th>区间最高</th><th>区间最低</th>';
@@ -202,10 +201,9 @@ function renderTable() {
   html += '<th class="sortable" onclick="toggleSort(\'sss\')"><a href="/sss/framework" target="_blank" style="color:inherit;text-decoration:none" title="点击查看说明" onclick="event.stopPropagation()">短线强弱得分</a><sup style="font-size:11px;color:#aaa;cursor:help;margin-left:2px" title="点击查看说明" onclick="event.stopPropagation()">?</sup>' + (_sssLoading ? '<span style="font-size:11px;margin-left:4px;color:#ffe082">加载中…</span>' : '') + '<span class="arrow' + (_sortKey==='sss'?' active':'') + '">' + (_sortKey==='sss'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
   html += '<th class="left">入选策略</th>';
   html += '</tr></thead><tbody>';
-  pageRows.forEach((r, idx) => {
+  pageRows.forEach(r => {
     html += '<tr class="data-row">';
     html += '<td><input type="checkbox" class="row-cb" data-code="' + r.ts_code + '" data-name="' + (r.stock_name||'').replace(/"/g,'&quot;') + '"></td>';
-    html += '<td>' + (start + idx + 1) + '</td>';
     html += '<td class="left">' + r.ts_code + '</td>';
     html += '<td class="left">' + (r.stock_name || '') + '</td>';
     html += '<td>' + r.selected_date + '</td>';
