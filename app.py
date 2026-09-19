@@ -1015,17 +1015,24 @@ def _reap_manual_process(script, proc, started, log_fp,
 
 @app.route('/api/cron_tasks')
 def api_cron_tasks():
-    """当天定时任务运行列表（实时读 cron_logs，可轮询），并附带手动执行状态。
-    解析后将结果写入 task_run_log_t 表持久化。
+    """例行任务全量清单+当天运行状态（实时读 cron_logs，可轮询），并附带手动执行状态。
+
+    解析以 run_daily_stock_tasks.sh 全量任务清单为骨架：已运行的填充状态，
+    未运行的 status=pending（待运行），保证页面初始化即展示所有例行任务。
+    有运行日志时将结果写入 task_run_log_t 表持久化（仅已运行任务）。
     """
-    data = parse_cron_run() or {'log_dir_exists': False}
+    data = parse_cron_run()
+    if data is None:
+        data = {'log_dir_exists': False, 'has_run': False, 'tasks': [],
+                'summary': {'total': 0, 'success': 0, 'failed': 0,
+                            'running': 0, 'pending': 0}}
+    for task in data.get('tasks', []):
+        task['manual'] = _manual_snapshot(task['name'])
     if data.get('has_run'):
         try:
             write_run_log(data)
         except Exception:
             pass
-        for task in data['tasks']:
-            task['manual'] = _manual_snapshot(task['name'])
     return jsonify(data)
 
 

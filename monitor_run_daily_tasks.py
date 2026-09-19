@@ -198,19 +198,126 @@ def _match_detail_logs(scripts, run_id):
     return mapping
 
 
+def _task_manifest_entry(t):
+    """把清单/日志任务统一补齐为前端渲染所需的完整字段。"""
+    return {
+        'step': t.get('step'),
+        'name': t.get('name'),
+        'task_name': t.get('task_name'),
+        'phase': t.get('phase'),
+        'status': t.get('status', 'pending'),
+        'start': t.get('start'),
+        'end': t.get('end'),
+        'duration': t.get('duration'),
+        'detail_log': t.get('detail_log'),
+    }
+
+
+def _summary_of(tasks):
+    """统计各状态任务数（含待运行 pending）。"""
+    return {
+        'total': len(tasks),
+        'success': sum(1 for t in tasks if t['status'] == 'success'),
+        'failed': sum(1 for t in tasks if t['status'] == 'failed'),
+        'running': sum(1 for t in tasks if t['status'] == 'running'),
+        'pending': sum(1 for t in tasks if t['status'] == 'pending'),
+    }
+
+
+# 例行任务全量清单缓存（sh 脚本变更需重启 Flask 生效）
+_task_manifest_cache = None
+
+
+def load_task_manifest():
+    """计算层：解析 run_daily_stock_tasks.sh 提取全部例行任务清单。
+
+    依次扫描 log "..." 输出行：批次横幅更新当前所属批次，
+    "[步骤N/M] 开始执行 任务名 (脚本.py)..." 行登记任务。
+    返回按步骤号升序的任务定义列表：
+      [{'step': '步骤1/26', 'name': 'xxx.py', 'task_name': 'xxx', 'phase': '第N批任务：...'}]
+    """
+    global _task_manifest_cache
+    if _task_manifest_cache is not None:
+        return _task_manifest_cache
+
+    manifest = []
+    phase = ''
+    try:
+        with open(DAILY_SH_PATH, encoding='utf-8') as f:
+            for line in f:
+                stripped = line.strip()
+                # 只关心 log "..." 输出行，取出引号内正文
+                mlog = re.match(r'^log\s+"(.+)"\s*$', stripped)
+                if not mlog:
+                    continue
+                body = mlog.group(1).strip()
+
+                mb = _BATCH_MARK.search(body)
+                if mb:
+                    phase = mb.group('name').strip()
+                    continue
+                ms = _CRON_START.match(body)
+                if ms:
+                    manifest.append({
+                        'step': ms.group('step'),
+                        'name': ms.group('script'),
+                        'task_name': ms.group('task_name').strip(),
+                        'phase': phase,
+                    })
+    except OSError:
+        pass
+
+    def _step_key(t):
+        m = re.search(r'(\d+)', t['step'] or '')
+        return int(m.group(1)) if m else 999
+
+    manifest.sort(key=_step_key)
+    _task_manifest_cache = manifest
+    return manifest
+
+
+def _manifest_only_result(manifest, log_dir_exists):
+    """无运行日志时返回全量任务清单（状态全部为待运行）。"""
+    tasks = [_task_manifest_entry({**t, 'status': 'pending'}) for t in manifest]
+    return {
+        'log_dir_exists': log_dir_exists,
+        'has_run': False,
+        'run_id': '',
+        'run_date': '',
+        'run_time': '',
+        'is_today': False,
+        'log_file': None,
+        'batch_start': None,
+        'batch_end': None,
+        'batch_duration': None,
+        'batch_status': 'unknown',
+        'tasks': tasks,
+        'summary': _summary_of(tasks),
+    }
+
+
 def parse_cron_run():
     """解析 cron_logs 中最近一次 daily_stock_*.log 编排日志。
 
-    返回 None 表示 cron_logs 目录不存在；
-    返回 {'has_run': False} 表示目录在但无运行日志。
+    以 run_daily_stock_tasks.sh 的全量任务清单为骨架：日志中出现过的
+    任务填充运行状态/时间，未出现的任务状态为 pending（待运行），
+    保证页面初始化即展示所有例行任务。
+
+    返回 None 表示 sh 脚本与 cron_logs 目录均不存在；
+    返回 {'has_run': False, ...} 表示无运行日志（tasks 仍为全量清单）。
     每次调用都重新读文件，便于页面轮询"运行中"的任务。
     """
-    if not os.path.isdir(CRON_LOG_DIR):
+    manifest = load_task_manifest()
+
+    if not manifest and not os.path.isdir(CRON_LOG_DIR):
         return None
+
+    if not os.path.isdir(CRON_LOG_DIR):
+        return _manifest_only_result(manifest, log_dir_exists=False)
 
     mains = sorted(glob.glob(os.path.join(CRON_LOG_DIR, 'daily_stock_*.log')))
     if not mains:
-        return {'has_run': False}
+        return _manifest_only_result(manifest, log_dir_exists=True)
 
     path = mains[-1]
     fname = os.path.basename(path)
@@ -286,6 +393,24 @@ def parse_cron_run():
     for t in tasks:
         t['detail_log'] = detail_logs.get(t['name'])
 
+    # 以清单为骨架合并：清单任务按脚本名匹配日志结果，未出现的补 pending（待运行）
+    by_script = {}
+    for i, t in enumerate(tasks):
+        by_script.setdefault(t['name'], i)
+    merged = []
+    for mt in manifest:
+        i = by_script.pop(mt['name'], None)
+        if i is None:
+            merged.append(_task_manifest_entry({**mt, 'status': 'pending'}))
+        else:
+            # 步骤号/任务名/所属批次以 sh 清单为准，与页面清单保持一致
+            tasks[i].update(step=mt['step'], task_name=mt['task_name'], phase=mt['phase'])
+            merged.append(_task_manifest_entry(tasks[i]))
+    # 日志中有但清单没有的任务（sh 改版前的历史日志）追加在末尾，避免信息丢失
+    for i in by_script.values():
+        merged.append(_task_manifest_entry(tasks[i]))
+    tasks = merged
+
     if batch_end:
         batch_status = 'failed' if batch_failed else 'success'
     elif batch_failed:
@@ -314,12 +439,7 @@ def parse_cron_run():
         'batch_duration': batch_duration,
         'batch_status': batch_status,
         'tasks': tasks,
-        'summary': {
-            'total': len(tasks),
-            'success': sum(1 for t in tasks if t['status'] == 'success'),
-            'failed': sum(1 for t in tasks if t['status'] == 'failed'),
-            'running': sum(1 for t in tasks if t['status'] == 'running'),
-        },
+        'summary': _summary_of(tasks),
     }
 
 
@@ -382,6 +502,8 @@ def write_run_log(data=None):
     try:
         with conn.cursor() as cursor:
             for t in data['tasks']:
+                if t.get('status') == 'pending':
+                    continue   # 待运行任务未实际执行，不写入运行记录表
                 cursor.execute(sql, (
                     run_id, run_date,
                     t.get('phase'), t.get('step'), t['name'], t.get('task_name'),
