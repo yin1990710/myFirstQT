@@ -418,6 +418,8 @@ function renderCat(cat) {
   syncResultView();
   render();
   updateSelCount();
+  // 切到以股选股卡片时，从 DB 加载最近有数据日期的结果（刚执行过的 _fsResult 优先展示）
+  if (cat === FIND_SIMILAR_CAT) queryFs();
 }
 
 // 勾选：条件选股多选入集合；以股选股单选，选中后展开其参数表单
@@ -694,6 +696,7 @@ function startFindSimilarPolling(script) {
 // ---- 结果列表随卡片独立切换 ----
 // 条件选股卡片：展示策略选股结果（/api/results）；以股选股卡片：展示最近一次相似股票结果
 let _fsResult = null;   // {title, template, rows:[{ts_code,stock_name,strategy}]}，以股选股卡片的结果数据
+let _fsDbRows = [];     // 以股选股卡片的 DB 历史结果（最近有数据日期），_fsResult 为空时展示
 
 function todayCompact() {
   const d = new Date();
@@ -713,15 +716,18 @@ function syncResultView() {
   // 以股选股卡片：隐藏策略/日期/查询/重置，保留以股选股专属下载CSV与加入我的股票池
   bar.classList.add('fs-mode');
   el.style.display = 'flex';
-  if (!_fsResult) {
+  if (_fsResult) {
+    el.innerHTML = `<span>📌 <b>${attrEsc(_fsResult.title)}</b> 的相似股票结果`
+      + (_fsResult.template ? `（模板：${attrEsc(_fsResult.template)}）` : '')
+      + `，共 ${_fsResult.rows.length} 只`
+      + (_fsResult.rows.length ? '' : '（无符合条件的股票）')
+      + `</span>`;
+  } else if (_fsDbRows.length) {
+    const dt = _fsDbRows[0].trade_date || '';
+    el.innerHTML = `<span>📋 以股选股历史结果（${dt}），共 ${_fsDbRows.length} 条记录</span>`;
+  } else {
     el.innerHTML = '<span>👆 勾选一个以股选股策略并点击「查询相似股票」，结果将展示在这里</span>';
-    return;
   }
-  el.innerHTML = `<span>📌 <b>${attrEsc(_fsResult.title)}</b> 的相似股票结果`
-    + (_fsResult.template ? `（模板：${attrEsc(_fsResult.template)}）` : '')
-    + `，共 ${_fsResult.rows.length} 只`
-    + (_fsResult.rows.length ? '' : '（无符合条件的股票）')
-    + `</span>`;
 }
 
 // 计算完成后拉取相似股票列表，作为以股选股卡片的结果数据
@@ -787,6 +793,24 @@ function query() {
     .finally(() => { btn.disabled = false; btn.textContent = '查询'; });
 }
 
+// 以股选股：从 DB 加载最近有数据日期的结果，展示在下方列表
+async function queryFs() {
+  try {
+    // 1. 取以股选股分类下最近有数据的交易日
+    const lr = await fetch('/api/results_latest_date?category=find_similar').then(r => r.json());
+    const ld = lr.latest_date;
+    if (!ld) { _fsDbRows = []; render(); return; }
+    // 2. 拉取该日期的以股选股结果
+    const d = await fetch('/api/results?category=find_similar&start=' + ld + '&end=' + ld)
+      .then(r => r.json());
+    if (d.error) { _fsDbRows = []; render(); return; }
+    _fsDbRows = d.rows || [];
+    currentPage = 1;
+    resetSSS();
+    render();
+  } catch (e) { /* 忽略，保持空列表 */ }
+}
+
 // ---- 导出CSV：按当前筛选条件生成 股票代码,股票名称 列表 ----
 // CSV 单元格转义：含逗号/引号/换行时用引号包裹，内部引号翻倍
 function csvCell(v) {
@@ -836,20 +860,21 @@ async function downloadCsv() {
 
 // ---- 以股选股结果导出CSV：列格式与下载CSV(条件选股)一致，仅股票代码+股票名称 ----
 async function downloadFsCsv() {
-  if (!_fsResult || !_fsResult.rows.length) { alert('当前没有可下载的以股选股结果'); return; }
+  const srcRows = _fsResult ? _fsResult.rows : _fsDbRows;
+  if (!srcRows || !srcRows.length) { alert('当前没有可下载的以股选股结果'); return; }
   const btn = document.getElementById('fsDownloadBtn');
   btn.disabled = true; btn.textContent = '生成中…';
   try {
     // 按股票代码去重，生成干净的代码+名称列表
     const seen = new Set(), rows = [];
-    for (const row of _fsResult.rows) {
+    for (const row of srcRows) {
       if (!row.ts_code || seen.has(row.ts_code)) continue;
       seen.add(row.ts_code);
       rows.push([row.ts_code, row.stock_name || '']);
     }
     if (!rows.length) { alert('当前没有可下载的以股选股结果'); return; }
     // 文件名 = 策略名（如 量价形态相似选股.csv）
-    const name = (_fsResult.title || '以股选股结果').replace(/[\\/:*?"<>|]/g, '_');
+    const name = (_fsResult ? _fsResult.title : '以股选股历史结果').replace(/[\\/:*?"<>|]/g, '_');
     // 首部 \uFEFF 为 UTF-8 BOM，保证 Excel 直接打开中文不乱码
     const csv = '\uFEFF股票代码,股票名称\n'
               + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -925,7 +950,7 @@ function render() {
   // 结果列表随卡片独立：以股选股卡片展示相似股票（未执行则为空），条件选股卡片展示策略选股结果
   let rows;
   if (_activeCat === FIND_SIMILAR_CAT) {
-    rows = _fsResult ? _fsResult.rows.slice() : [];
+    rows = _fsResult ? _fsResult.rows.slice() : _fsDbRows.slice();
     // 以股选股结果支持按短线强弱得分排序（其余列无数据）
     if (rows.length && sortKey === 'sss_score') {
       rows.sort((a, b) => {

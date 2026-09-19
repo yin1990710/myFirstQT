@@ -1500,10 +1500,15 @@ def api_backtest_strategies():
 
 @app.route('/api/results')
 def api_results():
-    """按策略名称 + 日期范围查询回测结果。"""
+    """按策略名称 + 日期范围 + 分类查询选股结果。
+
+    category（可选）：'condition'=条件选股，'find_similar'=以股选股。
+    指定 category 时自动过滤到该分类下的策略名集合。
+    """
     strategy = request.args.get('strategy', '').strip()
     start = request.args.get('start', '').strip()
     end = request.args.get('end', '').strip()
+    category = request.args.get('category', '').strip()
 
     sql = """
         SELECT ts_code, stock_name, trade_date, strategy, selected,
@@ -1513,6 +1518,19 @@ def api_results():
         WHERE 1=1
     """
     params = []
+    # 按分类过滤策略名
+    if category:
+        cat_label = '以股选股' if category == 'find_similar' else '条件选股'
+        cat_names = [m['strategy'] for m in _load_strategies_meta()
+                     if m.get('category') == cat_label and m.get('strategy')]
+        if cat_names:
+            placeholders = ','.join(['%s'] * len(cat_names))
+            # strategy 字段可能含逗号串，用 FIND_IN_SET 逐个 OR
+            cond = ' OR '.join([f'FIND_IN_SET(%s, strategy)' for _ in cat_names])
+            sql += f" AND ({cond})"
+            params.extend(cat_names)
+        else:
+            sql += " AND 1=0"
     if strategy:
         sql += " AND FIND_IN_SET(%s, strategy)"
         params.append(strategy)
@@ -1535,6 +1553,37 @@ def api_results():
             if r[k] is not None:
                 r[k] = float(r[k])
     return jsonify({'rows': rows, 'total': len(rows)})
+
+
+@app.route('/api/results_latest_date')
+def api_results_latest_date():
+    """返回指定分类/策略下有数据的最近一个交易日（YYYYMMDD）。
+
+    category（可选）：'condition' | 'find_similar'
+    """
+    category = request.args.get('category', '').strip()
+    strategy = request.args.get('strategy', '').strip()
+
+    sql = "SELECT MAX(trade_date) AS d FROM strategy_selected_stock_daily_t WHERE 1=1"
+    params = []
+    if category:
+        cat_label = '以股选股' if category == 'find_similar' else '条件选股'
+        cat_names = [m['strategy'] for m in _load_strategies_meta()
+                     if m.get('category') == cat_label and m.get('strategy')]
+        if cat_names:
+            cond = ' OR '.join([f'FIND_IN_SET(%s, strategy)' for _ in cat_names])
+            sql += f" AND ({cond})"
+            params.extend(cat_names)
+        else:
+            sql += " AND 1=0"
+    if strategy:
+        sql += " AND FIND_IN_SET(%s, strategy)"
+        params.append(strategy)
+
+    rows = query_db(sql, params)
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    return jsonify({'latest_date': (rows[0] or {}).get('d') if rows else None})
 
 
 # ---------------------------------------------------------------------------
@@ -2302,6 +2351,8 @@ def api_find_similar_run():
 
         os.makedirs(MANUAL_LOG_DIR, exist_ok=True)
         started = datetime.now()
+        run_id = 'strategy_%s_%s' % (started.strftime('%Y%m%d_%H%M%S'),
+                                     script[:-3])
         log_name = 'manual_%s_%s.log' % (script[:-3], started.strftime('%Y%m%d_%H%M%S'))
         log_fp = open(os.path.join(MANUAL_LOG_DIR, log_name), 'a', encoding='utf-8')
         try:
@@ -2312,29 +2363,50 @@ def api_find_similar_run():
             log_fp.close()
             return jsonify({'error': f'启动失败: {e}'}), 500
 
+        # biz_date 取模板结束日（代表选股目标日），无则 None
+        biz_date = (args_map.get('end') or args_map.get('target') or '').strip() or None
         state = {'status': 'running', 'start': started.strftime('%Y-%m-%d %H:%M:%S'),
                  'end': None, 'rc': None, 'duration': None,
                  'log': log_name, 'pid': proc.pid,
+                 'run_id': run_id, 'biz_date': biz_date,
                  'params': args_map}
         _find_similar_state[script] = state
 
+    # 写入 task_run_log_t running 状态（与条件选股共用 source='strategy'）
+    try:
+        write_manual_run_log(script, 'running', state['start'], None, None,
+                             log=log_name, source='strategy',
+                             biz_date=biz_date, run_id=run_id)
+    except Exception:
+        pass
+
     # 后台收割进程
-    def _reap_find_similar(script, proc, started, log_fp):
+    def _reap_find_similar(script, proc, started, log_fp, run_id, biz_date):
         proc.wait()
         ended = datetime.now()
         rc = proc.returncode
         duration = round((ended - started).total_seconds(), 1)
+        end_str = ended.strftime('%Y-%m-%d %H:%M:%S')
         log_fp.close()
         with _manual_lock:
             s = _find_similar_state.get(script)
             if s:
                 s.update(status='success' if rc == 0 else 'failed',
-                         end=ended.strftime('%Y-%m-%d %H:%M:%S'),
-                         rc=rc, duration=duration)
+                         end=end_str, rc=rc, duration=duration)
+        # 回写 task_run_log_t 最终状态（同一 run_id → UPSERT 更新）
+        try:
+            write_manual_run_log(script, 'success' if rc == 0 else 'failed',
+                                 s.get('start') if s else started.strftime('%Y-%m-%d %H:%M:%S'),
+                                 end_str, duration,
+                                 rc=rc, log=log_name, source='strategy',
+                                 biz_date=biz_date, run_id=run_id)
+        except Exception:
+            pass
 
     threading.Thread(target=_reap_find_similar,
-                     args=(script, proc, started, log_fp), daemon=True).start()
-    return jsonify({'state': dict(state)}), 202
+                     args=(script, proc, started, log_fp, run_id, biz_date),
+                     daemon=True).start()
+    return jsonify({'state': {k: v for k, v in state.items() if k != 'proc'}}), 202
 
 
 @app.route('/api/find_similar_status')
