@@ -61,6 +61,22 @@
   .empty{text-align:center;padding:40px;color:#999;font-size:15px;}
   .loading{text-align:center;padding:40px;color:#1a73e8;font-size:15px;}
 
+  /* 主列表行业行可展开 */
+  tr.ind-row{cursor:pointer;}
+  tr.ind-row:hover td{background:#eef4ff;}
+  tr.ind-row.open td{background:#e3edff;}
+  tr.ind-row .fold{display:inline-block;width:12px;color:#1a73e8;transition:transform .15s;}
+  tr.ind-row.open .fold{transform:rotate(90deg);}
+  tr.main-stock-sub td{background:#f7faff;padding:10px 16px;}
+  /* 通用子表格（主列表与Top5区块共用） */
+  .sub-tbl{width:100%;border-collapse:collapse;font-size:12px;margin:0;}
+  .sub-tbl th,.sub-tbl td{padding:5px 8px;text-align:right;border-bottom:1px solid #e8e8e8;white-space:nowrap;}
+  .sub-tbl th{background:#eef4ff;color:#333;font-weight:600;}
+  .sub-tbl td.left,.sub-tbl th.left{text-align:left;}
+  .sub-tbl .sub-loading{text-align:center;color:#1a73e8;padding:12px;}
+  a.stock-link{color:#1a73e8;text-decoration:none;}
+  a.stock-link:hover{text-decoration:underline;}
+
   /* 分页器 */
   .pager{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end;
          background:#fff;padding:10px 16px;border-radius:8px;
@@ -218,12 +234,14 @@ function sortCol(key){
 }
 
 function renderRow(r){
-  return '<tr>' + COLS.map(c=>{
+  const bn = esc(r.board_name);
+  return `<tr class="ind-row" onclick="toggleMainStocks(this,'${bn}','${_curDate}')">` + COLS.map((c,i)=>{
     const v = r[c.key];
     let cls = c.cls||'';
     let cell;
     if(c.fmt) cell = fmtVal(v, c.fmt);
     else cell = esc(v);
+    if(i===0) cell = '<span class="fold">▸</span>'+cell;   // 第一列加展开箭头
     // 涨跌着色
     if(c.key==='pct_median' || c.key==='up_down_ratio'){
       const n = Number(v); if(!isNaN(n) && v!=null){cls += n>0?' pos':' neg';}
@@ -374,6 +392,66 @@ function resetFilters(){
   _sort='heat_score'; _order='desc';
   currentPage = 1;
   loadData();
+}
+
+// ---- 主列表：点击行业行展开该行业当前交易日短线强弱Top5股票 ----
+const MAIN_SUB_COLSPAN = 10;   // board_name + 9 列指标
+let _mainStocksCache = {};      // key: board|date -> data
+
+function toggleMainStocks(trEl, bn, td){
+  const open = trEl.classList.toggle('open');
+  const next = trEl.nextElementSibling;
+  if(open){
+    if(next && next.classList.contains('main-stock-sub')){
+      next.style.display = '';
+      return;
+    }
+    const sub = document.createElement('tr');
+    sub.className = 'main-stock-sub';
+    sub.innerHTML = `<td colspan="${MAIN_SUB_COLSPAN}"><div class="sub-loading">加载短线强弱Top5…</div></td>`;
+    trEl.parentNode.insertBefore(sub, trEl.nextSibling);
+    loadMainStocks(bn, td, sub);
+  }else{
+    if(next && next.classList.contains('main-stock-sub')) next.style.display = 'none';
+  }
+}
+
+function loadMainStocks(bn, td, subEl){
+  const key = bn + '|' + td;
+  if(_mainStocksCache[key]){ renderMainStocks(subEl, _mainStocksCache[key], td); return; }
+  fetch(`/api/industry_heat_strength_stocks?board_name=${encodeURIComponent(bn)}&trade_date=${td}`)
+    .then(r => r.json()).then(d => {
+      _mainStocksCache[key] = d;
+      renderMainStocks(subEl, d, td);
+    }).catch(() => {
+      subEl.innerHTML = `<td colspan="${MAIN_SUB_COLSPAN}" class="empty">加载失败，请重试</td>`;
+    });
+}
+
+function renderMainStocks(subEl, d, td){
+  const rows = d.rows || [];
+  if(!rows.length){
+    subEl.innerHTML = `<td colspan="${MAIN_SUB_COLSPAN}" class="empty">该行业无短线强弱得分数据</td>`;
+    return;
+  }
+  // YYYYMMDD -> YYYY-MM-DD（个股数据详情页 date 输入框格式）
+  const dStr = td.slice(0,4)+'-'+td.slice(4,6)+'-'+td.slice(6,8);
+  const body = rows.map(r => {
+    const code = esc(r.ts_code);
+    const name = esc(r.stock_name);
+    const sc = (r.short_strength_score==null) ? '-' : Number(r.short_strength_score).toFixed(1);
+    const url = `/stock-detail?code=${encodeURIComponent(r.ts_code)}&date=${dStr}`;
+    return `<tr>
+      <td class="left"><a href="${url}" class="stock-link">${code}</a></td>
+      <td class="left"><a href="${url}" class="stock-link">${name}</a></td>
+      <td class="pos"><b>${sc}</b></td>
+    </tr>`;
+  }).join('');
+  subEl.innerHTML = `<td colspan="${MAIN_SUB_COLSPAN}">
+    <table class="sub-tbl"><thead><tr>
+      <th class="left">股票代码</th><th class="left">股票名称</th><th>短线强弱得分</th>
+    </tr></thead><tbody>${body}</tbody></table>
+  </td>`;
 }
 
 // ---- 3日收盘价站稳MA5行业Top5（独立于上方交易日选择，跟随数据库最新3天）----

@@ -7,6 +7,7 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <title>个股数据详情 - 力矩量化选股平台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px;
@@ -74,6 +75,16 @@
   .pager button:hover:not(:disabled):not(.active) { border-color: #1a73e8; color: #1a73e8; }
   .pager button.active { background: #1a73e8; border-color: #1a73e8; color: #fff; cursor: default; }
   .pager button:disabled { color: #bbb; cursor: not-allowed; }
+
+  /* 行点击展开K线 */
+  tbody tr.stock-row { cursor: pointer; }
+  tbody tr.stock-row:hover td { background: #eef4ff; }
+  tbody tr.stock-row.open td { background: #e3edff; }
+  tbody tr.stock-row td:first-child::before { content: '▸ '; color: #1a73e8; font-size: 10px; }
+  tbody tr.stock-row.open td:first-child::before { content: '▾ '; }
+  tr.kline-sub td { background: #f7faff; padding: 10px 16px; }
+  tr.kline-sub .kline-box { width: 100%; height: 360px; }
+  tr.kline-sub .kline-loading { text-align: center; color: #1a73e8; padding: 30px; }
 </style>
 </head>
 <body>
@@ -177,7 +188,7 @@
 <div class="pager" id="pager"></div>
 
 <script>
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 20;
 // 列定义：(key, label, sortable, digits, isPct)
 const COLS = [
   ['ts_code',            '股票代码',     false, 0, false],
@@ -319,8 +330,9 @@ function renderBody() {
   if (total === 0) {
     tbody.innerHTML = '<tr><td colspan="18" class="empty">📭 没有符合条件的数据</td></tr>';
   } else {
-    tbody.innerHTML = pageData.map(r =>
-      '<tr>'
+    tbody.innerHTML = pageData.map(r => {
+      const code = (r.ts_code || '').replace(/'/g, "\\'");
+      return '<tr class="stock-row" onclick="toggleKline(event,this,\'' + code + '\')">'
       + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${r.trade_date||''}"></td>`
       + COLS.map(([k, , , digits, isPct]) => {
         let v = r[k];
@@ -328,8 +340,8 @@ function renderBody() {
         if (k === 'ts_code') return `<td>${v || '—'}</td>`;
         if (k === 'stock_name') return `<td>${v || '—'}</td>`;
         return `<td>${fmtCell(v, digits, isPct)}</td>`;
-      }).join('') + '</tr>'
-    ).join('');
+      }).join('') + '</tr>';
+    }).join('');
   }
   statEl.textContent = `共 ${allData.length} 只，筛选后 ${total} 只，第 ${curPage}/${pages} 页`;
   renderPager(total, pages);
@@ -352,6 +364,104 @@ function renderPager(total, pages) {
   pager.querySelectorAll('button[data-p]').forEach(b => {
     if (b.disabled) return;
     b.onclick = () => { curPage = Number(b.dataset.p); renderBody(); };
+  });
+}
+
+// ---------- 行点击展开近120日K线 ----------
+const KLINE_SUB_COLSPAN = COLS.length + 1;   // checkbox + 数据列
+let _klineCharts = {};                       // code -> echarts 实例（避免重复初始化）
+
+function toggleKline(ev, trEl, code){
+  if (ev && ev.target && ev.target.tagName === 'INPUT') return;   // 点checkbox不展开
+  const open = trEl.classList.toggle('open');
+  const next = trEl.nextElementSibling;
+  if(open){
+    if(next && next.classList.contains('kline-sub')){
+      next.style.display = '';
+      return;
+    }
+    const sub = document.createElement('tr');
+    sub.className = 'kline-sub';
+    sub.innerHTML = `<td colspan="${KLINE_SUB_COLSPAN}"><div class="kline-loading">加载K线…</div></td>`;
+    trEl.parentNode.insertBefore(sub, trEl.nextSibling);
+    loadKline(code, sub);
+  }else{
+    if(next && next.classList.contains('kline-sub')) next.style.display = 'none';
+  }
+}
+
+function loadKline(code, subEl){
+  fetch('/api/kline?code=' + encodeURIComponent(code))
+    .then(r => r.json()).then(d => {
+      if(d.error){ subEl.innerHTML = `<td colspan="${KLINE_SUB_COLSPAN}" class="empty">${d.error}</td>`; return; }
+      subEl.innerHTML = `<td colspan="${KLINE_SUB_COLSPAN}"><div class="kline-box" id="kl_${code}"></div></td>`;
+      renderKlineChart('kl_' + code, d, code);
+    }).catch(() => {
+      subEl.innerHTML = `<td colspan="${KLINE_SUB_COLSPAN}" class="empty">K线加载失败</td>`;
+    });
+}
+
+function renderKlineChart(domId, d, code){
+  const rows = (d.klines || []).map((k, i) => ({ ...k, vol: d.vols ? d.vols[i] : null }));
+  // 只取最近120日
+  const recent = rows.slice(-120);
+  if(!recent.length) return;
+  const dates = recent.map(k => k.date);
+  const candle = recent.map(k => k.ohlc);
+  const volumes = recent.map(k => {
+    const up = k.ohlc[1] >= k.ohlc[0];
+    return { value: k.vol, itemStyle: { color: up ? '#d93025' : '#0f9d58' } };
+  });
+  const el = document.getElementById(domId);
+  if(!el) return;
+  let chart = _klineCharts[code];
+  if(chart){ chart.dispose(); }
+  chart = echarts.init(el);
+  _klineCharts[code] = chart;
+  chart.setOption({
+    animation: false,
+    title: { text: `${d.stock_name || code} 近${recent.length}日K线`, left: 10, top: 4,
+             textStyle: { fontSize: 13, fontWeight: 600, color: '#174ea6' } },
+    grid: [
+      { left: 62, right: 24, top: 40, height: '58%' },
+      { left: 62, right: 24, top: '74%', height: '16%' }
+    ],
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      formatter: params => {
+        if(!params || !params.length) return '';
+        const date = params[0].axisValue;
+        const k = recent.find(x => x.date === date);
+        if(!k) return date;
+        const [o, c, lo, hi] = k.ohlc;
+        const pct = k.pct_chg;
+        const pCol = (pct == null) ? '#888' : (pct > 0 ? '#d93025' : (pct < 0 ? '#0f9d58' : '#888'));
+        const pTxt = (pct == null) ? '—' : ((pct > 0 ? '+' : '') + pct.toFixed(2) + '%');
+        const vTxt = (k.vol == null) ? '—' : (k.vol / 10000).toFixed(2) + ' 万手';
+        return `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}<br/>涨跌 <span style="color:${pCol}">${pTxt}</span><br/>量 ${vTxt}`;
+      }
+    },
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, boundaryGap: true,
+        axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, boundaryGap: true,
+        axisLabel: { fontSize: 10 } }
+    ],
+    yAxis: [
+      { scale: true, gridIndex: 0, splitArea: { show: true } },
+      { scale: true, gridIndex: 1, splitNumber: 2,
+        axisLabel: { formatter: v => (v / 10000).toFixed(0) + '万' } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], top: '92%', height: 18, start: 0, end: 100 }
+    ],
+    series: [
+      { name: '日K', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0,
+        itemStyle: { color: '#d93025', color0: '#0f9d58',
+                     borderColor: '#d93025', borderColor0: '#0f9d58' } },
+      { name: '成交量', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1, barWidth: '70%' }
+    ]
   });
 }
 
@@ -473,6 +583,14 @@ addPoolBtn.addEventListener('click', addToMyStocks);
 exportBtn.addEventListener('click', exportCsv);
 
 // ---------- 初始化：渲染表头并自动查询最新交易日 ----------
+// 支持从 URL ?code=&date= 自动填充（date 为 YYYY-MM-DD 格式）后查询
+(function(){
+  const p = new URLSearchParams(location.search);
+  const uCode = p.get('code');
+  const uDate = p.get('date');
+  if(uCode) codeInput.value = uCode;
+  if(uDate) dateInput.value = uDate;
+})();
 renderHead();
 doQuery();
 </script>

@@ -1,8 +1,3 @@
--- MySQL dump 10.13  Distrib 9.7.1, for macos14.8 (x86_64)
---
--- Host: 127.0.0.1    Database: stock_daily_db
--- ------------------------------------------------------
--- Server version	9.7.0
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -14,11 +9,9 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-
---
--- Table structure for table `backtest_task_t`
---
-
+SET @MYSQLDUMP_TEMP_LOG_BIN = @@SESSION.SQL_LOG_BIN;
+SET @@SESSION.SQL_LOG_BIN= 0;
+SET @@GLOBAL.GTID_PURGED=/*!80000 '+'*/ '000fdc94-52ad-11f1-be74-0329c35a7641:1-406877';
 DROP TABLE IF EXISTS `backtest_task_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -45,11 +38,29 @@ CREATE TABLE `backtest_task_t` (
   KEY `idx_account` (`account`,`start_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略回测任务注册表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `etf_basic_t`
---
-
+DROP TABLE IF EXISTS `em_board_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `em_board_daily_t` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `board_code` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '东财板块代码(BK开头)',
+  `board_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块名称',
+  `board_type` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块类型: 行业/概念',
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期(YYYYMMDD)',
+  `pct_chg` decimal(6,2) DEFAULT NULL COMMENT '涨跌幅(%)',
+  `turnover_rate` decimal(10,4) DEFAULT NULL COMMENT '换手率(%)',
+  `main_net_inflow` decimal(20,2) DEFAULT NULL COMMENT '主力净流入(元)',
+  `up_count` int DEFAULT NULL COMMENT '上涨家数',
+  `down_count` int DEFAULT NULL COMMENT '下跌家数',
+  `leading_stock` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '领涨股名称',
+  `total_mv` decimal(20,2) DEFAULT NULL COMMENT '总市值(元)',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_board_date` (`board_code`,`trade_date`),
+  KEY `idx_date_type` (`trade_date`,`board_type`)
+) ENGINE=InnoDB AUTO_INCREMENT=44 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='东方财富行业/概念板块当日快照表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `etf_basic_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -72,11 +83,6 @@ CREATE TABLE `etf_basic_t` (
   PRIMARY KEY (`ts_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ETF基础信息表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `etf_daily_t`
---
-
 DROP TABLE IF EXISTS `etf_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -96,11 +102,6 @@ CREATE TABLE `etf_daily_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ETF日线行情表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `exchange_market_overview_t`
---
-
 DROP TABLE IF EXISTS `exchange_market_overview_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -122,11 +123,6 @@ CREATE TABLE `exchange_market_overview_t` (
   PRIMARY KEY (`trade_date`,`exchange`,`board_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='沪深交易所市场总貌分板块数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `index_daily_t`
---
-
 DROP TABLE IF EXISTS `index_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -147,13 +143,31 @@ CREATE TABLE `index_daily_t` (
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=10709 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数日线数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=11899 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数日线数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `market_overview_metric_daily_t`
---
-
+DROP TABLE IF EXISTS `industry_heat_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `industry_heat_daily_t` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `trade_date` varchar(8) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '交易日期(YYYYMMDD)',
+  `board_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块名称',
+  `stock_count` int NOT NULL COMMENT '行业股票家数',
+  `turnover_ratio` decimal(12,6) DEFAULT NULL COMMENT '总成交额/总市值',
+  `up_down_ratio` decimal(12,4) DEFAULT NULL COMMENT '涨/跌比例',
+  `up_over_8pct` int DEFAULT NULL COMMENT '涨幅>8%只数',
+  `down_over_5pct` int DEFAULT NULL COMMENT '跌幅>5%只数',
+  `pct_median` decimal(10,4) DEFAULT NULL COMMENT '涨幅中位数(%)',
+  `up_ratio` decimal(8,4) DEFAULT NULL COMMENT '上涨只数/总家数',
+  `avg_short_strength` decimal(10,4) DEFAULT NULL COMMENT '平均短线强弱得分',
+  `heat_score` decimal(14,4) DEFAULT NULL COMMENT '综合打分',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_date_board` (`trade_date`,`board_name`),
+  KEY `idx_date_score` (`trade_date`,`heat_score`)
+) ENGINE=InnoDB AUTO_INCREMENT=3231 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='行业短线热度分析表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `market_overview_metric_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -171,11 +185,6 @@ CREATE TABLE `market_overview_metric_daily_t` (
   PRIMARY KEY (`trade_date`,`metric_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='大盘指标每日快照表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `my_stock_t`
---
-
 DROP TABLE IF EXISTS `my_stock_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -192,13 +201,8 @@ CREATE TABLE `my_stock_t` (
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_account_stock` (`account`,`ts_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
+) ENGINE=InnoDB AUTO_INCREMENT=98 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户股票池表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `rzrq_ye_t`
---
-
 DROP TABLE IF EXISTS `rzrq_ye_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -216,11 +220,6 @@ CREATE TABLE `rzrq_ye_t` (
   PRIMARY KEY (`trade_date`,`exchange_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_daily_basic_info_t`
---
-
 DROP TABLE IF EXISTS `stock_daily_basic_info_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -247,11 +246,6 @@ CREATE TABLE `stock_daily_basic_info_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票每日基本交易指标';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_daily_factor_t`
---
-
 DROP TABLE IF EXISTS `stock_daily_factor_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -294,11 +288,6 @@ CREATE TABLE `stock_daily_factor_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票每日技术面因子';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_daily_t`
---
-
 DROP TABLE IF EXISTS `stock_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -327,13 +316,23 @@ CREATE TABLE `stock_daily_t` (
   UNIQUE KEY `uk_ts_date` (`ts_code`,`trade_date`),
   KEY `idx_ts_code` (`ts_code`),
   KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=41115469 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
+) ENGINE=InnoDB AUTO_INCREMENT=42099466 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='股票日数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_index_daily_t`
---
-
+DROP TABLE IF EXISTS `stock_dfcf_industry_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `stock_dfcf_industry_t` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `ts_code` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '股票代码(带后缀,如688213.SH)',
+  `board_code` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '东财板块代码(BK开头)',
+  `board_name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '板块名称',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code_board` (`ts_code`,`board_code`),
+  KEY `idx_board` (`board_code`)
+) ENGINE=InnoDB AUTO_INCREMENT=90205 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='股票东财行业/板块分类表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `stock_index_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -353,11 +352,6 @@ CREATE TABLE `stock_index_daily_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_index_future_daily_t`
---
-
 DROP TABLE IF EXISTS `stock_index_future_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -379,11 +373,6 @@ CREATE TABLE `stock_index_future_daily_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_index_future_delta_t`
---
-
 DROP TABLE IF EXISTS `stock_index_future_delta_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -398,11 +387,6 @@ CREATE TABLE `stock_index_future_delta_t` (
   UNIQUE KEY `uk_ts_date` (`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=431 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指数期现差变化数据表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stock_info_t`
---
-
 DROP TABLE IF EXISTS `stock_info_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -423,11 +407,6 @@ CREATE TABLE `stock_info_t` (
   PRIMARY KEY (`ts_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `strategy_backtest_result_t`
---
-
 DROP TABLE IF EXISTS `strategy_backtest_result_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -462,11 +441,20 @@ CREATE TABLE `strategy_backtest_result_t` (
   UNIQUE KEY `uk_run_stock` (`strategy_name`,`start_date`,`end_date`,`ts_code`,`trade_date`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6177 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略回测结果表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `strategy_selected_stock_daily_t`
---
-
+DROP TABLE IF EXISTS `strategy_result_analysis_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `strategy_result_analysis_t` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `strategy` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '策略名称',
+  `avg_gain_10d` decimal(10,4) DEFAULT NULL COMMENT '10日算术平均涨幅(%)',
+  `stock_count` int NOT NULL DEFAULT '0' COMMENT '样本股票数',
+  `latest_trade_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '最新选入交易日',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_strategy` (`strategy`)
+) ENGINE=InnoDB AUTO_INCREMENT=33 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略结果分析统计表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `strategy_selected_stock_daily_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -487,36 +475,13 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
   PRIMARY KEY (`ts_code`,`trade_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='每日选股结果记录表(便于回测)';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `strategy_result_analysis_t`
---
-DROP TABLE IF EXISTS `strategy_result_analysis_t`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `strategy_result_analysis_t` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `strategy` varchar(100) NOT NULL COMMENT '策略名称',
-  `avg_gain_10d` decimal(10,4) DEFAULT NULL COMMENT '10日算术平均涨幅(%,各股票max_gain_10d的算术平均)',
-  `stock_count` int NOT NULL DEFAULT '0' COMMENT '样本股票数(已回填max_gain_10d的记录数)',
-  `latest_trade_date` varchar(8) DEFAULT NULL COMMENT '该策略最新选入交易日',
-  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_strategy` (`strategy`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='策略结果分析统计表(按策略聚合10日平均涨幅)';
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `task_run_log_t`
---
-
 DROP TABLE IF EXISTS `task_run_log_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `task_run_log_t` (
   `id` bigint NOT NULL AUTO_INCREMENT,
-  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cron' COMMENT '任务来源(cron例行定时/manual例行页手动/strategy选股策略手动)',
-  `biz_date` varchar(8) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '业务目标日YYYYMMDD(选股策略手动提交的目标交易日)',
+  `source` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cron' COMMENT '任务来源(cron例行定时/manual例行页手动/strategy选股策略手动)',
+  `biz_date` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '业务目标日YYYYMMDD(选股策略手动提交的目标交易日)',
   `run_id` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
   `run_date` date NOT NULL COMMENT '运行日期',
   `batch_phase` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '批次阶段(数据更新/选股分析与报告)',
@@ -538,16 +503,11 @@ CREATE TABLE `task_run_log_t` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录创建时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_run_script` (`run_id`,`script_name`),
-  KEY `idx_source` (`source`),
   KEY `idx_run_date` (`run_date`),
-  KEY `idx_script` (`script_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=6519 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
+  KEY `idx_script` (`script_name`),
+  KEY `idx_source` (`source`)
+) ENGINE=InnoDB AUTO_INCREMENT=9755 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='任务运行监控表(每日定时任务执行记录)';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `user_login_t`
---
-
 DROP TABLE IF EXISTS `user_login_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -565,14 +525,7 @@ CREATE TABLE `user_login_t` (
   UNIQUE KEY `uk_account` (`account`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录信息表';
 /*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping events for database 'stock_daily_db'
---
-
---
--- Dumping routines for database 'stock_daily_db'
---
+SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -583,4 +536,3 @@ CREATE TABLE `user_login_t` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-09-17 22:09:39

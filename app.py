@@ -2476,6 +2476,53 @@ def api_industry_heat_top_stocks():
         close_connection(conn)
 
 
+@app.route('/api/industry_heat_strength_stocks')
+def api_industry_heat_strength_stocks():
+    """指定行业在指定交易日短线强弱得分最高的 5 只股票。
+
+    Query: board_name=板块名 & trade_date=YYYYMMDD
+    返回：{board_name, trade_date, rows:[{ts_code, stock_name, short_strength_score}]}
+    按 short_strength_score 降序取前 5。
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+
+    board_name = request.args.get('board_name', '').strip()
+    trade_date = request.args.get('trade_date', '').strip()
+    if not board_name or not trade_date:
+        return jsonify({'error': '缺少 board_name 或 trade_date 参数'}), 400
+
+    TOP_N = 5
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT d.ts_code, s.stock_name, h.short_strength_score
+                FROM stock_dfcf_industry_t d
+                JOIN stock_daily_t h
+                  ON d.ts_code COLLATE utf8mb4_unicode_ci = h.ts_code COLLATE utf8mb4_unicode_ci
+                LEFT JOIN stock_info_t s
+                  ON d.ts_code COLLATE utf8mb4_unicode_ci = s.ts_code COLLATE utf8mb4_unicode_ci
+                WHERE d.board_name COLLATE utf8mb4_unicode_ci = %s
+                  AND h.trade_date = %s
+                  AND h.short_strength_score IS NOT NULL
+                ORDER BY h.short_strength_score DESC
+                LIMIT %s
+            """, (board_name, trade_date, TOP_N))
+            data = cur.fetchall()
+        rows = [{
+            'ts_code': r['ts_code'],
+            'stock_name': r['stock_name'] or '',
+            'short_strength_score': (float(r['short_strength_score'])
+                                     if r['short_strength_score'] is not None else None),
+        } for r in data]
+        return jsonify({'board_name': board_name, 'trade_date': trade_date,
+                        'rows': rows, 'total': len(rows)})
+    finally:
+        close_connection(conn)
+
+
 @app.route('/api/strategy_submit', methods=['POST'])
 def api_strategy_submit():
     """接收策略类型+名称+描述，保存为 Markdown 文件到 pages/strategy_description/ 目录。
