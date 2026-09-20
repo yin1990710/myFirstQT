@@ -557,6 +557,8 @@ function renderStocks(subEl, d){
     subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">该行业无换手率数据</td>`;
     return;
   }
+  // 最新交易日 YYYY-MM-DD（dates 升序，最后一项最新）
+  const latestDate = dates.length ? fmtDate(dates[dates.length-1]) : '';
   const headHtml = '<tr><th class="left">股票代码</th><th class="left">股票名称</th>'
     + dates.map(dt=>`<th>${fmtDate(dt)}换手</th>`).join('')
     + '<th>3日平均换手</th></tr>';
@@ -565,9 +567,10 @@ function renderStocks(subEl, d){
       (v==null) ? '<td class="muted">-</td>' : `<td>${Number(v).toFixed(2)}%</td>`
     ).join('');
     const avg = (r.avg_turnover==null) ? '<span class="muted">-</span>' : Number(r.avg_turnover).toFixed(2)+'%';
+    const url = `/stock-detail?code=${encodeURIComponent(r.ts_code)}&date=${latestDate}`;
     return `<tr>
-      <td class="left">${esc(r.ts_code)}</td>
-      <td class="left">${esc(r.stock_name)}</td>
+      <td class="left"><a href="${url}" class="stock-link">${esc(r.ts_code)}</a></td>
+      <td class="left"><a href="${url}" class="stock-link">${esc(r.stock_name)}</a></td>
       ${tvs}
       <td class="pos"><b>${avg}</b></td>
     </tr>`;
