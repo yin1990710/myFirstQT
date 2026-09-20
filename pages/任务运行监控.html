@@ -6,7 +6,7 @@
 <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>任务与数据监控 - 力矩量化选股平台</title>
+<title>例行任务监控 - 力矩量化选股平台</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -67,7 +67,6 @@
   .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 600; }
   .badge.success { background: #e6f6ec; color: #159947; }
   .badge.failed { background: #fdecec; color: #d83a3a; }
-  .badge.pending { background: #f1f3f6; color: #8a93a1; }
   .badge.running { background: #e8f1fe; color: #1a73e8; }
   .badge.running::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
                            background: #1a73e8; margin-right: 6px; vertical-align: 1px;
@@ -138,22 +137,22 @@
   </a>
   <nav>
     <a href="/#strategies">选股策略</a>
-    <a href="/backtest">策略回测与分析</a>
+    <a href="/backtest">策略回测</a>
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
     <a href="/industry-heat">行业热度</a>
     <a href="/my_stocks">我的股票池</a>
     <a href="/stock-detail">个股详情</a>
     <a href="/etf">ETF专区</a>
-    <a href="/cron" class="active">任务与数据监控</a>
+    <a href="/cron" class="active">任务和数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
 
 <main class="wrap">
   <div class="tabs" style="display:flex;gap:0;margin-top:18px;border-bottom:2px solid #e0e6ed;">
-    <a href="/manual-tasks" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">手动任务</a>
     <a href="/cron" style="padding:10px 24px;font-size:14px;font-weight:600;color:#1a73e8;border-bottom:3px solid #1a73e8;margin-bottom:-2px;text-decoration:none;">例行任务监控</a>
+    <a href="/manual-tasks" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">手动任务</a>
     <a href="/data-monitor" style="padding:10px 24px;font-size:14px;color:#6b7684;border-bottom:3px solid transparent;margin-bottom:-2px;text-decoration:none;">数据完整性监控</a>
   </div>
 
@@ -172,7 +171,6 @@
     <div class="kpi"><div class="label">成功</div><div class="value v-green" id="kSuccess">-</div><div class="sub">✅ 执行成功</div></div>
     <div class="kpi"><div class="label">失败</div><div class="value v-red" id="kFailed">-</div><div class="sub">❌ 执行失败</div></div>
     <div class="kpi"><div class="label">运行中</div><div class="value v-blue" id="kRunning">-</div><div class="sub">正在执行</div></div>
-    <div class="kpi"><div class="label">待运行</div><div class="value v-gray" id="kPending">-</div><div class="sub">尚未执行</div></div>
   </div>
 
   <section class="card">
@@ -242,21 +240,7 @@ function clock(ts) { return ts ? esc(ts.slice(11)) : '<span class="muted">-</spa
 function statusBadge(st) {
   if (st === 'success') return '<span class="badge success">成功</span>';
   if (st === 'failed') return '<span class="badge failed">失败</span>';
-  if (st === 'pending') return '<span class="badge pending">待运行</span>';
   return '<span class="badge running">运行中</span>';
-}
-
-// 综合定时解析与手动执行状态：手动触发且触发时间更晚时，状态与起止时间均以手动执行为准；
-// 避免覆盖后续定时运行的实际结果
-function effectiveTask(t) {
-  if (t.manual && t.manual.status && (!t.start || (t.manual.start && t.manual.start > t.start))) {
-    return {status: t.manual.status, start: t.manual.start, end: t.manual.end, duration: t.manual.duration};
-  }
-  return {status: t.status, start: t.start, end: t.end, duration: t.duration};
-}
-
-function rowStatus(t) {
-  return effectiveTask(t).status;
 }
 
 async function loadLog(name, box, src) {
@@ -336,25 +320,22 @@ async function runTask(btn, name, idx) {
 function render(d) {
   const notice = document.getElementById('notice');
   notice.className = 'notice';
-  const hasTasks = d.tasks && d.tasks.length;
 
-  // cron_logs 目录缺失 / 无运行日志：只要有任务清单仍展示（全部为待运行）
-  if (d.log_dir_exists === false && !hasTasks) {
+  if (d.log_dir_exists === false) {
     document.getElementById('taskBody').innerHTML =
-      '<tr><td colspan="10" class="empty">cron_logs 目录不存在且未找到例行任务清单（run_daily_stock_tasks.sh），定时任务尚未运行过</td></tr>';
-    setKpis('-','-','-','-','-','-');
+      '<tr><td colspan="10" class="empty">cron_logs 目录不存在，定时任务尚未运行过</td></tr>';
+    setKpis('-','-','-','-','-');
     document.getElementById('runMeta').textContent = '';
     return;
   }
-  if (d.log_dir_exists === false && hasTasks) {
-    notice.className = 'notice warn';
-    notice.textContent = 'cron_logs 目录不存在，以下展示全部例行任务清单（尚未运行，状态为待运行）';
+  if (!d.has_run) {
+    document.getElementById('taskBody').innerHTML =
+      '<tr><td colspan="10" class="empty">今日暂无定时任务运行记录（未找到 daily_stock_*.log）</td></tr>';
+    setKpis('-','-','-','-','-');
+    document.getElementById('runMeta').textContent = '';
+    return;
   }
-  if (!d.has_run && d.log_dir_exists !== false) {
-    notice.className = 'notice warn';
-    notice.textContent = '今日暂无定时任务运行记录（未找到 daily_stock_*.log），以下展示全部例行任务清单（待运行）';
-  }
-  if (d.has_run && !d.is_today) {
+  if (!d.is_today) {
     notice.className = 'notice warn';
     notice.textContent = '今日（' + new Date().toISOString().slice(0,10) +
       '）暂无运行记录，下表展示最近一次运行：' + d.run_date + ' ' + d.run_time;
@@ -367,46 +348,35 @@ function render(d) {
   document.getElementById('kBatch').className = 'value ' + bc;
   document.getElementById('kBatchSub').textContent = d.batch_duration != null
     ? '总耗时 ' + fmtDuration(d.batch_duration) : (d.batch_status === 'running' ? '尚未结束' : '');
-  // KPI 统计指标：与任务行状态同源（rowStatus 综合定时/手动状态），
-  // 手动触发后随自动轮询实时更新（运行中↔待运行↔成功/失败）
-  const stat = {success: 0, failed: 0, running: 0, pending: 0};
-  d.tasks.forEach(function(t) {
-    var st = rowStatus(t);
-    if (stat[st] !== undefined) stat[st]++;
-  });
-  document.getElementById('kTotal').textContent = d.tasks.length;
-  document.getElementById('kSuccess').textContent = stat.success;
-  document.getElementById('kFailed').textContent = stat.failed;
-  document.getElementById('kRunning').textContent = stat.running;
-  document.getElementById('kPending').textContent = stat.pending;
+  document.getElementById('kTotal').textContent = d.summary.total;
+  document.getElementById('kSuccess').textContent = d.summary.success;
+  document.getElementById('kFailed').textContent = d.summary.failed;
+  document.getElementById('kRunning').textContent = d.summary.running;
 
-  document.getElementById('runMeta').innerHTML = !d.has_run ? '' : (
+  document.getElementById('runMeta').innerHTML =
     '<span>运行日期：<b>' + esc(d.run_date) + ' ' + esc(d.run_time) + '</b></span>'
     + '<span>运行编号：<b>' + esc(d.run_id) + '</b></span>'
     + '<span>开始时间：<b>' + esc(d.batch_start || '-') + '</b></span>'
     + '<span>结束时间：<b>' + esc(d.batch_end || (d.batch_status === 'running' ? '运行中…' : '-')) + '</b></span>'
-    + '<span>编排日志：<b>cron_logs/' + esc(d.log_file) + '</b></span>');
+    + '<span>编排日志：<b>cron_logs/' + esc(d.log_file) + '</b></span>';
 
-  document.getElementById('taskBody').innerHTML = d.tasks.map((t, i) => {
-    const eff = effectiveTask(t);   // 状态/起止时间综合（手动执行优先）
-    return '<tr data-idx="' + i + '" data-phase="' + esc(t.phase || '') + '">'
+  document.getElementById('taskBody').innerHTML = d.tasks.map((t, i) =>
+    '<tr data-idx="' + i + '" data-phase="' + esc(t.phase || '') + '">'
     + '<td><input type="checkbox" class="row-cb" data-idx="' + i + '" data-script="' + esc(t.name || '') + '"'
     + (t.manual && t.manual.status === 'running' ? ' disabled' : '') + '></td>'
     + '<td><span class="step">' + esc(t.step) + '</span></td>'
     + '<td class="left"><span class="script">' + esc(t.task_name || t.name) + '</span>'
     + (t.task_name ? '<div class="script-file">' + esc(t.name) + '</div>' : '') + '</td>'
     + '<td><span class="phase">' + esc(t.phase || '-') + '</span></td>'
-    + '<td>' + statusBadge(eff.status) + '</td>'
-    + '<td>' + clock(eff.start) + '</td>'
-    + '<td>' + (eff.end ? clock(eff.end)
-        : (eff.status === 'running' && eff.start ? '<span class="muted">运行中…</span>' : '<span class="muted">-</span>')) + '</td>'
-    + '<td>' + fmtDuration(eff.duration) + '</td>'
+    + '<td>' + statusBadge(t.status) + '</td>'
+    + '<td>' + clock(t.start) + '</td>'
+    + '<td>' + clock(t.end) + '</td>'
+    + '<td>' + fmtDuration(t.duration) + '</td>'
     + '<td>' + (t.detail_log
         ? '<a class="log-link cron-log-link">查看</a>'
         : '<span class="muted">-</span>') + '</td>'
     + '<td>' + manualStateHtml(t.manual) + '</td>'
-    + '</tr>';
-  }).join('');
+    + '</tr>').join('');
 
   document.querySelectorAll('.cron-log-link').forEach(a => {
     a.addEventListener('click', () => {
@@ -455,28 +425,18 @@ function render(d) {
   }
 }
 
-function setKpis(batch, total, ok, fail, run, pending) {
+function setKpis(batch, total, ok, fail, run) {
   document.getElementById('kBatch').textContent = batch;
   document.getElementById('kTotal').textContent = total;
   document.getElementById('kSuccess').textContent = ok;
   document.getElementById('kFailed').textContent = fail;
   document.getElementById('kRunning').textContent = run;
-  document.getElementById('kPending').textContent = pending;
 }
 
-let _pollTimer = null;   // 执行中任务自动轮询定时器
-
 async function refresh() {
-  clearTimeout(_pollTimer);
   try {
     const r = await fetch('/api/cron_tasks');
-    const d = await r.json();
-    render(d);
-    // 存在执行中的任务（手动或定时）时自动轮询，结束后状态/耗时自动更新
-    if (d.tasks && d.tasks.some(t =>
-        (t.manual && t.manual.status === 'running') || t.status === 'running')) {
-      _pollTimer = setTimeout(refresh, 3000);
-    }
+    render(await r.json());
   } catch (e) {
     const notice = document.getElementById('notice');
     notice.className = 'notice err';
@@ -614,7 +574,7 @@ function renderRunAll(st) {
     btn.disabled = true;
     btn.textContent = '全量任务执行中…';
     html = '<span class="ms-running">执行中…</span> 开始于 ' + esc((st.start || '').slice(11))
-      + '（25 个步骤按序执行，进度可看下表）';
+      + '（19 个步骤按序执行，进度可看下表）';
   } else {
     btn.disabled = false;
     btn.textContent = '▶ 一键执行全部任务（run_daily_stock_tasks.sh）';

@@ -2189,6 +2189,293 @@ def page_strategy_my():
     return send_from_directory(PAGE_DIR, '我的策略.html')
 
 
+@app.route('/strategy/summary')
+def page_strategy_summary():
+    """高胜率短线选股策略总结（方法论总结页，非数据实盘回测报告）。"""
+    return send_from_directory(PAGE_DIR, '高胜率短线选股策略总结.html')
+
+
+@app.route('/industry-heat')
+def page_industry_heat():
+    """股票行业短线热度分析页面。"""
+    return send_from_directory(PAGE_DIR, '股票行业短线热度分析.html')
+
+
+def _load_industry_whitelist():
+    """加载东方财富行业板块/行业板块.csv 的板块名白名单（页面展示与 API 查询共用）。
+    文件不存在时返回 None（不过滤）。"""
+    import csv as _csv
+    csv_path = os.path.join(app.root_path, '东方财富行业板块', '行业板块.csv')
+    if not os.path.exists(csv_path):
+        return None
+    names = set()
+    with open(csv_path, encoding='utf-8-sig') as f:
+        for row in _csv.DictReader(f):
+            nm = (row.get('board_name') or '').strip()
+            if nm:
+                names.add(nm)
+    return names or None
+
+
+@app.route('/api/industry_heat')
+def api_industry_heat():
+    """行业短线热度分析数据 API。
+
+    Query params:
+      - trade_date: 交易日（YYYYMMDD），默认取最新有数据日
+      - board_name: 板块名称筛选（模糊匹配）
+      - sort: 排序字段（默认 heat_score 倒序）
+      - order: asc/desc（默认 desc）
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+
+    trade_date = request.args.get('trade_date', '').strip()
+    board_name = request.args.get('board_name', '').strip()
+    sort_key = request.args.get('sort', 'heat_score')
+    order = 'ASC' if request.args.get('order', 'desc').lower() == 'asc' else 'DESC'
+
+    # 允许排序的列白名单
+    sort_whitelist = {
+        'stock_count', 'turnover_ratio', 'up_down_ratio', 'up_over_8pct',
+        'down_over_5pct', 'pct_median', 'up_ratio', 'avg_short_strength',
+        'heat_score', 'board_name',
+    }
+    if sort_key not in sort_whitelist:
+        sort_key = 'heat_score'
+
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            # 若未指定日期，取最新有数据日
+            if not trade_date:
+                cur.execute('SELECT MAX(trade_date) d FROM industry_heat_daily_t')
+                row = cur.fetchone()
+                trade_date = row['d'] if row else ''
+
+            if not trade_date:
+                return jsonify({'trade_date': '', 'rows': [], 'total': 0})
+
+            sql = ("SELECT trade_date, board_name, stock_count, turnover_ratio, "
+                   "up_down_ratio, up_over_8pct, down_over_5pct, "
+                   "pct_median, up_ratio, avg_short_strength, heat_score "
+                   "FROM industry_heat_daily_t "
+                   "WHERE trade_date = %s")
+            params = [trade_date]
+
+            # 只统计行业板块.csv 白名单内的行业
+            wl = _load_industry_whitelist()
+            if wl is not None:
+                placeholders = ','.join(['%s'] * len(wl))
+                sql += f" AND board_name IN ({placeholders})"
+                params.extend(wl)
+
+            if board_name:
+                sql += " AND board_name LIKE %s"
+                params.append(f'%{board_name}%')
+
+            sql += f" ORDER BY `{sort_key}` {order}, board_name ASC"
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+            # 可用交易日列表
+            cur.execute("SELECT DISTINCT trade_date FROM industry_heat_daily_t "
+                        "ORDER BY trade_date DESC LIMIT 30")
+            dates = [r['trade_date'] for r in cur.fetchall()]
+
+        return jsonify({
+            'trade_date': trade_date,
+            'dates': dates,
+            'rows': rows,
+            'total': len(rows),
+        })
+    finally:
+        close_connection(conn)
+
+
+@app.route('/api/industry_heat_strong3d')
+def api_industry_heat_strong3d():
+    """最近 3 个交易日各行业「收盘价>MA5」股票家数占比排名，3 日排名序号相加取总排名前 5。
+
+    计算口径：
+      - 交易日取自 stock_daily_t（行情交易日）；行业映射取 stock_dfcf_industry_t（无日期、稳定）。
+      - 直接用 stock_daily_t.ma5 字段判定 close > ma5（ma5 入库时已算好，个别股票为空则跳过当日）。
+      - 按行业×日聚合「站稳家数/有ma5且有行情家数」占比。
+      - 每天按占比从高到低排名（1 起始，同分按板块名次序），3 日排名序号相加 = 总排名（越小越强）。
+      - 取总排名最小的前 5 个行业（仅统计行业板块.csv 白名单内行业）。
+      - 需最近 3 个交易日数据，不足则返回空。
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+    from collections import defaultdict
+
+    JUDGE_DAYS = 3
+    TOP_N = 5
+
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT trade_date FROM stock_daily_t "
+                        "ORDER BY trade_date DESC LIMIT %s", (JUDGE_DAYS,))
+            recent = [r['trade_date'] for r in cur.fetchall()][::-1]  # 升序
+
+        base = {
+            'dates': recent,
+            'required_days': JUDGE_DAYS,
+            'available_days': len(recent),
+            'rows': [],
+            'total': 0,
+        }
+        if len(recent) < JUDGE_DAYS:
+            return jsonify(base)
+
+        judge_dates = recent
+        with conn.cursor() as cur:
+            ph = ','.join(['%s'] * len(recent))
+            cur.execute(f"SELECT ts_code, trade_date, close, ma5 FROM stock_daily_t "
+                        f"WHERE trade_date IN ({ph})", recent)
+            quotes = cur.fetchall()
+
+        # 直接用 stock_daily_t.ma5 字段判定 close > ma5（ma5 为空则跳过该股票当日）
+        above = defaultdict(dict)   # ts_code -> {date: bool}
+        for q in quotes:
+            if q['close'] is not None and q['ma5'] is not None:
+                above[q['ts_code']][q['trade_date']] = float(q['close']) > float(q['ma5'])
+
+        # 行业映射（仅白名单）
+        wl = _load_industry_whitelist()
+        with conn.cursor() as cur:
+            if wl is not None:
+                p = ','.join(['%s'] * len(wl))
+                cur.execute(f"SELECT ts_code, board_name FROM stock_dfcf_industry_t "
+                            f"WHERE board_name IN ({p})", list(wl))
+            else:
+                cur.execute("SELECT ts_code, board_name FROM stock_dfcf_industry_t")
+            mapping = cur.fetchall()
+
+        # 按行业×日聚合
+        stats = defaultdict(lambda: {d: {'total': 0, 'above': 0} for d in judge_dates})
+        for m in mapping:
+            code = m['ts_code']
+            if code not in above:
+                continue
+            board = m['board_name']
+            for d in judge_dates:
+                if d in above[code]:
+                    stats[board][d]['total'] += 1
+                    if above[code][d]:
+                        stats[board][d]['above'] += 1
+
+        # 每个行业每天占比
+        ratios = {}
+        for board, dm in stats.items():
+            ratios[board] = {}
+            for d in judge_dates:
+                t = dm[d]['total']; a = dm[d]['above']
+                ratios[board][d] = (a / t) if t > 0 else None
+
+        # 每天按占比降序排名（1 起始，同分按板块名次序）
+        ranks = {d: {} for d in judge_dates}
+        for d in judge_dates:
+            order = sorted(ratios.items(),
+                           key=lambda kv: (-(kv[1][d] if kv[1][d] is not None else -1),
+                                            kv[0]))
+            for idx, (board, _) in enumerate(order, 1):
+                ranks[d][board] = idx
+
+        # 3 日排名序号相加 = 总排名，取前 5
+        rows = []
+        for board in ratios:
+            total_rank = sum(ranks[d][board] for d in judge_dates)
+            rows.append({
+                'board_name': board,
+                'ratios': [round(ratios[board][d], 4) if ratios[board][d] is not None else None
+                           for d in judge_dates],
+                'ranks': [ranks[d][board] for d in judge_dates],
+                'total_rank': total_rank,
+                'stock_count': stats[board][judge_dates[-1]]['total'],
+            })
+        rows.sort(key=lambda x: (x['total_rank'], x['board_name']))
+        top = rows[:TOP_N]
+        base['rows'] = top
+        base['total'] = len(top)
+        base['dates'] = judge_dates
+        return jsonify(base)
+    finally:
+        close_connection(conn)
+
+
+@app.route('/api/industry_heat_top_stocks')
+def api_industry_heat_top_stocks():
+    """指定行业中最近 3 个交易日换手率(turnover_rate_f)最高的 5 只股票。
+
+    Query: board_name=板块名
+    返回：{board_name, dates:[3交易日], rows:[{ts_code, stock_name, avg_turnover, turnovers:[3日]}]}
+    换手率取 3 日均值降序取前 5。
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+    from collections import defaultdict
+
+    board_name = request.args.get('board_name', '').strip()
+    if not board_name:
+        return jsonify({'error': '缺少 board_name 参数'}), 400
+
+    N_DAYS = 3
+    TOP_N = 5
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT trade_date FROM stock_daily_t "
+                        "ORDER BY trade_date DESC LIMIT %s", (N_DAYS,))
+            dates = [r['trade_date'] for r in cur.fetchall()][::-1]  # 升序
+        if len(dates) < N_DAYS:
+            return jsonify({'board_name': board_name, 'dates': dates, 'rows': [], 'total': 0})
+
+        ph = ','.join(['%s'] * len(dates))
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT d.ts_code, s.stock_name, b.turnover_rate_f, b.trade_date
+                FROM stock_dfcf_industry_t d
+                JOIN stock_daily_basic_info_t b
+                  ON d.ts_code COLLATE utf8mb4_unicode_ci = b.ts_code COLLATE utf8mb4_unicode_ci
+                LEFT JOIN stock_info_t s
+                  ON d.ts_code COLLATE utf8mb4_unicode_ci = s.ts_code COLLATE utf8mb4_unicode_ci
+                WHERE d.board_name COLLATE utf8mb4_unicode_ci = %s AND b.trade_date IN ({ph})
+            """, [board_name] + dates)
+            data = cur.fetchall()
+
+        # 按 ts_code 聚合 3 日换手率
+        per = defaultdict(lambda: {'name': '', 'turnovers': {}})
+        for r in data:
+            tc = r['ts_code']
+            per[tc]['name'] = r['stock_name'] or ''
+            if r['turnover_rate_f'] is not None:
+                per[tc]['turnovers'][r['trade_date']] = float(r['turnover_rate_f'])
+
+        rows = []
+        for tc, v in per.items():
+            tvs = [v['turnovers'].get(d) for d in dates]
+            valid = [x for x in tvs if x is not None]
+            avg = (sum(valid) / len(valid)) if valid else None
+            rows.append({
+                'ts_code': tc,
+                'stock_name': v['name'],
+                'avg_turnover': round(avg, 4) if avg is not None else None,
+                'turnovers': tvs,
+            })
+        rows.sort(key=lambda x: (x['avg_turnover'] if x['avg_turnover'] is not None else -1),
+                  reverse=True)
+        top = rows[:TOP_N]
+        return jsonify({'board_name': board_name, 'dates': dates,
+                        'rows': top, 'total': len(top)})
+    finally:
+        close_connection(conn)
+
+
 @app.route('/api/strategy_submit', methods=['POST'])
 def api_strategy_submit():
     """接收策略类型+名称+描述，保存为 Markdown 文件到 pages/strategy_description/ 目录。

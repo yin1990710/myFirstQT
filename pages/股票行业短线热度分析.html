@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>股票行业短线热度分析 - 力矩量化选股平台</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;background:#f7f8fa;color:#1f2430;line-height:1.6;}
+  a{text-decoration:none;}
+
+  /* navbar */
+  .navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;
+         gap:16px;padding:0 20px;height:56px;background:#1a73e8;
+         box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  .navbar .brand{display:flex;align-items:center;gap:10px;margin-right:8px;}
+  .navbar .brand img{height:40px;width:auto;border-radius:7px;
+                    box-shadow:0 1px 4px rgba(0,0,0,.3);background:#0b2545;}
+  .navbar .brand .brand-text{color:#fff;font-size:17px;font-weight:600;white-space:nowrap;}
+  .navbar nav{display:flex;gap:0;height:100%;flex-wrap:wrap;}
+  .navbar nav a{display:flex;align-items:center;padding:0 12px;height:100%;
+               white-space:nowrap;color:rgba(255,255,255,.88);font-size:14px;}
+  .navbar nav a:hover{background:#1558b0;color:#fff;}
+  .navbar nav a.active{background:#1558b0;color:#fff;}
+
+  .container{max-width:1200px;margin:20px auto 40px;padding:0 24px;}
+  h1{font-size:22px;margin-bottom:4px;}
+  .sub{color:#5a6372;font-size:13px;margin-bottom:16px;}
+
+  /* toolbar */
+  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+  .toolbar label{font-size:13px;color:#555;display:flex;align-items:center;gap:6px;}
+  .toolbar select,.toolbar input{
+    padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;
+    font-family:inherit;cursor:pointer;background:#fff;}
+  .toolbar select{min-width:140px;}
+  .toolbar input{width:160px;}
+  .toolbar button{
+    padding:7px 16px;border:none;border-radius:6px;cursor:pointer;
+    font-size:13px;font-family:inherit;background:#1a73e8;color:#fff;}
+  .toolbar button:hover{background:#1558b0;}
+  .toolbar .count{margin-left:auto;font-size:13px;color:#888;}
+
+  /* table */
+  .table-wrap{overflow-x:auto;background:#fff;border-radius:8px;
+              box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:8px 10px;text-align:right;white-space:nowrap;
+        border-bottom:1px solid #e8e8e8;}
+  th{background:#f0f4f8;color:#333;font-weight:600;cursor:pointer;
+     position:sticky;top:0;z-index:5;user-select:none;}
+  th:hover{background:#e0e8f0;}
+  th .arrow{font-size:10px;margin-left:3px;color:#1a73e8;}
+  th.left,td.left{text-align:left;}
+  th.center,td.center{text-align:center;}
+  td.pos{color:#c0392b;}
+  td.neg{color:#1e8449;}
+  td.muted{color:#aaa;}
+  tr:hover{background:#f7f8fa;}
+  .empty{text-align:center;padding:40px;color:#999;font-size:15px;}
+  .loading{text-align:center;padding:40px;color:#1a73e8;font-size:15px;}
+
+  /* 分页器 */
+  .pager{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end;
+         background:#fff;padding:10px 16px;border-radius:8px;
+         box-shadow:0 1px 3px rgba(0,0,0,.08);margin-top:10px;font-size:13px;color:#555;}
+  .pager .info{margin-right:auto;}
+  .pager button{min-width:30px;padding:4px 9px;border:1px solid #ccc;border-radius:6px;
+                background:#fff;color:#333;font-size:13px;cursor:pointer;font-family:inherit;}
+  .pager button:hover:not(:disabled):not(.active){border-color:#1a73e8;color:#1a73e8;}
+  .pager button.active{background:#1a73e8;border-color:#1a73e8;color:#fff;cursor:default;}
+  .pager button:disabled{color:#bbb;cursor:not-allowed;}
+  .pager .ellipsis{padding:4px 2px;color:#999;}
+
+  /* 行业名称联想下拉 */
+  .suggest-wrap{position:relative;display:inline-block;}
+  .suggest-list{display:none;position:absolute;top:100%;left:0;min-width:200px;max-width:320px;
+                max-height:260px;overflow-y:auto;background:#fff;border:1px solid #d0d7de;
+                border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:50;margin-top:2px;}
+  .suggest-list.show{display:block;}
+  .suggest-list .item{padding:6px 10px;font-size:13px;cursor:pointer;color:#333;white-space:nowrap;}
+  .suggest-list .item:hover{background:#eef4ff;color:#1a73e8;}
+  .suggest-list .empty-hit{padding:6px 10px;font-size:12px;color:#999;}
+
+  /* 连续3日强势行业区块 */
+  .block-title{font-size:17px;margin:28px 0 4px;padding-left:10px;
+               border-left:4px solid #d93025;}
+  .block-sub{font-size:13px;font-weight:400;color:#888;margin-left:10px;}
+  .strong-block .table-wrap{margin-top:10px;}
+  .strong-block th.score,.strong-block td.score{text-align:center;}
+  .strong-block td.pos{color:#c0392b;}
+  .strong-block td.neg{color:#1e8449;}
+  .strong-block td.avg b{color:#c0392b;}
+  .strong-block tr.ind-row{cursor:pointer;}
+  .strong-block tr.ind-row:hover td{background:#eef4ff;}
+  .strong-block tr.ind-row.open td{background:#e3edff;}
+  .strong-block .fold{display:inline-block;width:12px;color:#1a73e8;transition:transform .15s;}
+  .strong-block tr.ind-row.open .fold{transform:rotate(90deg);}
+  .strong-block .stock-sub td{background:#f7faff;padding:10px 16px;}
+  .strong-block .sub-tbl{width:100%;border-collapse:collapse;font-size:12px;margin:0;}
+  .strong-block .sub-tbl th,.strong-block .sub-tbl td{padding:5px 8px;text-align:right;border-bottom:1px solid #e8e8e8;white-space:nowrap;}
+  .strong-block .sub-tbl th{background:#eef4ff;color:#333;font-weight:600;}
+  .strong-block .sub-tbl td.left{text-align:left;}
+  .strong-block .sub-loading{text-align:center;color:#1a73e8;padding:12px;}
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测与分析</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/industry-heat">行业热度</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务与数据监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="container">
+  <h1>股票行业短线热度分析</h1>
+  <div class="sub" id="sub">加载中…</div>
+
+  <div class="toolbar">
+    <label>交易日
+      <select id="tradeDate" onchange="onTradeDateChange()"></select>
+    </label>
+    <label>行业名称
+      <span class="suggest-wrap">
+        <input type="text" id="boardName" placeholder="输入行业名称筛选" autocomplete="off"
+               oninput="showSuggest()" onkeydown="onBoardKey(event)" onblur="hideSuggestLater()">
+        <div id="boardSuggest" class="suggest-list"></div>
+      </span>
+    </label>
+    <button onclick="onQuery()">查询</button>
+    <button onclick="resetFilters()">重置</button>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tbody">
+        <tr><td colspan="11" class="loading">加载中…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pager" id="pager"></div>
+
+  <section class="strong-block" id="strongBlock">
+    <h2 class="block-title">3日收盘价站稳MA5行业Top5<span class="block-sub" id="strongSub">加载中…</span></h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="strongHead"></tr></thead>
+        <tbody id="strongBody">
+          <tr><td class="loading">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+const COLS = [
+  {key:'board_name',      label:'板块名称',     cls:'left',   sortable:true},
+  {key:'stock_count',     label:'股票家数',     cls:'center', sortable:true},
+  {key:'turnover_ratio',  label:'成交额/总市值', cls:'',      sortable:true, fmt:'pct4'},
+  {key:'up_down_ratio',   label:'涨/跌比例',    cls:'',       sortable:true, fmt:'ratio2'},
+  {key:'up_over_8pct',    label:'涨幅>8%只数',  cls:'center', sortable:true},
+  {key:'down_over_5pct',  label:'跌幅>5%只数',  cls:'center', sortable:true},
+  {key:'pct_median',      label:'涨幅中位数',   cls:'',       sortable:true, fmt:'pctval2'},
+  {key:'up_ratio',        label:'上涨占比',     cls:'',       sortable:true, fmt:'pct2'},
+  {key:'avg_short_strength', label:'平均短线强弱', cls:'',    sortable:true, fmt:'fix1'},
+  {key:'heat_score',      label:'综合热度分',   cls:'',       sortable:true, fmt:'fix1', default:true},
+];
+
+const PAGE_SIZE = 12;     // 每页最多 12 条
+let _sort = 'heat_score', _order = 'desc';
+let _allRows = [];       // 当前条件下后端返回的全量数据
+let _allBoards = [];      // 当日全部板块名（联想数据源，仅无筛选时刷新）
+let _curDate = '';
+let currentPage = 1;
+
+function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function fmtVal(v, type){
+  if(v==null) return '<span class="muted">-</span>';
+  const n = Number(v);   // 后端 Decimal 字段会序列化为字符串，统一转 Number 再格式化
+  switch(type){
+    case 'pct4': return (n*100).toFixed(4)+'%';
+    case 'pct2': return (n*100).toFixed(2)+'%';
+    case 'pctval2': return n.toFixed(2)+'%';   // 值本身已是百分比（如涨幅中位数），不再 ×100
+    case 'ratio2': return n.toFixed(2);
+    case 'fix1': return n.toFixed(1);
+    default: return v;
+  }
+}
+
+function renderHead(){
+  document.getElementById('thead').innerHTML = COLS.map(c=>{
+    const a = (_sort===c.key) ? (_order==='desc'?' ▼':' ▲') : '';
+    return `<th class="${c.cls}" onclick="sortCol('${c.key}')">${c.label}<span class="arrow">${a}</span></th>`;
+  }).join('');
+}
+
+function sortCol(key){
+  if(_sort===key){_order = _order==='desc'?'asc':'desc';}
+  else{_sort=key;_order='desc';}
+  currentPage = 1;
+  loadData();   // 后端排序
+}
+
+function renderRow(r){
+  return '<tr>' + COLS.map(c=>{
+    const v = r[c.key];
+    let cls = c.cls||'';
+    let cell;
+    if(c.fmt) cell = fmtVal(v, c.fmt);
+    else cell = esc(v);
+    // 涨跌着色
+    if(c.key==='pct_median' || c.key==='up_down_ratio'){
+      const n = Number(v); if(!isNaN(n) && v!=null){cls += n>0?' pos':' neg';}
+    }
+    return `<td class="${cls}">${cell}</td>`;
+  }).join('') + '</tr>';
+}
+
+function renderPage(){
+  renderHead();
+  const total = _allRows.length;
+  document.getElementById('count').textContent = `共 ${total} 个板块`;
+  document.getElementById('sub').textContent =
+    `交易日 ${_curDate} · ${total} 个板块 · 按综合热度分倒序`;
+
+  if(!total){
+    document.getElementById('tbody').innerHTML =
+      '<tr><td colspan="'+COLS.length+'" class="empty">无符合筛选条件的行业数据</td></tr>';
+    renderPager(0, 0);
+    return;
+  }
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if(currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = _allRows.slice(start, start + PAGE_SIZE);
+  document.getElementById('tbody').innerHTML = pageRows.map(renderRow).join('');
+  renderPager(totalPages, total);
+}
+
+function renderPager(totalPages, shownCount){
+  const pager = document.getElementById('pager');
+  if(totalPages <= 1){
+    pager.innerHTML = shownCount ? '<span class="info">共 '+shownCount+' 个板块</span>' : '';
+    return;
+  }
+  let html = '<span class="info">第 '+currentPage+'/'+totalPages+' 页，共 '+shownCount+' 个板块</span>';
+  html += '<button onclick="gotoPage(1)"'+(currentPage===1?' disabled':'')+'>首页</button>';
+  html += '<button onclick="gotoPage('+(currentPage-1)+')"'+(currentPage===1?' disabled':'')+'>上一页</button>';
+  const nums = pageNumbers(currentPage, totalPages);
+  nums.forEach(n=>{
+    if(n==='...') html += '<span class="ellipsis">…</span>';
+    else html += '<button class="'+(n===currentPage?'active':'')+'" onclick="gotoPage('+n+')">'+n+'</button>';
+  });
+  html += '<button onclick="gotoPage('+(currentPage+1)+')"'+(currentPage===totalPages?' disabled':'')+'>下一页</button>';
+  html += '<button onclick="gotoPage('+totalPages+')"'+(currentPage===totalPages?' disabled':'')+'>末页</button>';
+  pager.innerHTML = html;
+}
+
+function pageNumbers(cur, total){
+  const delta = 2;
+  const range = [];
+  const left = Math.max(1, cur - delta);
+  const right = Math.min(total, cur + delta);
+  for(let i = left; i <= right; i++) range.push(i);
+  if(left > 1){ range.unshift('...'); range.unshift(1); }
+  if(right < total){ range.push('...'); range.push(total); }
+  return range;
+}
+
+function gotoPage(n){
+  currentPage = n;
+  renderPage();
+}
+
+function loadData(){
+  const td = document.getElementById('tradeDate').value;
+  const bn = document.getElementById('boardName').value.trim();
+  const url = `/api/industry_heat?trade_date=${encodeURIComponent(td)}&board_name=${encodeURIComponent(bn)}&sort=${_sort}&order=${_order}`;
+  fetch(url).then(r=>r.json()).then(d=>{
+    const dates = d.dates||[];
+    const dateSel = document.getElementById('tradeDate');
+    const cur = d.trade_date||'';
+    dateSel.innerHTML = dates.map(dt=>`<option value="${dt}" ${dt===cur?'selected':''}>${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}</option>`).join('');
+    _curDate = cur;
+    _allRows = d.rows||[];
+
+    // 无行业筛选时刷新联想数据源（当日全部板块名）
+    if(!bn){
+      const names = Array.from(new Set(_allRows.map(r=>r.board_name).filter(x=>x)));
+      names.sort((a,b)=>a.localeCompare(b,'zh'));
+      _allBoards = names;
+    }
+    renderPage();
+  }).catch(()=>{
+    document.getElementById('tbody').innerHTML =
+      '<tr><td colspan="'+COLS.length+'" class="empty">加载失败，请刷新重试</td></tr>';
+    document.getElementById('pager').innerHTML = '';
+  });
+}
+
+// ---- 行业名称联想 ----
+function showSuggest(){
+  const inp = document.getElementById('boardName');
+  const kw = inp.value.trim().toLowerCase();
+  const box = document.getElementById('boardSuggest');
+  box.innerHTML = '';
+  if(!kw){ box.classList.remove('show'); return; }
+  const matches = _allBoards.filter(n=>n.toLowerCase().indexOf(kw)>=0).slice(0,10);
+  if(!matches.length){
+    const e = document.createElement('div');
+    e.className = 'empty-hit'; e.textContent = '无匹配行业';
+    box.appendChild(e);
+  }else{
+    matches.forEach(n=>{
+      const it = document.createElement('div');
+      it.className = 'item'; it.textContent = n;
+      // mousedown + preventDefault 防止输入框失焦，确保能填值再筛选
+      it.addEventListener('mousedown', function(ev){ ev.preventDefault(); pickSuggest(n); });
+      box.appendChild(it);
+    });
+  }
+  box.classList.add('show');
+}
+
+function pickSuggest(name){
+  document.getElementById('boardName').value = name;
+  hideSuggest();
+  currentPage = 1;
+  loadData();
+}
+
+function hideSuggest(){
+  const box = document.getElementById('boardSuggest');
+  box.classList.remove('show');
+  box.innerHTML = '';
+}
+
+function hideSuggestLater(){ setTimeout(hideSuggest, 150); }
+
+function onBoardKey(e){
+  if(e.key==='Enter'){ hideSuggest(); currentPage = 1; loadData(); }
+  else if(e.key==='Escape'){ hideSuggest(); }
+}
+
+function onQuery(){ hideSuggest(); currentPage = 1; loadData(); }
+
+function onTradeDateChange(){
+  // 换交易日时清空行业筛选，重新拿当日全量板块名作为联想源
+  document.getElementById('boardName').value = '';
+  hideSuggest();
+  currentPage = 1;
+  loadData();
+}
+
+function resetFilters(){
+  document.getElementById('boardName').value = '';
+  hideSuggest();
+  _sort='heat_score'; _order='desc';
+  currentPage = 1;
+  loadData();
+}
+
+// ---- 3日收盘价站稳MA5行业Top5（独立于上方交易日选择，跟随数据库最新3天）----
+function fmtDate(d){return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8);}
+
+function loadStrong3d(){
+  const sub  = document.getElementById('strongSub');
+  const head = document.getElementById('strongHead');
+  const body = document.getElementById('strongBody');
+  fetch('/api/industry_heat_strong3d').then(r=>r.json()).then(d=>{
+    const dates = d.dates||[];
+    const need  = d.required_days||3;
+    const avail = (d.available_days!=null) ? d.available_days : 0;
+
+    // 动态表头：板块名称 + 各交易日占比 + 3日总排名 + 最新家数
+    let cols = [{label:'板块名称',cls:'left'}];
+    dates.forEach(dt=>cols.push({label:fmtDate(dt)+' 占比',cls:'score'}));
+    dates.forEach(dt=>cols.push({label:fmtDate(dt)+' 名次',cls:'score'}));
+    cols.push({label:'3日总排名',cls:'score avg'});
+    cols.push({label:'最新家数',cls:'center'});
+    head.innerHTML = cols.map(c=>`<th class="${c.cls}">${c.label}</th>`).join('');
+
+    const setEmpty = msg=>{
+      sub.textContent = '';
+      body.innerHTML = `<tr><td colspan="${cols.length}" class="empty">${msg}</td></tr>`;
+    };
+
+    if(avail < need){
+      sub.textContent = `（历史数据不足 ${need} 个交易日，当前仅 ${avail} 天，暂无法判定）`;
+      setEmpty(`需累计 ${need} 个交易日数据后展示，当前仅有 ${avail} 天`);
+      return;
+    }
+
+    const rows = d.rows||[];
+    sub.textContent = `最近 3 个交易日「收盘价>MA5」占比排名序号相加 · 总排名前 ${d.total} 行业（越小越强）`;
+    if(!rows.length){
+      setEmpty('最近 3 个交易日无满足条件的行业');
+      return;
+    }
+
+    body.innerHTML = rows.map(r=>{
+      const ratioCells = (r.ratios||[]).map(s=>{
+        if(s==null) return '<td class="score muted">-</td>';
+        return `<td class="score pos">${(Number(s)*100).toFixed(1)}%</td>`;
+      }).join('');
+      const rankCells = (r.ranks||[]).map(k=>`<td class="score">${k}</td>`).join('');
+      const tr = (r.total_rank==null) ? '-' : r.total_rank;
+      const bn = esc(r.board_name);
+      return `<tr class="ind-row" onclick="toggleStocks(this,'${bn}')">
+        <td class="left"><span class="fold">▸</span>${bn}</td>
+        ${ratioCells}
+        ${rankCells}
+        <td class="score avg"><b>${tr}</b></td>
+        <td class="center">${r.stock_count||'-'}</td>
+      </tr>`;
+    }).join('');
+  }).catch(()=>{
+    sub.textContent = '';
+    head.innerHTML = '<th class="left">板块名称</th>';
+    body.innerHTML = '<tr><td class="empty">3日站稳MA5行业加载失败，请刷新重试</td></tr>';
+  });
+}
+
+// ---- 点击行业行展开：该行业最近3日换手率最高的5只股票 ----
+let _stocksCache = {};   // board_name -> {dates, rows}
+const SUB_COLSPAN = 9;    // 板块名+3占比+3名次+总排名+家数
+
+function toggleStocks(trEl, boardName){
+  const open = trEl.classList.toggle('open');
+  const next = trEl.nextElementSibling;
+  if(open){
+    // 已存在子行则直接显示
+    if(next && next.classList.contains('stock-sub')){
+      next.style.display = '';
+      return;
+    }
+    const sub = document.createElement('tr');
+    sub.className = 'stock-sub';
+    sub.innerHTML = `<td colspan="${SUB_COLSPAN}"><div class="sub-loading">加载换手率最高股票…</div></td>`;
+    trEl.parentNode.insertBefore(sub, trEl.nextSibling);
+    loadStocksForBoard(boardName, sub);
+  }else{
+    if(next && next.classList.contains('stock-sub')) next.style.display = 'none';
+  }
+}
+
+function loadStocksForBoard(boardName, subEl){
+  const cached = _stocksCache[boardName];
+  if(cached){ renderStocks(subEl, cached); return; }
+  fetch(`/api/industry_heat_top_stocks?board_name=${encodeURIComponent(boardName)}`)
+    .then(r=>r.json()).then(d=>{
+      _stocksCache[boardName] = d;
+      renderStocks(subEl, d);
+    }).catch(()=>{
+      subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">加载失败，请重试</td>`;
+    });
+}
+
+function renderStocks(subEl, d){
+  const dates = d.dates||[];
+  const rows = d.rows||[];
+  if(!rows.length){
+    subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">该行业无换手率数据</td>`;
+    return;
+  }
+  const headHtml = '<tr><th class="left">股票代码</th><th class="left">股票名称</th>'
+    + dates.map(dt=>`<th>${fmtDate(dt)}换手</th>`).join('')
+    + '<th>3日平均换手</th></tr>';
+  const bodyHtml = rows.map(r=>{
+    const tvs = (r.turnovers||[]).map(v=>
+      (v==null) ? '<td class="muted">-</td>' : `<td>${Number(v).toFixed(2)}%</td>`
+    ).join('');
+    const avg = (r.avg_turnover==null) ? '<span class="muted">-</span>' : Number(r.avg_turnover).toFixed(2)+'%';
+    return `<tr>
+      <td class="left">${esc(r.ts_code)}</td>
+      <td class="left">${esc(r.stock_name)}</td>
+      ${tvs}
+      <td class="pos"><b>${avg}</b></td>
+    </tr>`;
+  }).join('');
+  subEl.innerHTML = `<td colspan="${SUB_COLSPAN}">
+    <table class="sub-tbl"><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table>
+  </td>`;
+}
+
+renderHead();
+loadData();
+loadStrong3d();
+</script>
+</body>
+</html>

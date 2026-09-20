@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高胜率短线选股策略总结 - 力矩量化选股平台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<style>
+  /* 平台统一顶部导航栏 + 二级 tab */
+  *{margin:0; padding:0; box-sizing:border-box;}
+  body{font-family:"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); line-height:1.7;}
+  a{text-decoration:none;}
+  .navbar{position:sticky; top:0; z-index:100; display:flex; align-items:center;
+         gap:16px; padding:0 20px; height:56px; background:#1a73e8;
+         box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  .navbar .brand{display:flex; align-items:center; gap:10px; margin-right:8px;}
+  .navbar .brand img{height:40px; width:auto; border-radius:7px;
+                    box-shadow:0 1px 4px rgba(0,0,0,.3); background:#0b2545;}
+  .navbar .brand .brand-text{color:#fff; font-size:17px; font-weight:600; white-space:nowrap;}
+  .navbar nav{display:flex; gap:0; height:100%; flex-wrap:wrap;}
+  .navbar nav a{display:flex; align-items:center; padding:0 12px; height:100%;
+               white-space:nowrap; color:rgba(255,255,255,.88); font-size:14px;}
+  .navbar nav a:hover{background:#1558b0; color:#fff;}
+  .container{max-width:980px; margin:20px auto 40px; padding:0 24px;}
+  .page-tabs{display:flex; gap:0; margin:0 0 20px; border-bottom:2px solid #e0e0e0;}
+  .page-tabs a{padding:10px 24px; text-decoration:none; font-size:15px; color:#666;
+              border-bottom:3px solid transparent; margin-bottom:-2px; transition:all .2s;}
+  .page-tabs a:hover{color:#1a1a1a;}
+  .page-tabs a.active{color:#1a73e8; border-bottom-color:#1a73e8; font-weight:600;}
+
+  /* 页面原有内容样式，body padding 由 container 接管 */
+  :root{
+    --ink:#1f2430; --sub:#5a6372; --line:#e3e7ee; --bg:#f7f8fa; --card:#ffffff;
+    --red:#c0392b; --green:#1e8449; --blue:#2f5fa8; --amber:#b9770e;
+  }
+  .wrap{max-width:980px; margin:0 auto;}
+  h1{font-size:26px; margin-bottom:6px;}
+  .meta{color:var(--sub); font-size:13px; margin-bottom:20px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin-bottom:20px;}
+  h2{font-size:19px; margin-bottom:12px; padding-left:10px; border-left:4px solid var(--blue);}
+  h3{font-size:15px; margin:14px 0 6px;}
+  p{margin-bottom:8px;}
+  .tldr{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px;}
+  .tldr .item{background:#f0f4fa; border-radius:8px; padding:12px 14px; font-size:14px;}
+  .tldr .item b{color:var(--blue);}
+  table{width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0;}
+  th,td{border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:#eef2f8; font-weight:600;}
+  .tag{display:inline-block; font-size:12px; border-radius:4px; padding:1px 8px; margin-right:6px; vertical-align:middle;}
+  .tag.red{background:#fdecea; color:var(--red);}
+  .tag.green{background:#e8f6ee; color:var(--green);}
+  .tag.blue{background:#e8effa; color:var(--blue);}
+  .tag.amber{background:#fdf3e0; color:var(--amber);}
+  ul,ol{padding-left:20px; margin-bottom:8px;}
+  li{margin-bottom:4px;}
+  .cond{background:#f4f7fb; border-radius:8px; padding:12px 16px; margin:8px 0;}
+  .warn{background:#fdf6ec; border-left:4px solid var(--amber); border-radius:6px; padding:10px 14px; font-size:13.5px; margin:10px 0;}
+  .disclaimer{font-size:12.5px; color:var(--sub); border-top:1px solid var(--line); padding-top:14px; margin-top:24px;}
+  .num{font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测与分析</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/industry-heat">行业热度</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务与数据监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<div class="container">
+  <div class="page-tabs">
+    <a href="/#strategies">选股策略</a>
+    <a href="/strategy/new">新建策略</a>
+    <a href="/strategy/my">我的策略</a>
+    <a href="/strategy/summary" class="active">策略总结</a>
+  </div>
+
+<div class="wrap">
+
+  <h1>高胜率短线选股策略总结（A股）</h1>
+  <div class="meta">整理日期：2026-09-20 ｜ 性质：策略方法论总结（非数据实盘回测报告）｜ 胜率评级为定性判断（模型输出），未经实盘回测验证，落地前建议逐策略做历史数据回测</div>
+
+  <div class="card">
+    <h2>TL;DR · 核心结论</h2>
+    <div class="tldr">
+      <div class="item"><b>① 没有"全天候高胜率"策略</b>——短线策略的胜率高度依赖市场环境（大盘趋势、涨停结构、题材周期），环境过滤本身就是胜率的第一道闸门。</div>
+      <div class="item"><b>② 高胜率 ≠ 高收益</b>——胜率与盈亏比通常此消彼长；回踩低吸类胜率高、单次利润薄；突破/连板类胜率低、赔率高。仓位设计按盈亏比适配。</div>
+      <div class="item"><b>③ 共性规律</b>——高胜率入场几乎都同时满足三件事：逻辑有催化、量价有确认、位置有安全边际（缩量回调或供给收敛）。</div>
+      <div class="item"><b>④ 风控决定下限</b>——固定比例止损 + 明确失效条件 + 分仓试错，是所有短线策略能"活得久"的前提；环境不支持时敢空仓比会选股更重要。</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>策略全景对比</h2>
+    <p>下图为六个策略在五个维度上的定性评分（1-5 分，模型判断，非实盘统计）：<b>胜率</b>（触发后 3-10 日内正收益的概率倾向）、<b>盈亏比</b>、<b>持仓周期</b>（分值越高越适合波段而非隔日）、<b>操作难度</b>（分值越高越难执行）、<b>容量</b>（可承载资金规模）。</p>
+    <div id="radar" style="width:100%;height:420px;"></div>
+    <table>
+      <thead>
+        <tr><th>策略</th><th>核心逻辑</th><th>典型持仓</th><th>最佳环境</th><th>最差环境</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>① 强势股缩量回踩</td><td>趋势中继：主线板块内强势股回调至 5/10 日线缩量企稳</td><td>2-5 日</td><td>指数上行 + 板块主线明确</td><td>板块退潮、主线切换</td></tr>
+        <tr><td>② 平台收敛突破 / VCP</td><td>波动逐级收缩 + 供给减弱后放量突破</td><td>3-10 日</td><td>震荡转强、增量资金入场</td><td>存量博弈、突破后无承接</td></tr>
+        <tr><td>③ 题材周期阶段策略</td><td>启动期追龙头 / 发酵期分歧低吸中军</td><td>1-5 日</td><td>涨停结构健康、连板梯队完整</td><td>高位断层、昨日连板溢价转负</td></tr>
+        <tr><td>④ 事件驱动预期差</td><td>政策/业绩/订单催化未被充分定价时介入</td><td>1-5 日</td><td>催化"新 + 实 + 可外溢"</td><td>预期已充分定价（利好兑现）</td></tr>
+        <tr><td>⑤ 低位放量启动</td><td>低位区放量异动 + 归因为真实事件/板块驱动</td><td>3-8 日</td><td>轮动市、低位补涨阶段</td><td>纯情绪脉冲、无承接</td></tr>
+        <tr><td>⑥ 连板龙头博弈</td><td>连板梯队 / 龙虎榜席位驱动的接力</td><td>1-2 日</td><td>情绪修复期、空间板打开</td><td>退潮期接力（最高危）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>策略一 · 强势股缩量回踩低吸 <span class="tag blue">胜率型</span></h2>
+    <p><b>逻辑</b>：主线板块确立后，机构/趋势资金不会一天走完；强势股回调至短期均线附近时卖压自然衰减（缩量 = 供给减弱），此时介入赔率结构最优——止损空间小（贴着 5/10 日线），上行空间大（回踩后主升未完）。</p>
+    <h3>入场条件</h3>
+    <div class="cond">
+      <ul>
+        <li>个股处于清晰上升结构：5 日线在 30 日线上方，近期有明确上涨段（前置强势基础）</li>
+        <li>所属板块为主流主线（涨停数多 + 有中军 + 有持续催化），而非一日脉冲</li>
+        <li>回调至 5 日或 10 日线附近，<b>回调阶段量能萎缩</b>（较前段上涨缩量 30% 以上为佳）</li>
+        <li>出现企稳信号：缩量十字星 / 小阳线 / 回踩当日尾盘收回均线上方</li>
+      </ul>
+    </div>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>止损：跌破回踩低点或 10 日线放量击穿，幅度止损 -5%~-7%</li>
+      <li>失效条件：板块指数同步转弱、龙头股掉队、回踩后反弹无量（反抽而非主升）</li>
+      <li>时间止损：3-5 日未按预期走强即减仓，让资金回到活跃标的上</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：缩量回踩必须发生在<b>上升趋势内</b>。下降趋势里的缩量横盘是无人接盘，不是供给减弱；远离 5 日线的高位股"回调"其实是出货，不属于本策略范畴。</div>
+  </div>
+
+  <div class="card">
+    <h2>策略二 · 平台收敛突破 / VCP 波缩 <span class="tag blue">赔率型</span></h2>
+    <p><b>逻辑</b>：波动逐级收缩 + 量能同步收敛 = 浮筹被消化、供给枯竭，突破时阻力最小。VCP 结构的本质是"卖压在减少"而非"交投停滞"。</p>
+    <h3>入场条件</h3>
+    <div class="cond">
+      <ul>
+        <li><b>前置强势基础</b>：进入收缩期前有清晰上涨段，且有基本面 / 题材 / 订单支持（纯横盘不是 VCP）</li>
+        <li><b>回调逐级变浅</b>：每轮回调幅度小于上一轮，修复高点逐步接近前高</li>
+        <li><b>量能同步收敛</b>：回调缩量、反弹偶有承接、临近关键位温和回升；无放量下跌破坏结构</li>
+        <li><b>触发确认</b>：放量 1.5-2 倍以上突破收缩区间上沿，且<b>收盘站稳</b>（盘中破不算）</li>
+      </ul>
+    </div>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>止损：跌回收缩区间内即证伪，或跌破突破日最低价</li>
+      <li>健康信号：突破后缩量回踩不破突破位；<b>放量回踩 = 失败信号</b>，立即执行止损</li>
+      <li>基本面转差个股的"漂亮图形"突破往往是假突破——图形与基本面二选一确认</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：① 成交量极低的"整理"可能是无人接盘；② VCP 形成周期常长于预期，需建立观察池耐心等触发，不可提前埋伏抢跑；③ 存量市场假突破率显著上升，配合大盘环境过滤。</div>
+  </div>
+
+  <div class="card">
+    <h2>策略三 · 题材周期阶段策略 <span class="tag blue">环境依赖最强</span></h2>
+    <p><b>逻辑</b>：题材有生命周期，不同阶段对应不同打法；<b>同一动作在不同阶段胜率完全相反</b>——启动期追龙头胜率高，高潮期追龙头胜率最低。先定阶段，再定动作。</p>
+    <table>
+      <thead><tr><th>阶段</th><th>识别特征（判断依据）</th><th>对应打法</th></tr></thead>
+      <tbody>
+        <tr><td>预热期</td><td>少数股先动，板块未成形</td><td>小仓试错，观察扩散能力</td></tr>
+        <tr><td>启动期</td><td>龙头出现，涨停开始扩散</td><td><b>追龙头</b>（胜率最高阶段）</td></tr>
+        <tr><td>发酵期</td><td>连板上升，中军跟随放量</td><td><b>分歧低吸 + 加中军</b></td></tr>
+        <tr><td>高潮期</td><td>连板高度极致，跟风普涨</td><td>只看龙头 / 兑现减仓</td></tr>
+        <tr><td>分歧期</td><td>龙头放量分歧，补涨股掉队</td><td>观望，等一致性重聚或切换</td></tr>
+        <tr><td>退潮期</td><td>龙头跌停、连板骤减、跟风全跌</td><td><b>回避</b>；看调整后能否反包</td></tr>
+      </tbody>
+    </table>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>连板梯队<b>出现断层 = 退潮信号</b>，直接降仓</li>
+      <li>纯游资题材持续性通常仅 3-5 天；有产业逻辑 + 机构中军的题材才可波段参与</li>
+      <li>高潮期追高 = 胜率最低、风险最高的动作，宁可错过</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：龙头切换通常先从"新龙头与老龙头分歧加大"开始；判断阶段必须给依据（涨停扩散数、龙头高度、后排反馈、昨日连板溢价），不能凭感觉。</div>
+  </div>
+
+  <div class="card">
+    <h2>策略四 · 事件驱动预期差 <span class="tag blue">逻辑型</span></h2>
+    <p><b>逻辑</b>：短线机会的核心不是"利好本身"，而是<b>预期差</b>——市场此前定价了多少、现在多给了什么信息。预期已充分定价的利好反而是兑现风险（buy the rumor, sell the news）。</p>
+    <h3>催化级别评估（五问）</h3>
+    <div class="cond">
+      <ul>
+        <li>是否<b>真实明确</b>：落地条件清晰，还是模糊预期？</li>
+        <li>是否<b>足够新</b>：首次提出，还是老调重弹？</li>
+        <li>是否<b>易被理解</b>：直观可传播，还是需要市场教育？</li>
+        <li>能否<b>外溢到板块</b>：产业链可映射，还是单点利好？</li>
+        <li>是否有<b>持续跟踪价值</b>：多期催化，还是一次性？</li>
+      </ul>
+    </div>
+    <p>五问全"是" → 强催化，可介入板块核心标的；3-4 个"是" → 中等，只做龙头或分歧低吸；≤2 个"是" → 弱 / 噪音，不参与。</p>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>介入前先答"市场已知什么、还没定价什么"——答不出来 = 没有预期差 = 放弃</li>
+      <li>高开低走 / 冲高回落说明利好已被提前消化，当日执行退出</li>
+      <li>核心观察变量：龙头是否晋级、板块是否扩散、次日溢价是否超预期</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：① 事件催化常在发布前已被提前反应——公告出来时反而是利空兑现；② 产业链映射要"真受益"，名义相关但实际业绩弹性弱的标的别碰；③ 不把单一新闻强行上升为长期逻辑。</div>
+  </div>
+
+  <div class="card">
+    <h2>策略五 · 低位放量启动 <span class="tag blue">轮动市利器</span></h2>
+    <p><b>逻辑</b>：位置决定放量含义——低位放量 = 吸筹 / 启动信号；高位放量 = 出货嫌疑。在板块轮动行情中，低位 + 放量 + 归因为真实驱动（事件/板块），是捕捉"新主线第一波"的主要抓手。</p>
+    <h3>入场条件</h3>
+    <div class="cond">
+      <ul>
+        <li>处于相对低位（近 250 日低分位附近，长期横盘后首次显著放量）</li>
+        <li>放量质量过关：价格顺放量方向推进（放量 + 大涨），而非"只放量不走价"（分歧信号）</li>
+        <li>归因排查通过：属<b>事件驱动 / 板块驱动</b>，而非技术踩踏或程序交易脉冲</li>
+        <li>次日验证：承接持续、关键位站稳、板块扩散（不满足则放弃）</li>
+      </ul>
+    </div>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>止损：跌回放量启动前平台，或放量启动 K 线被完全吞没</li>
+      <li>失效条件：次日冲高回落 + 成交快速萎缩（脉冲而非启动）</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：① 不是所有放量都是利好——高位放量往往是出货；② 成交量极限扩大可能反映流动性枯竭而非资金涌入；③ 大部分跳空缺口会在数周内回补，跳空本身不构成介入理由，需归因验证。</div>
+  </div>
+
+  <div class="card">
+    <h2>策略六 · 连板龙头 / 涨停结构博弈 <span class="tag amber">低胜率高赔率 · 谨慎使用</span></h2>
+    <p><b>逻辑</b>：以涨停结构（涨停数、炸板率、连板高度、昨日连板溢价）与龙虎榜席位属性为核心信号的情绪博弈。这是典型的"少数大肉覆盖多数小损"型策略，对纪律要求极高，<b>不建议作为主策略</b>。</p>
+    <h3>关键信号</h3>
+    <div class="cond">
+      <ul>
+        <li>情绪判断看<b>高位反馈与次日溢价</b>，不看"涨停多就强"</li>
+        <li>连板梯队完整（空间板—二板—首板无断层）才可参与接力</li>
+        <li>龙虎榜席位要理解历史风格：知名游资连续性强可跟；量化席位信号意义弱；"假机构"席位易误导</li>
+      </ul>
+    </div>
+    <h3>风控与失效</h3>
+    <ul>
+      <li>仅小仓参与（≤总仓 10-15%），单日最大亏损额度事先固定</li>
+      <li>游资接力一致性太强 = 兑现风险大（次日开盘高度被压制）</li>
+      <li>高位龙头追涨赔率最差；退潮期接力是短线账户最大回撤的主要来源</li>
+    </ul>
+    <div class="warn"><b>避坑</b>：情绪修复期做接力是"顺水推舟"，退潮期做接力是"逆水行舟"——同一动作，环境不同，期望值完全相反。判定不了情绪周期就干脆不做。</div>
+  </div>
+
+  <div class="card">
+    <h2>共性风控层（所有策略通用的"胜率地基"）</h2>
+    <table>
+      <thead><tr><th>模块</th><th>规则</th></tr></thead>
+      <tbody>
+        <tr><td>环境过滤（第一道闸）</td><td>大盘趋势 / 涨停结构 / 板块主线三查，任一明显不支持 → 降仓或空仓。环境不支持时"敢不执行"是高胜率的隐藏组成部分。</td></tr>
+        <tr><td>分仓路径</td><td>试错仓 10-20% → 确认仓 +20-30% → 强势确认再加。永远不一把梭；首次介入就是"买证据"，不是"买信仰"。</td></tr>
+        <tr><td>止损三件套</td><td>技术止损（破前低/关键均线）+ 幅度止损（-5%~-8%，按波动率调整）+ 时间止损（X 日未涨即撤）。三者触发其一即执行，不事后放宽。</td></tr>
+        <tr><td>失效条件前置</td><td>开仓前就写好"什么情况说明我看错了"（催化证伪 / 板块转弱 / 龙头负反馈 / 放量破位）。避免死扛的关键是提前定义，而不是事后找理由。</td></tr>
+        <tr><td>胜率-盈亏比适配</td><td>胜率高（回踩低吸类）→ 可接受较低盈亏比；胜率低（突破/连板类）→ 必须大赔率覆盖，仓位更小、止损更严。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>与现有 W23 / SSS 框架的衔接建议</h2>
+    <ul>
+      <li><b>环境过滤模块</b>：可直接复用 MRI 大盘体系（六维 21 指标）作为策略一/二的开关——MRI 中性偏多才允许触发买入信号。</li>
+      <li><b>策略一/二可量化</b>：缩量回踩（趋势中继 + 量能萎缩比例）与 VCP（波动收敛 + 量能收敛评分）都可落成规则化信号，与现有 SSS 短期强度评分天然同构，可并入现有回测流程。</li>
+      <li><b>策略三/六偏博弈</b>：依赖涨停结构 / 龙虎榜等情绪数据，规则化成本高，更适合人工辅助判断而非全自动信号。</li>
+      <li><b>下一步实证</b>：上述胜率评级均为定性判断，建议逐策略拉历史数据回测（样本建议覆盖 2019/2021/2024 等不同市场环境年份），得到各策略的真实胜率、盈亏比与最大回撤后再定仓位权重。</li>
+    </ul>
+  </div>
+
+  <div class="disclaimer">
+    <p><b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。</p>
+  </div>
+
+</div>
+
+<script>
+var radarEl = document.getElementById('radar');
+var radar = echarts.init(radarEl);
+radar.setOption({
+  tooltip: {},
+  legend: {
+    data: ['强势股缩量回踩', 'VCP波缩突破', '题材周期阶段', '事件驱动预期差', '低位放量启动', '连板龙头博弈'],
+    bottom: 0,
+    textStyle: { fontSize: 12 }
+  },
+  radar: {
+    indicator: [
+      { name: '胜率', max: 5 },
+      { name: '盈亏比', max: 5 },
+      { name: '适合波段', max: 5 },
+      { name: '执行难度(低)', max: 5 },
+      { name: '资金容量', max: 5 }
+    ],
+    radius: '62%',
+    splitArea: { areaStyle: { color: ['#ffffff', '#f2f5fa'] } },
+    axisName: { color: '#1f2430' }
+  },
+  series: [{
+    type: 'radar',
+    symbolSize: 3,
+    data: [
+      { name: '强势股缩量回踩', value: [4, 3, 4, 4, 4], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } },
+      { name: 'VCP波缩突破', value: [4, 5, 3, 3, 5], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } },
+      { name: '题材周期阶段', value: [3, 4, 2, 2, 3], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } },
+      { name: '事件驱动预期差', value: [4, 4, 2, 3, 4], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } },
+      { name: '低位放量启动', value: [3, 4, 3, 3, 4], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } },
+      { name: '连板龙头博弈', value: [2, 5, 1, 1, 2], areaStyle: { opacity: 0.08 }, lineStyle: { width: 2 } }
+    ]
+  }]
+});
+window.addEventListener('resize', function () { radar.resize(); });
+</script>
+</div><!-- /container -->
+</body>
+</html>

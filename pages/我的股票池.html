@@ -33,6 +33,8 @@
          padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px; }
   .bar label { font-size: 13px; color: #555; }
   .bar input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; width: 120px; }
+  .bar select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px;
+                min-width: 130px; background: #fff; cursor: pointer; }
   .bar button { padding: 6px 14px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
                 font-size: 13px; cursor: pointer; }
   .bar button.reset { background: #888; }
@@ -60,6 +62,8 @@
   .empty .icon { font-size: 36px; margin-bottom: 8px; }
   /* 勾选框列 */
   td input[type="checkbox"], th input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  /* 自增序号列 */
+  th.seq-col, td.seq-col { text-align: center; color: #888; width: 52px; }
   /* 行点击展开K线 */
   tbody tr.data-row { cursor: pointer; }
   tr.kline-row td { padding: 0; background: #fafbfc; border-bottom: 1px solid #eee; }
@@ -102,9 +106,10 @@
     <a href="/backtest">策略回测与分析</a>
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
-    <a href="/etf">ETF专区</a>
-    <a href="/stock-detail">个股详情</a>
+    <a href="/industry-heat">行业热度</a>
     <a href="/my_stocks" class="active">我的股票池</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/etf">ETF专区</a>
     <a href="/cron">任务与数据监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
@@ -114,6 +119,17 @@
 
 <div class="bar">
   <span id="count"></span>
+  <label>入选日期
+    <select id="filterDate" onchange="onFilterChange()">
+      <option value="">全部日期</option>
+    </select>
+  </label>
+  <label>入选策略
+    <select id="filterStrategy" onchange="onFilterChange()">
+      <option value="">全部策略</option>
+    </select>
+  </label>
+  <button class="reset" onclick="resetFilters()">重置筛选</button>
   <button onclick="loadMyStocks()">刷新</button>
   <button class="remove-btn" onclick="removeStocks()">移除</button>
   <button class="download" onclick="downloadCsv(this)">下载CSV</button>
@@ -146,8 +162,11 @@ function fmtPrice(v) {
 }
 
 let ROWS = [];                  // 全部股票记录
-const PAGE_SIZE = 20;           // 每页最多 20 条
+const PAGE_SIZE = 12;           // 每页最多 12 条
 let currentPage = 1;            // 当前页码
+// ---- 顶部筛选状态 ----
+let _filterDate = '';           // 入选日期筛选（YYYYMMDD，空=全部）
+let _filterStrategy = '';       // 入选策略筛选（空=全部）
 // ---- 排序状态 ----
 let _sortKey = null;            // 排序字段: max_gain / max_drop / gain_to_date / sss
 let _sortDir = 'desc';          // desc(降序,默认) / asc(升序)
@@ -169,7 +188,10 @@ function loadMyStocks() {
       ROWS = data.rows || [];
       document.getElementById('count').textContent = '共 ' + data.total + ' 只';
       currentPage = 1;
+      _filterDate = '';
+      _filterStrategy = '';
       _sssMap = {};   // 数据刷新时清空得分缓存
+      populateFilters();
       renderTable();
     })
     .catch(() => {
@@ -185,6 +207,11 @@ function renderTable() {
     return;
   }
   const sorted = sortedRows();
+  if (!sorted.length) {
+    area.innerHTML = '<div class="empty"><div class="icon">🔍</div><p>没有符合筛选条件的股票</p></div>';
+    document.getElementById('pager').innerHTML = '';
+    return;
+  }
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   if (currentPage > totalPages) currentPage = totalPages;
   const start = (currentPage - 1) * PAGE_SIZE;
@@ -192,6 +219,7 @@ function renderTable() {
 
   let html = '<table><thead><tr>';
   html += '<th><input type="checkbox" id="selectAll" onchange="toggleAll(this.checked)"></th>';
+  html += '<th class="seq-col">序号</th>';
   html += '<th class="left">股票代码</th><th class="left">股票名称</th>';
   html += '<th>入选日期</th><th>入选价</th><th>至今收盘</th>';
   html += '<th>区间最高</th><th>区间最低</th>';
@@ -201,9 +229,10 @@ function renderTable() {
   html += '<th class="sortable" onclick="toggleSort(\'sss\')"><a href="/sss/framework" target="_blank" style="color:inherit;text-decoration:none" title="点击查看说明" onclick="event.stopPropagation()">短线强弱得分</a><sup style="font-size:11px;color:#aaa;cursor:help;margin-left:2px" title="点击查看说明" onclick="event.stopPropagation()">?</sup>' + (_sssLoading ? '<span style="font-size:11px;margin-left:4px;color:#ffe082">加载中…</span>' : '') + '<span class="arrow' + (_sortKey==='sss'?' active':'') + '">' + (_sortKey==='sss'?(_sortDir==='desc'?'▼':'▲'):'▾') + '</span></th>';
   html += '<th class="left">入选策略</th>';
   html += '</tr></thead><tbody>';
-  pageRows.forEach(r => {
+  pageRows.forEach((r, idx) => {
     html += '<tr class="data-row">';
     html += '<td><input type="checkbox" class="row-cb" data-code="' + r.ts_code + '" data-name="' + (r.stock_name||'').replace(/"/g,'&quot;') + '"></td>';
+    html += '<td class="seq-col">' + (start + idx + 1) + '</td>';
     html += '<td class="left">' + r.ts_code + '</td>';
     html += '<td class="left">' + (r.stock_name || '') + '</td>';
     html += '<td>' + r.selected_date + '</td>';
@@ -221,14 +250,18 @@ function renderTable() {
   });
   html += '</tbody></table>';
   area.innerHTML = html;
-  renderPager(totalPages);
+  renderPager(totalPages, sorted.length);
   loadSSS(pageRows);
 }
 
-function renderPager(totalPages) {
+function renderPager(totalPages, shownCount) {
   const pager = document.getElementById('pager');
-  if (totalPages <= 1) { pager.innerHTML = ''; return; }
-  let html = '<span class="info">第 ' + currentPage + '/' + totalPages + ' 页，共 ' + ROWS.length + ' 只</span>';
+  if (totalPages <= 1) {
+    pager.innerHTML = shownCount
+      ? '<span class="info">共 ' + shownCount + ' 只</span>' : '';
+    return;
+  }
+  let html = '<span class="info">第 ' + currentPage + '/' + totalPages + ' 页，共 ' + shownCount + ' 只</span>';
   html += '<button onclick="gotoPage(1)"' + (currentPage === 1 ? ' disabled' : '') + '>首页</button>';
   html += '<button onclick="gotoPage(' + (currentPage - 1) + ')"' + (currentPage === 1 ? ' disabled' : '') + '>上一页</button>';
   // 页码按钮
@@ -284,9 +317,60 @@ function toggleSort(key) {
   renderTable();
 }
 
-// 返回按当前排序字段排好序的全量记录副本（null 值始终排末尾）
+// ---- 顶部筛选：入选日期 / 入选策略 ----
+function fmtDateOpt(v) {
+  // YYYYMMDD → YYYY-MM-DD 便于阅读
+  return v && /^\d{8}$/.test(v) ? v.slice(0, 4) + '-' + v.slice(4, 6) + '-' + v.slice(6, 8) : (v || '');
+}
+
+// 数据加载后，用全量记录填充两个筛选下拉（保留已选值）
+function populateFilters() {
+  const dates = [...new Set(ROWS.map(r => r.selected_date).filter(Boolean))].sort().reverse();
+  const strategies = [...new Set(ROWS.map(r => r.strategy_name).filter(Boolean))].sort();
+
+  const dateSel = document.getElementById('filterDate');
+  dateSel.innerHTML = '<option value="">全部日期</option>'
+    + dates.map(d => '<option value="' + d + '"' + (d === _filterDate ? ' selected' : '') + '>'
+      + fmtDateOpt(d) + '</option>').join('');
+
+  const stratSel = document.getElementById('filterStrategy');
+  stratSel.innerHTML = '<option value="">全部策略</option>'
+    + strategies.map(s => '<option value="' + s.replace(/"/g, '&quot;') + '"'
+      + (s === _filterStrategy ? ' selected' : '') + '>' + s + '</option>').join('');
+}
+
+// 按当前筛选条件过滤（策略字段兼容逗号分隔的多策略值）
+function filteredRows() {
+  return ROWS.filter(r => {
+    if (_filterDate && r.selected_date !== _filterDate) return false;
+    if (_filterStrategy) {
+      const names = (r.strategy_name || '').split(',').map(s => s.trim());
+      if (!names.includes(_filterStrategy)) return false;
+    }
+    return true;
+  });
+}
+
+function onFilterChange() {
+  _filterDate = document.getElementById('filterDate').value;
+  _filterStrategy = document.getElementById('filterStrategy').value;
+  currentPage = 1;
+  renderTable();
+}
+
+function resetFilters() {
+  _filterDate = '';
+  _filterStrategy = '';
+  document.getElementById('filterDate').value = '';
+  document.getElementById('filterStrategy').value = '';
+  currentPage = 1;
+  renderTable();
+}
+
+// 返回按当前排序字段排好序的记录（先筛选后排序；null 值始终排末尾）
 function sortedRows() {
-  if (!_sortKey) return ROWS.slice();
+  const rows = filteredRows();
+  if (!_sortKey) return rows;
   const dir = _sortDir === 'asc' ? 1 : -1;
   const getVal = (r) => {
     if (_sortKey === 'sss') {
@@ -296,7 +380,7 @@ function sortedRows() {
     const v = r[_sortKey];
     return (v == null || v === '') ? null : Number(v);
   };
-  return ROWS.slice().sort((a, b) => {
+  return rows.sort((a, b) => {
     const va = getVal(a), vb = getVal(b);
     if (va == null && vb == null) return 0;
     if (va == null) return 1;
@@ -450,7 +534,7 @@ function toggleKlineRow(tr) {
   if (!code) return;
   const klineRow = document.createElement('tr');
   klineRow.className = 'kline-row';
-  klineRow.innerHTML = '<td colspan="13"><div class="kline-inline" id="inline-chart"><div class="kline-loading">加载K线数据中…</div></div></td>';
+  klineRow.innerHTML = '<td colspan="14"><div class="kline-inline" id="inline-chart"><div class="kline-loading">加载K线数据中…</div></div></td>';
   tr.after(klineRow);
   loadInlineKline(code, 'inline-chart');
 }
