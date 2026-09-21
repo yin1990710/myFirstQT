@@ -2201,6 +2201,97 @@ def page_industry_heat():
     return send_from_directory(PAGE_DIR, '股票行业短线热度分析.html')
 
 
+@app.route('/industry-index')
+def page_industry_index():
+    """行业指数日K线页面（每行业总市值前10股票OHLC均值编制）。"""
+    return send_from_directory(PAGE_DIR, '行业指数K线.html')
+
+
+@app.route('/api/industry_index_list')
+def api_industry_index_list():
+    """返回所有行业指数名列表（前端联想数据源）。
+    可选参数 kw=关键字模糊匹配；返回 {boards:[board_name,...]}。
+    """
+    kw = request.args.get('kw', '').strip()
+    sql = "SELECT DISTINCT board_name FROM industry_index_daily_t"
+    params = []
+    if kw:
+        sql += " WHERE board_name LIKE %s"
+        params.append(f'%{kw}%')
+    sql += " ORDER BY board_name LIMIT 50"
+    rows = query_db(sql, params or None)
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    return jsonify({'boards': [r['board_name'] for r in rows]})
+
+
+@app.route('/api/industry_index_kline')
+def api_industry_index_kline():
+    """返回指定行业指数的日K线数据（含 pct_chg）。
+    Query: board_name=行业名称  days=返回最近N日（默认300）
+    返回 {board_name, index_name, klines:[{date,ohlc,pct_chg}], total}
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+
+    board_name = request.args.get('board_name', '').strip()
+    if not board_name:
+        return jsonify({'error': '缺少 board_name 参数'}), 400
+    try:
+        days = int(request.args.get('days', '300'))
+    except ValueError:
+        days = 300
+    days = max(1, min(days, 1000))
+
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT trade_date, `open`, high, low, `close`, stock_count
+                FROM (
+                    SELECT trade_date, `open`, high, low, `close`, stock_count
+                    FROM industry_index_daily_t
+                    WHERE board_name = %s
+                    ORDER BY trade_date DESC
+                    LIMIT %s
+                ) t ORDER BY trade_date
+            """, (board_name, days))
+            rows = cur.fetchall()
+            if not rows:
+                return jsonify({'error': f'未找到行业 {board_name} 的指数数据'}), 404
+            cur.execute("SELECT index_name FROM industry_index_daily_t WHERE board_name=%s LIMIT 1", (board_name,))
+            nm = cur.fetchone()
+            index_name = nm['index_name'] if nm else (board_name + '指数')
+
+        klines = []
+        for r in rows:
+            klines.append({
+                'date': _fmt_date(r['trade_date']),
+                'ohlc': [
+                    float(r['open']) if r['open'] is not None else None,
+                    float(r['close']) if r['close'] is not None else None,
+                    float(r['low']) if r['low'] is not None else None,
+                    float(r['high']) if r['high'] is not None else None,
+                ],
+                'close': float(r['close']) if r['close'] is not None else None,
+                'pct_chg': None,
+            })
+        # 基于前一日收盘计算 pct_chg
+        for i in range(1, len(klines)):
+            if klines[i]['close'] is not None and klines[i-1]['close']:
+                klines[i]['pct_chg'] = round(
+                    (klines[i]['close'] - klines[i-1]['close']) / klines[i-1]['close'] * 100, 3)
+        return jsonify({
+            'board_name': board_name,
+            'index_name': index_name,
+            'klines': [{'date': k['date'], 'ohlc': k['ohlc'], 'pct_chg': k['pct_chg']} for k in klines],
+            'total': len(klines),
+        })
+    finally:
+        close_connection(conn)
+
+
 def _load_industry_whitelist():
     """加载东方财富行业板块/行业板块.csv 的板块名白名单（页面展示与 API 查询共用）。
     文件不存在时返回 None（不过滤）。"""
