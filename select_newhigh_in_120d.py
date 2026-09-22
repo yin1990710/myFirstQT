@@ -10,7 +10,7 @@
 1. 最近1个交易日收盘价（close），超过最近120天（不含最近一天）的最高收盘价（close）。
 2. 最近1个交易日的涨幅（(close-前一日收盘价)/前一日收盘价）超过5%。
 3. 前119日收盘价不含0值（脏数据保护）。
-4. 前119日区间振幅（最高收盘-最低收盘）/最低收盘 ≤ 35%。
+4. 前119日区间振幅（最高收盘-最低收盘）/最低收盘 ≤ 30%。
 5. 最近1个交易日成交额 amount × 1000 > 5亿。
 
 过滤条件采用 STOCK_FILTERS 注册表方式（参考 find_similar_ma5.py），
@@ -82,10 +82,10 @@ def get_stock_data(conn) -> pd.DataFrame:
 
 # ---------- 灵活过滤条件（新增条件只需在 STOCK_FILTERS 中追加一行） ----------
 NEWHIGH_WINDOW = 120          # 区间窗口（最近120个交易日）
-MAX_AMPLITUDE = 35.0          # 前119日收盘区间振幅上限（%）
+MAX_AMPLITUDE = 30.0          # 前119日收盘区间振幅上限（%）
 MIN_GAIN = 5.0                # 最新日涨幅下限（%）
 MIN_AMOUNT_YI = 5.0           # 最新日成交额下限（亿元）；amount单位千元，amount×1000为元
-MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
+MIN_SHORT_STRENGTH = 70.0      # 最新日短线强弱得分>70
 
 
 def build_context(group):

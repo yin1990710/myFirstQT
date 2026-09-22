@@ -14,6 +14,7 @@
    b. 过去 200 个交易日 最低收盘价/最高收盘价 < 50%，且最低收盘价出现在最近 30 个交易日内（空间足够）
    c. 最近 10 个交易日 ma30 逐渐走平：T日与T-10日的 ma30 连线斜率 > 0（筑底时间足够）
    d. 最近 3 个交易日 ma5 均高于 ma30
+   e. 最新一个交易日短线强弱得分 short_strength_score > 75
 3. 根据股票代码去除非 A 股（仅保留 .SH / .SZ）
 4. CSV 输出对齐 select_2wave_up_v2.py（csv.writer + utf-8-sig）
 5. 文件夹「底部反弹+当日日期后缀」（已存在则删除重建）
@@ -41,6 +42,7 @@ RANGE_MAX_RATIO = 0.50       # 近200日 最低收盘/最高收盘 上限
 RECENT_DAYS = 30             # 最低收盘价须出现在最近N个交易日内
 MA30_SLOPE_DAYS = 10         # ma30斜率观察期：T日 vs T-N日
 RECENT_MA_DAYS = 3           # 最近N个交易日 ma5 均须高于 ma30
+MIN_SHORT_STRENGTH = 75      # 最新日短线强弱得分下限
 
 
 # ---------- 工具函数 ----------
@@ -84,7 +86,7 @@ def create_folder(target_date):
 def read_stock_data(start_date, end_date):
     """
     读取 stock_daily_t + stock_daily_basic_info_t 在 [start_date, end_date] 区间，
-    LEFT JOIN 按 ts_code + trade_date，获取 close/total_mv
+    LEFT JOIN 按 ts_code + trade_date，获取 close/total_mv/short_strength_score
     """
     conn = get_mysql_connection()
     if not conn:
@@ -96,6 +98,7 @@ def read_stock_data(start_date, end_date):
             d.ts_code,
             d.trade_date,
             d.close,
+            d.short_strength_score,
             b.total_mv
         FROM stock_daily_t d
         LEFT JOIN stock_daily_basic_info_t b
@@ -186,6 +189,12 @@ def _filter_ma5_above_ma30(records):
     return True
 
 
+def _filter_short_strength(records):
+    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
+    s = records[-1].get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)；函数入参为该股票记录（按日期升序、已剔除close<=0脏数据），返回 True=通过
 STOCK_FILTERS = [
     (f'有效交易日不足{MIN_BARS}日', _filter_enough_bars),
@@ -194,6 +203,7 @@ STOCK_FILTERS = [
     (f'最低收盘价不在近{RECENT_DAYS}个交易日内', _filter_min_in_recent),
     (f'T日与T-{MA30_SLOPE_DAYS}日ma30连线斜率<=0', _filter_ma30_slope),
     (f'近{RECENT_MA_DAYS}日存在ma5<=ma30', _filter_ma5_above_ma30),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -213,10 +223,12 @@ def analyze_stocks(data):
         if ts_code not in stock_data:
             stock_data[ts_code] = []
         total_mv = record['total_mv']
+        score = record.get('short_strength_score')
         stock_data[ts_code].append({
             'trade_date': record['trade_date'],
             'close':      float(record['close'] or 0),
             'total_mv':   float(total_mv) if total_mv is not None else 0.0,
+            'short_strength_score': float(score) if score is not None else None,
         })
 
     result = []
@@ -310,13 +322,15 @@ def main():
     target_date = get_target_date()
 
     print("=" * 80)
-    print("📊 底部反弹选股策略 (200日深调空间+最低点近30日+ma30走平回升)")
+    print("📊 底部反弹选股策略 (200日深调空间+最低点近30日+ma30走平回升+ma5多头+短线得分)")
     print("=" * 80)
     print("\n📊 选股逻辑：")
     print("  1. 基础过滤：A股上市，最新日总市值 > 50亿")
     print("  2. 近200个交易日 最低收盘价/最高收盘价 < 50%")
     print("  3. 最低收盘价出现在最近30个交易日内")
     print("  4. T日与T-10日的ma30连线斜率 > 0（ma30走平回升）")
+    print(f"  5. 最近3个交易日 ma5 均高于 ma30")
+    print(f"  6. 最新交易日短线强弱得分 > {MIN_SHORT_STRENGTH}")
     print("=" * 80)
 
     # ---------- 步骤A：获取最近 200 个交易日 ----------
