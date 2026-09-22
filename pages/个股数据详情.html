@@ -38,6 +38,8 @@
   .bar button.reset { background: #888; }
   .bar button.export { background: #0f9d58; }
   .bar button.add-pool { background: #f57c00; }
+  .bar button.fix { background: #0f9d58; }
+  .bar button.fix.active { background: #1a73e8; }   /* 已固定时变蓝 */
   .bar button:disabled { background: #bbb; cursor: not-allowed; }
   #msg { font-size: 13px; color: #d93025; }
   #stat { font-size: 13px; color: #666; margin-bottom: 8px; }
@@ -60,6 +62,9 @@
   tbody td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
   tbody td:first-child { text-align: left; color: #1a73e8; font-weight: 600; }
   tbody td:nth-child(2) { text-align: left; }
+  tbody td.ind-cell { text-align: left; max-width: 260px; white-space: normal;
+                      word-break: break-all; line-height: 1.5; font-size: 12px; color: #555; }
+  tbody td.sss-cell { color: #e57373; font-weight: 500; }   /* 短线强弱得分：微红色 */
   tbody tr:hover { background: #eef4ff; }
   .pos { color: #d93025; }
   .neg { color: #0f9d58; }
@@ -169,6 +174,7 @@
   </select>
   <button id="queryBtn">查询</button>
   <button class="reset" id="resetBtn">重置</button>
+  <button id="fixBtn" class="fix">固定查询条件</button>
   <button class="export" id="exportBtn">导出CSV</button>
   <button class="add-pool" id="addPoolBtn">加入我的股票池</button>
   <span id="msg"></span>
@@ -190,25 +196,26 @@
 
 <script>
 const PAGE_SIZE = 20;
-// 列定义：(key, label, sortable, digits, isPct)
+// 列定义：(key, label, sortable, digits, isPct, showPlus)
+//   isPct:  是否百分比（加 % 后缀、正负着色）
+//   showPlus: 正数是否显示 + 号（仅 isPct 生效时有效，默认 true）
 const COLS = [
-  ['ts_code',            '股票代码',     false, 0, false],
-  ['stock_name',         '股票名称',     false, 0, false],
-  ['trade_date',         '交易日期',     true,  0, false],
-  ['short_strength_score','短线强弱得分', true,  1, false],   // 默认排序
-  ['open',               '开盘价',       false, 2, false],
-  ['close',              '收盘价',       false, 2, false],
-  ['pct_chg',            '涨跌幅',       true,  2, true],
-  ['amount_yi',           '成交额(亿)',   true,  1, false],
-  ['turnover_rate_f',     '换手率',       true,  2, true],
-  ['pe',                  '市盈率',       true,  2, false],
-  ['pe_ttm',              '动态市盈率',   true,  2, false],
-  ['pb',                  '市净率',       true,  2, false],
-  ['total_mv_yi',         '总市值(亿)',   true,  1, false],
-  ['circ_mv_yi',          '流通市值(亿)', true,  1, false],
-  ['dv_ttm',              '股息率TTM',    true,  2, true],
-  ['ma5',                 'ma5',          false, 2, false],
-  ['ma30',                'ma30',         false, 2, false],
+  ['ts_code',            '股票代码',     false, 0, false, false],
+  ['stock_name',         '股票名称',     false, 0, false, false],
+  ['trade_date',         '交易日期',     true,  0, false, false],
+  ['short_strength_score','短线强弱得分', true,  1, false, false],   // 默认排序
+  ['open',               '开盘价',       false, 2, false, false],
+  ['close',              '收盘价',       false, 2, false, false],
+  ['pct_chg',            '涨跌幅',       true,  2, true,  true],
+  ['amount_yi',           '成交额(亿)',   true,  1, false, false],
+  ['turnover_rate_f',     '换手率',       true,  2, true,  false],
+  ['pe',                  '市盈率',       true,  2, false, false],
+  ['pe_ttm',              '动态市盈率',   true,  2, false, false],
+  ['pb',                  '市净率',       true,  2, false, false],
+  ['total_mv_yi',         '总市值(亿)',   true,  1, false, false],
+  ['circ_mv_yi',          '流通市值(亿)', true,  1, false, false],
+  ['dv_ttm',              '股息率TTM',    true,  2, true,  false],
+  ['industries',          '行业',         false, 0, false, false],
 ];
 
 const codeInput = document.getElementById('code');
@@ -220,6 +227,7 @@ const fAmt = document.getElementById('fAmt');
 const fSss = document.getElementById('fSss');
 const queryBtn = document.getElementById('queryBtn');
 const resetBtn = document.getElementById('resetBtn');
+const fixBtn = document.getElementById('fixBtn');
 const exportBtn = document.getElementById('exportBtn');
 const addPoolBtn = document.getElementById('addPoolBtn');
 const msgEl = document.getElementById('msg');
@@ -236,6 +244,43 @@ let sortBy = 'short_strength_score';
 let sortDir = 'desc';
 let curPage = 1;
 
+// ---------- 固定查询条件（localStorage 持久化，跨页面切换保留） ----------
+const FIX_KEY = 'stock_detail_fixed_query';
+let _isFixed = false;        // 当前是否处于固定查询模式
+
+function getQueryConditions() {
+  return {
+    code: codeInput.value.trim(),
+    date: dateInput.value,
+    fMv: fMv.value, fDv: fDv.value, fTr: fTr.value,
+    fAmt: fAmt.value, fSss: fSss.value,
+  };
+}
+function applyQueryConditions(c) {
+  if (!c) return;
+  if (c.code != null) codeInput.value = c.code;
+  if (c.date != null) dateInput.value = c.date;
+  if (c.fMv != null) fMv.value = c.fMv;
+  if (c.fDv != null) fDv.value = c.fDv;
+  if (c.fTr != null) fTr.value = c.fTr;
+  if (c.fAmt != null) fAmt.value = c.fAmt;
+  if (c.fSss != null) fSss.value = c.fSss;
+}
+function saveFixedConditions() {
+  try { localStorage.setItem(FIX_KEY, JSON.stringify(getQueryConditions())); } catch(e) {}
+}
+function loadFixedConditions() {
+  try { const s = localStorage.getItem(FIX_KEY); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+}
+function clearFixedConditions() {
+  try { localStorage.removeItem(FIX_KEY); } catch(e) {}
+}
+function setFixedUI(fixed) {
+  _isFixed = fixed;
+  fixBtn.classList.toggle('active', fixed);
+  fixBtn.textContent = fixed ? '取消固定' : '固定查询条件';
+}
+
 // ---------- 工具 ----------
 function fmtDate(yyyymmdd) {
   if (!yyyymmdd || yyyymmdd.length !== 8) return yyyymmdd || '';
@@ -243,7 +288,7 @@ function fmtDate(yyyymmdd) {
 }
 function toISO(yyyymmdd) { return fmtDate(yyyymmdd); }
 function fromISO(iso) { return (iso || '').replace(/-/g, ''); }
-function fmtCell(v, digits, isPct) {
+function fmtCell(v, digits, isPct, showPlus) {
   if (v === null || v === undefined || v === '') return '<span class="null">—</span>';
   if (typeof v === 'string') return v;                          // 字符串直接返回（如格式化后的日期）
   const n = Number(v);
@@ -251,7 +296,7 @@ function fmtCell(v, digits, isPct) {
   let s = n.toFixed(digits);
   if (isPct) {
     const cls = n > 0 ? 'pos' : (n < 0 ? 'neg' : '');
-    const sign = n > 0 ? '+' : '';
+    const sign = (showPlus !== false && n > 0) ? '+' : '';
     return `<span class="${cls}">${sign}${s}%</span>`;
   }
   return s;
@@ -329,18 +374,20 @@ function renderBody() {
   const start = (curPage - 1) * PAGE_SIZE;
   const pageData = data.slice(start, start + PAGE_SIZE);
   if (total === 0) {
-    tbody.innerHTML = '<tr><td colspan="18" class="empty">📭 没有符合条件的数据</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${KLINE_SUB_COLSPAN}" class="empty">📭 没有符合条件的数据</td></tr>`;
   } else {
     tbody.innerHTML = pageData.map(r => {
       const code = (r.ts_code || '').replace(/'/g, "\\'");
       return '<tr class="stock-row" onclick="toggleKline(event,this,\'' + code + '\')">'
       + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${r.trade_date||''}"></td>`
-      + COLS.map(([k, , , digits, isPct]) => {
+      + COLS.map(([k, , , digits, isPct, showPlus]) => {
         let v = r[k];
         if (k === 'trade_date') v = fmtDate(v);
         if (k === 'ts_code') return `<td>${v || '—'}</td>`;
         if (k === 'stock_name') return `<td>${v || '—'}</td>`;
-        return `<td>${fmtCell(v, digits, isPct)}</td>`;
+        if (k === 'industries') return `<td class="ind-cell">${v || '<span class="null">—</span>'}</td>`;
+        if (k === 'short_strength_score') return `<td class="sss-cell">${fmtCell(v, digits, isPct, showPlus)}</td>`;
+        return `<td>${fmtCell(v, digits, isPct, showPlus)}</td>`;
       }).join('') + '</tr>';
     }).join('');
   }
@@ -403,7 +450,11 @@ function loadKline(code, subEl){
 }
 
 function renderKlineChart(domId, d, code){
-  const rows = (d.klines || []).map((k, i) => ({ ...k, vol: d.vols ? d.vols[i] : null }));
+  const rows = (d.klines || []).map((k, i) => ({
+    ...k,
+    vol: d.vols ? d.vols[i] : null,
+    amount: d.amounts ? d.amounts[i] : null,   // 千元
+  }));
   // 只取最近120日
   const recent = rows.slice(-120);
   if(!recent.length) return;
@@ -438,8 +489,9 @@ function renderKlineChart(domId, d, code){
         const pct = k.pct_chg;
         const pCol = (pct == null) ? '#888' : (pct > 0 ? '#d93025' : (pct < 0 ? '#0f9d58' : '#888'));
         const pTxt = (pct == null) ? '—' : ((pct > 0 ? '+' : '') + pct.toFixed(2) + '%');
-        const vTxt = (k.vol == null) ? '—' : (k.vol / 10000).toFixed(2) + ' 万手';
-        return `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}<br/>涨跌 <span style="color:${pCol}">${pTxt}</span><br/>量 ${vTxt}`;
+        const amtYi = (k.amount == null) ? null : (k.amount / 100000);   // 千元 → 亿元
+        const amtTxt = (amtYi == null) ? '—' : amtYi.toFixed(2) + ' 亿';
+        return `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}<br/>涨跌 <span style="color:${pCol}">${pTxt}</span><br/>成交额 ${amtTxt}`;
       }
     },
     xAxis: [
@@ -500,6 +552,8 @@ async function doQuery() {
     allData = d.items || [];
     // 同步日期框（后端可能用了最新交易日）
     dateInput.value = toISO(curDate);
+    // 固定模式下，每次查询后将最新条件（含后端回填的日期）持久化
+    if (_isFixed) saveFixedConditions();
     curPage = 1;
     renderHead();
     renderBody();
@@ -522,20 +576,26 @@ resetBtn.addEventListener('click', () => {
   codeInput.value = ''; fMv.value = ''; fDv.value = ''; fTr.value = ''; fAmt.value = ''; fSss.value = '';
   if (allData.length) { curPage = 1; renderBody(); }
 });
+// 固定查询条件：点击切换固定/取消固定
+fixBtn.addEventListener('click', () => {
+  if (_isFixed) {
+    clearFixedConditions();
+    setFixedUI(false);
+    msgEl.textContent = '已取消固定查询条件';
+  } else {
+    saveFixedConditions();
+    setFixedUI(true);
+    msgEl.textContent = '✅ 已固定当前查询条件，切换页面后仍保留';
+  }
+});
 
-// ---------- 导出 CSV（当前筛选+排序后的全部数据，不受分页限制） ----------
+// ---------- 导出 CSV（仅保留股票代码、股票名称两列，当前筛选结果，不受分页限制） ----------
 function exportCsv() {
   const data = getFiltered();
   if (!data.length) { msgEl.textContent = '无数据可导出'; return; }
   msgEl.textContent = '';
-  const headers = COLS.map(c => c[1]);                       // 中文表头
-  const rows = data.map(r => COLS.map(([k, , , digits]) => {
-    let v = r[k];
-    if (k === 'trade_date') v = fmtDate(v);                  // YYYY-MM-DD
-    if (v === null || v === undefined) return '';
-    if (typeof v === 'number') return v.toFixed(digits);     // 数值保留精度（便于 Excel 排序计算）
-    return v;
-  }));
+  const headers = ['股票代码', '股票名称'];
+  const rows = data.map(r => [r.ts_code || '', r.stock_name || '']);
   const esc = cell => {                                       // 含逗号/引号/换行则引号包裹+双引号转义
     const s = String(cell);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -583,14 +643,25 @@ function addToMyStocks() {
 addPoolBtn.addEventListener('click', addToMyStocks);
 exportBtn.addEventListener('click', exportCsv);
 
-// ---------- 初始化：渲染表头并自动查询最新交易日 ----------
-// 支持从 URL ?code=&date= 自动填充（date 为 YYYY-MM-DD 格式）后查询
+// ---------- 初始化：渲染表头并自动查询 ----------
+// 优先级：URL 参数（来自行业热度等页面跳转）> 固定查询条件 > 默认最新交易日
 (function(){
   const p = new URLSearchParams(location.search);
   const uCode = p.get('code');
   const uDate = p.get('date');
-  if(uCode) codeInput.value = uCode;
-  if(uDate) dateInput.value = uDate;
+  if (uCode || uDate) {
+    // URL 带参跳转（如从行业热度页点击股票），优先使用 URL 参数，不加载固定条件
+    if (uCode) codeInput.value = uCode;
+    if (uDate) dateInput.value = uDate;
+  } else {
+    // 无 URL 参数时，尝试恢复固定查询条件
+    const fixed = loadFixedConditions();
+    if (fixed) {
+      applyQueryConditions(fixed);
+      setFixedUI(true);
+      msgEl.textContent = '已恢复固定查询条件';
+    }
+  }
 })();
 renderHead();
 doQuery();

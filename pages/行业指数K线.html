@@ -31,7 +31,8 @@
          padding: 12px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 12px; font-size: 13px; }
   .bar label { color: #555; white-space: nowrap; }
   .bar .suggest-wrap { position: relative; display: inline-block; }
-  .bar input[type="text"] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; width: 260px; }
+  .bar input[type="text"], .bar select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
+  .bar input#boardName { width: 260px; }
   .bar button { padding: 6px 14px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
                 font-size: 13px; cursor: pointer; }
   .bar button.reset { background: #888; }
@@ -46,9 +47,33 @@
   .suggest-list .item:hover { background: #eef4ff; color: #1a73e8; }
   .suggest-list .empty-hit { padding: 6px 10px; font-size: 12px; color: #999; }
 
-  #chart { width: 100%; height: 600px; background: #fff; border-radius: 8px;
-           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  #chartErr { color: #d93025; font-size: 13px; margin-top: 8px; }
+  /* 表格 */
+  .tbl-wrap { overflow-x: auto; background: #fff; border-radius: 8px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 900px; }
+  thead th { background: #1a73e8; color: #fff; padding: 8px 10px; text-align: right; white-space: nowrap;
+             position: sticky; top: 0; z-index: 5; }
+  thead th:first-child, thead th:nth-child(2) { text-align: left; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { background: #1558b0; }
+  thead th .arrow { font-size: 10px; margin-left: 3px; color: rgba(255,255,255,.5); }
+  thead th .arrow.active { color: #fff; }
+  tbody td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+  tbody td:first-child { text-align: left; color: #1a73e8; font-weight: 600; }
+  tbody td:nth-child(2) { text-align: left; }
+  tbody tr.ind-row { cursor: pointer; }
+  tbody tr.ind-row:hover td { background: #eef4ff; }
+  tbody tr.ind-row.open td { background: #e3edff; }
+  tbody tr.ind-row td:first-child::before { content: '▸ '; color: #1a73e8; font-size: 10px; }
+  tbody tr.ind-row.open td:first-child::before { content: '▾ '; }
+  .pos { color: #d93025; }
+  .neg { color: #0f9d58; }
+  .null { color: #bbb; }
+  .empty { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
+  /* 行展开K线子行 */
+  tr.kline-sub td { background: #f7faff; padding: 10px 16px; }
+  tr.kline-sub .kline-box { width: 100%; height: 420px; }
+  tr.kline-sub .kline-loading { text-align: center; color: #1a73e8; padding: 30px; }
 </style>
 </head>
 <body>
@@ -74,13 +99,16 @@
 
 <h1>行业指数K线</h1>
 <div class="sub" style="font-size:13px;color:#666;margin-bottom:12px;">
-  每个行业指数 = 该行业每个交易日总市值前 10 的股票的 OHLC 均值（名称 = 行业名 + 指数）
+  每个行业指数 = 该行业每个交易日总市值前 10 的股票的 OHLC 均值（名称 = 行业名 + 指数）。点击表行展开近 100 个交易日 K 线图。
 </div>
 
 <div class="bar">
-  <label>行业名称
+  <label>交易日
+    <select id="tradeDate" onchange="onQuery()"></select>
+  </label>
+  <label>指数名称
     <span class="suggest-wrap">
-      <input type="text" id="boardName" placeholder="输入行业名称筛选（空=首个行业）" autocomplete="off"
+      <input type="text" id="boardName" placeholder="输入行业/指数名称筛选" autocomplete="off"
              oninput="showSuggest()" onkeydown="onKey(event)" onblur="hideSuggestLater()">
       <div id="suggest" class="suggest-list"></div>
     </span>
@@ -91,45 +119,96 @@
   <span id="msg"></span>
 </div>
 
-<div id="chart"></div>
+<div class="tbl-wrap">
+  <table id="tbl">
+    <thead><tr id="thead"></tr></thead>
+    <tbody id="tbody">
+      <tr><td colspan="8" class="empty">加载中…</td></tr>
+    </tbody>
+  </table>
+</div>
 <div id="chartErr"></div>
 
 <script>
-let chart = null;
-let _allBoards = [];     // 全部行业名（联想数据源）
-let _curBoard = '';      // 当前展示行业
+// 列定义：(key, label, sortable, digits, isPct)
+const COLS = [
+  ['board_name',  '行业名称',   false, 0, false],
+  ['index_name',  '指数名称',   false, 0, false],
+  ['open',        '开盘价',     true,  3, false],
+  ['high',        '最高价',     true,  3, false],
+  ['low',         '最低价',     true,  3, false],
+  ['close',       '收盘价',     true,  3, false],
+  ['pct_chg',     '涨跌幅',     true,  2, true],   // 默认排序
+  ['stock_count', '纳入股票数', true,  0, false],
+];
+const SUB_COLSPAN = COLS.length;   // 8
+
+let _allBoards = [];       // 全部行业名（联想数据源，懒加载）
+let _dates = [];           // 所有交易日（下拉）
+let _sort = 'pct_chg', _order = 'desc';
+let _curTradeDate = '';
 
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</,'&lt;');}
 function showMsg(t){ document.getElementById('msg').textContent = t; }
+function fmtDate(d){return d && d.length===8 ? d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8) : d;}
 
-function init(){
-  if(typeof echarts === 'undefined'){
-    document.getElementById('chartErr').textContent = '图表库(echarts)加载失败，请检查网络后刷新';
-    return;
+function fmtVal(v, type){
+  if(v==null) return '<span class="null">-</span>';
+  const n = Number(v);
+  switch(type){
+    case 'pct':  // 涨跌幅
+      const cls = n>0?'pos':(n<0?'neg':'');
+      return `<span class="${cls}">${(n>0?'+':'')}${n.toFixed(2)}%</span>`;
+    case 'num3': return n.toFixed(3);
+    case 'num0': return n.toFixed(0);
+    default: return v;
   }
-  chart = echarts.init(document.getElementById('chart'));
-  window.addEventListener('resize', ()=>chart.resize());
-  loadBoardsThenFirst();
 }
 
-// 加载行业列表并默认展示第一个
-function loadBoardsThenFirst(){
-  fetch('/api/industry_index_list').then(r=>r.json()).then(d=>{
-    _allBoards = d.boards || [];
-    if(_allBoards.length){
-      document.getElementById('count').textContent = `共 ${_allBoards.length} 个行业指数`;
-      loadIndex(_allBoards[0]);
+function renderHead(){
+  document.getElementById('thead').innerHTML = COLS.map((c,i)=>{
+    const a = (_sort===c[0]) ? (_order==='desc'?' ▼':' ▲') : '';
+    const sortable = c[2] ? 'sortable' : '';
+    const align = (i<2) ? 'left' : '';
+    return `<th class="${sortable} ${align}" onclick="sortCol('${c[0]}')">${c[1]}<span class="arrow ${_sort===c[0]?'active':''}">${a}</span></th>`;
+  }).join('');
+}
+
+function sortCol(key){
+  if(_sort === key){
+    _order = _order === 'desc' ? 'asc' : 'desc';
+  }else{
+    _sort = key;
+    _order = (key === 'board_name' || key === 'index_name') ? 'asc' : 'desc';
+  }
+  renderHead();
+  loadData();
+}
+
+// ---------- 交易日下拉 + 行业名联想 ----------
+function loadDates(){
+  fetch('/api/industry_index_dates').then(r=>r.json()).then(d=>{
+    _dates = d.dates || [];
+    const sel = document.getElementById('tradeDate');
+    sel.innerHTML = _dates.map(dt=>`<option value="${dt}">${fmtDate(dt)}</option>`).join('');
+    if(_dates.length){
+      _curTradeDate = _dates[0];
+      onQuery();
     }else{
-      showMsg('暂无行业指数数据，请先运行 calc_industry_index.py');
-      document.getElementById('chart').innerHTML = '<div style="padding:40px;text-align:center;color:#999;">暂无数据</div>';
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="${SUB_COLSPAN}" class="empty">暂无行业指数数据，请先运行 calc_industry_index.py</td></tr>`;
     }
-  }).catch(e=>{
-    showMsg('行业列表加载失败: ' + e);
-  });
+  }).catch(e=>showMsg('交易日加载失败: '+e));
 }
 
-// 联想
+function loadBoards(){
+  if(_allBoards.length) return;
+  fetch('/api/industry_index_list?kw=').then(r=>r.json()).then(d=>{
+    _allBoards = d.boards || [];
+  }).catch(()=>{});
+}
+
 function showSuggest(){
+  loadBoards();
   const inp = document.getElementById('boardName');
   const kw = inp.value.trim().toLowerCase();
   const box = document.getElementById('suggest');
@@ -154,68 +233,139 @@ function showSuggest(){
 function pickSuggest(name){
   document.getElementById('boardName').value = name;
   hideSuggest();
-  loadIndex(name);
+  onQuery();
 }
-
 function hideSuggest(){ document.getElementById('suggest').classList.remove('show'); }
 function hideSuggestLater(){ setTimeout(hideSuggest, 150); }
-
-function onKey(ev){
-  if(ev.key === 'Enter'){ ev.preventDefault(); onQuery(); }
-}
-
-function onQuery(){
-  const name = document.getElementById('boardName').value.trim();
-  if(!name){
-    if(_allBoards.length){ loadIndex(_allBoards[0]); }
-    return;
-  }
-  // 精确匹配优先
-  if(_allBoards.indexOf(name) >= 0){ loadIndex(name); return; }
-  // 模糊取第一个
-  const hit = _allBoards.find(n=>n.indexOf(name) >= 0 || n.toLowerCase().indexOf(name.toLowerCase()) >= 0);
-  if(hit){ loadIndex(hit); }
-  else { showMsg('未找到行业: ' + name); }
-}
+function onKey(ev){ if(ev.key === 'Enter'){ ev.preventDefault(); onQuery(); } }
 
 function onReset(){
   document.getElementById('boardName').value = '';
   showMsg('');
-  if(_allBoards.length){ loadIndex(_allBoards[0]); }
+  onQuery();
 }
 
-function loadIndex(boardName){
-  _curBoard = boardName;
+function onQuery(){
+  const td = document.getElementById('tradeDate').value;
+  if(td) _curTradeDate = td;
+  loadData();
+}
+
+// ---------- 列表加载 ----------
+function loadData(){
   showMsg('');
-  document.getElementById('boardName').value = boardName;
-  fetch(`/api/industry_index_kline?board_name=${encodeURIComponent(boardName)}&days=300`)
+  const name = document.getElementById('boardName').value.trim();
+  const td = _curTradeDate || '';
+  let url = '/api/industry_index?sort=' + _sort + '&order=' + _order;
+  if(td) url += '&trade_date=' + encodeURIComponent(td);
+  if(name) url += '&board_name=' + encodeURIComponent(name);
+  fetch(url).then(r=>r.json()).then(d=>{
+    if(d.error){ showMsg(d.error); return; }
+    document.getElementById('count').textContent = `共 ${d.total||0} 个行业指数`;
+    renderList(d.rows||[]);
+  }).catch(e=>showMsg('加载失败: '+e));
+}
+
+function renderList(rows){
+  const tb = document.getElementById('tbody');
+  if(!rows.length){
+    tb.innerHTML = `<tr><td colspan="${SUB_COLSPAN}" class="empty">没有符合条件的行业指数</td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map(r=>{
+    const bn = esc(r.board_name);
+    const in_ = esc(r.index_name);
+    const o = fmtVal(r.open, 'num3');
+    const h = fmtVal(r.high, 'num3');
+    const lo = fmtVal(r.low, 'num3');
+    const c = fmtVal(r.close, 'num3');
+    const pct = fmtVal(r.pct_chg, 'pct');
+    const sc = fmtVal(r.stock_count, 'num0');
+    return `<tr class="ind-row" onclick="toggleKline(this,'${bn}')">
+      <td>${bn}</td>
+      <td>${in_}</td>
+      <td>${o}</td>
+      <td>${h}</td>
+      <td>${lo}</td>
+      <td>${c}</td>
+      <td>${pct}</td>
+      <td>${sc}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ---------- 行展开 K 线 ----------
+let _klineCache = {};   // board_name -> kline data
+
+function toggleKline(trEl, boardName){
+  // 点击事件可能来自子链接等，此处简单处理
+  const open = trEl.classList.toggle('open');
+  const next = trEl.nextElementSibling;
+  if(open){
+    if(next && next.classList.contains('kline-sub')){
+      next.style.display = '';
+      // 已渲染过的图表需要 resize
+      const inst = echarts.getInstanceByDom(next.querySelector('.kline-box'));
+      if(inst) setTimeout(()=>inst.resize(), 0);
+      return;
+    }
+    const sub = document.createElement('tr');
+    sub.className = 'kline-sub';
+    sub.innerHTML = `<td colspan="${SUB_COLSPAN}"><div class="kline-loading">加载 ${esc(boardName)} 近 100 日 K 线…</div></td>`;
+    trEl.parentNode.insertBefore(sub, trEl.nextSibling);
+    loadKline(boardName, sub);
+  }else{
+    if(next && next.classList.contains('kline-sub')) next.style.display = 'none';
+  }
+}
+
+function loadKline(boardName, subEl){
+  const cached = _klineCache[boardName];
+  if(cached){
+    renderKline(subEl, boardName, cached);
+    return;
+  }
+  fetch(`/api/industry_index_kline?board_name=${encodeURIComponent(boardName)}&days=100`)
     .then(r=>r.json())
     .then(d=>{
-      if(d.error){ showMsg(d.error); chart.clear(); return; }
-      renderChart(d);
+      if(d.error){
+        subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">${esc(d.error)}</td>`;
+        return;
+      }
+      _klineCache[boardName] = d;
+      renderKline(subEl, boardName, d);
     })
-    .catch(e=>showMsg('K线加载失败: ' + e));
+    .catch(e=>{
+      subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">K 线加载失败: ${esc(e)}</td>`;
+    });
 }
 
-function renderChart(d){
+function renderKline(subEl, boardName, d){
   const rows = d.klines || [];
+  if(!rows.length){
+    subEl.innerHTML = `<td colspan="${SUB_COLSPAN}" class="empty">该行业无 K 线数据</td>`;
+    return;
+  }
+  const boxId = 'kline_' + Math.random().toString(36).slice(2,9);
+  subEl.innerHTML = `<td colspan="${SUB_COLSPAN}"><div id="${boxId}" class="kline-box"></div></td>`;
+  const dom = document.getElementById(boxId);
+  const chart = echarts.init(dom);
+
   const dates = rows.map(k=>k.date);
-  // ECharts 蜡烛图: [open, close, low, high]；A股习惯 涨红跌绿
   const candle = rows.map(k=>k.ohlc);
-  const markMap = {};
-  const volumes = rows.map(k=>{
-    if(!k.ohlc || k.ohlc[0] == null || k.ohlc[1] == null) return {value:0};
+  const vols = rows.map(k=>{
+    if(!k.ohlc || k.ohlc[0]==null || k.ohlc[1]==null) return {value:0};
     const up = k.ohlc[1] >= k.ohlc[0];
     return {value: Math.abs(k.ohlc[1]-k.ohlc[0]), itemStyle:{color: up?'#d93025':'#0f9d58'}};
   });
 
   const option = {
     animation: false,
-    title: { text: d.index_name || (d.board_name+'指数'), left: 12, top: 6,
-             textStyle: { fontSize: 15, color: '#222' } },
+    title: { text: d.index_name || (boardName+'指数'), left: 12, top: 4,
+             textStyle: { fontSize: 14, color: '#222' } },
     grid: [
-      { left: 62, right: 24, top: 46, height: '62%' },
-      { left: 62, right: 24, top: '76%', height: '14%' }
+      { left: 56, right: 20, top: 36, height: '60%' },
+      { left: 56, right: 20, top: '74%', height: '14%' }
     ],
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'cross' },
@@ -228,10 +378,9 @@ function renderChart(d){
         const pct = k.pct_chg;
         const pctColor = pct==null ? '#888' : (pct>0?'#d93025':(pct<0?'#0f9d58':'#888'));
         const pctTxt = pct==null ? '—' : (pct>0?'+':'') + pct.toFixed(2) + '%';
-        let html = `<b>${date}</b><br/>开 ${o==null?'-':o.toFixed(3)}　收 ${c==null?'-':c.toFixed(3)}<br/>`
-                 + `低 ${lo==null?'-':lo.toFixed(3)}　高 ${hi==null?'-':hi.toFixed(3)}<br/>`
-                 + `涨跌 <span style="color:${pctColor}">${pctTxt}</span>`;
-        return html;
+        return `<b>${date}</b><br/>开 ${o==null?'-':o.toFixed(3)}　收 ${c==null?'-':c.toFixed(3)}<br/>`
+             + `低 ${lo==null?'-':lo.toFixed(3)}　高 ${hi==null?'-':hi.toFixed(3)}<br/>`
+             + `涨跌 <span style="color:${pctColor}">${pctTxt}</span>`;
       }
     },
     xAxis: [
@@ -246,23 +395,23 @@ function renderChart(d){
     ],
     dataZoom: [
       { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1], top: '93%', height: 18, start: 0, end: 100 }
+      { type: 'slider', xAxisIndex: [0, 1], top: '90%', height: 16, start: 0, end: 100 }
     ],
     series: [
-      {
-        name: '日K', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0,
+      { name: '日K', type: 'candlestick', data: candle, xAxisIndex: 0, yAxisIndex: 0,
         itemStyle: { color: '#d93025', color0: '#0f9d58',
-                     borderColor: '#d93025', borderColor0: '#0f9d58' }
-      },
-      {
-        name: '日涨跌', type: 'bar', data: volumes, xAxisIndex: 1, yAxisIndex: 1, barWidth: '70%'
-      }
+                     borderColor: '#d93025', borderColor0: '#0f9d58' } },
+      { name: '日涨跌', type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1, barWidth: '70%' }
     ]
   };
   chart.setOption(option, true);
+  // 父表格宽度变化时 resize
+  setTimeout(()=>chart.resize(), 50);
 }
 
-init();
+// ---------- 初始化 ----------
+renderHead();
+loadDates();
 </script>
 </body>
 </html>

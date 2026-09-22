@@ -133,7 +133,10 @@ async function loadStock(code) {
 
 function renderChart(d) {
   // 合并并行的成交量数组，便于渲染与 tooltip 取用
-  const rows = d.klines.map((k, i) => ({ ...k, vol: d.vols[i] }));
+  const rows = d.klines.map((k, i) => ({
+    ...k, vol: d.vols ? d.vols[i] : null,
+    amount: d.amounts ? d.amounts[i] : null,   // 千元
+  }));
   const dates = rows.map(k => k.date);
   // ECharts 蜡烛图：[open, close, low, high]；A股习惯 涨红跌绿
   const candle = rows.map(k => k.ohlc);

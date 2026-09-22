@@ -162,8 +162,9 @@ def get_stock_detail(code, trade_date):
 
 
 def get_stock_list(trade_date):
-    """某交易日全市场股票列表（17 字段原始值，数值已转 float，未做单位换算）。
+    """某交易日全市场股票列表（数值已转 float，未做单位换算）。
 
+    字段含 industries（逗号分隔的东财行业名，取自 stock_dfcf_industry_t）。
     前端按总市值/股息率/换手率/成交额区间过滤、按字段排序、分页展示。
 
     :param trade_date: 交易日期（YYYYMMDD）
@@ -179,15 +180,23 @@ def get_stock_list(trade_date):
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT d.ts_code, d.trade_date, d.short_strength_score,
-                          d.open, d.close, d.pct_chg, d.amount, d.ma5, d.ma30,
+                          d.open, d.close, d.pct_chg, d.amount,
                           b.turnover_rate_f, b.pe, b.pe_ttm, b.pb,
                           b.total_mv, b.circ_mv, b.dv_ttm,
-                          i.stock_name
+                          i.stock_name,
+                          ind.industries
                    FROM stock_daily_t d
                    LEFT JOIN stock_daily_basic_info_t b
                           ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
                    LEFT JOIN stock_info_t i
                           ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
+                   LEFT JOIN (
+                       SELECT ts_code,
+                              GROUP_CONCAT(board_name SEPARATOR ',') AS industries
+                       FROM stock_dfcf_industry_t
+                       GROUP BY ts_code
+                   ) ind ON d.ts_code COLLATE utf8mb4_unicode_ci
+                          = ind.ts_code COLLATE utf8mb4_unicode_ci
                    WHERE d.trade_date = %s
                    ORDER BY d.ts_code""",
                 (trade_date,),
@@ -209,8 +218,7 @@ def get_stock_list(trade_date):
             'total_mv':             _to_float(r.get('total_mv')),      # 万元
             'circ_mv':              _to_float(r.get('circ_mv')),       # 万元
             'dv_ttm':               _to_float(r.get('dv_ttm')),
-            'ma5':                  _to_float(r.get('ma5')),
-            'ma30':                 _to_float(r.get('ma30')),
+            'industries':           r.get('industries') or '',          # 逗号分隔的行业名
         } for r in rows]
     except Exception as e:
         print(f"❌ get_stock_list 查询失败: {e}")

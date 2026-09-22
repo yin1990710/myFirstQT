@@ -491,8 +491,7 @@ def api_stock_list():
         'total_mv_yi':          _yi(r['total_mv'], 10000),
         'circ_mv_yi':           _yi(r['circ_mv'], 10000),
         'dv_ttm':               r['dv_ttm'],
-        'ma5':                  r['ma5'],
-        'ma30':                 r['ma30'],
+        'industries':           r.get('industries', ''),
     } for r in rows]
     return jsonify({'trade_date': date, 'count': len(items), 'items': items})
 
@@ -2061,9 +2060,9 @@ def api_kline():
 
     # 最近 200 个交易日（子查询取日期后正序返回）
     rows = query_db("""
-        SELECT trade_date, open, high, low, close, pre_close, pct_chg, vol
+        SELECT trade_date, open, high, low, close, pre_close, pct_chg, vol, amount
         FROM (
-            SELECT trade_date, open, high, low, close, pre_close, pct_chg, vol
+            SELECT trade_date, open, high, low, close, pre_close, pct_chg, vol, amount
             FROM stock_daily_t
             WHERE ts_code = %s
             ORDER BY trade_date DESC
@@ -2088,7 +2087,7 @@ def api_kline():
         marks = []
 
     stock_name = next((m['stock_name'] for m in marks if m.get('stock_name')), None)
-    klines, vols = [], []
+    klines, vols, amounts = [], [], []
     for r in rows:
         klines.append({
             'date': _fmt_date(r['trade_date']),
@@ -2097,11 +2096,13 @@ def api_kline():
             'pct_chg': r['pct_chg'],
         })
         vols.append(r['vol'])
+        amounts.append(r['amount'])   # 千元（stock_daily_t.amount 单位为千元）
     return jsonify({
         'ts_code': code,
         'stock_name': stock_name,
         'klines': klines,
         'vols': vols,
+        'amounts': amounts,
         'marks': [{'date': _fmt_date(m['trade_date']),
                    'strategy': m['strategy']} for m in marks],
     })
@@ -2223,6 +2224,92 @@ def api_industry_index_list():
     if rows is None:
         return jsonify({'error': '数据库连接失败'}), 500
     return jsonify({'boards': [r['board_name'] for r in rows]})
+
+
+@app.route('/api/industry_index')
+def api_industry_index():
+    """返回指定交易日所有行业指数当日数据（列表展示用）。
+
+    Query:
+      - trade_date: 交易日 YYYYMMDD，默认取最新有数据日
+      - board_name: 指数名称模糊匹配（可选）
+      - sort: 排序字段（默认 pct_chg），可选 pct_chg/close/open/high/low/stock_count/board_name
+      - order: asc/desc（默认 desc）
+    返回：{trade_date, rows:[{board_name,index_name,trade_date,open,high,low,close,pct_chg,stock_count}], total}
+    pct_chg 基于该行业前一交易日指数收盘价计算（窗口函数 LAG）。
+    """
+    from module_mysql_connection import get_mysql_connection, close_connection
+
+    board_name = request.args.get('board_name', '').strip()
+    sort_key = request.args.get('sort', 'pct_chg')
+    order = 'ASC' if request.args.get('order', 'desc').lower() == 'asc' else 'DESC'
+
+    sort_whitelist = {'pct_chg', 'close', 'open', 'high', 'low', 'stock_count', 'board_name'}
+    if sort_key not in sort_whitelist:
+        sort_key = 'pct_chg'
+    # board_name 按文本排序，强制 ASC 更直观
+    if sort_key == 'board_name':
+        order = 'ASC'
+
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        with conn.cursor() as cur:
+            # 取最新交易日（若未指定）
+            trade_date = request.args.get('trade_date', '').strip()
+            if not trade_date:
+                cur.execute('SELECT MAX(trade_date) d FROM industry_index_daily_t')
+                row = cur.fetchone()
+                trade_date = row['d'] if row else ''
+            if not trade_date:
+                return jsonify({'trade_date': '', 'rows': [], 'total': 0})
+
+            # 窗口函数 LAG 计算每行业前一日收盘，得到 pct_chg；外层取指定日数据
+            where = "WHERE 1=1"
+            params = []
+            if board_name:
+                where += " AND board_name LIKE %s"
+                params.append(f'%{board_name}%')
+
+            cur.execute(f"""
+                SELECT board_name, index_name, trade_date,
+                       `open`, high, low, `close`, stock_count, pct_chg
+                FROM (
+                    SELECT board_name, index_name, trade_date,
+                           `open`, high, low, `close`, stock_count,
+                           CASE WHEN LAG(`close`) OVER w IS NOT NULL
+                                  AND LAG(`close`) OVER w > 0
+                                THEN ROUND((`close` - LAG(`close`) OVER w)
+                                          / LAG(`close`) OVER w * 100, 3)
+                                ELSE NULL
+                           END AS pct_chg
+                    FROM industry_index_daily_t
+                    {where}
+                    WINDOW w AS (PARTITION BY board_name ORDER BY trade_date)
+                ) t
+                WHERE trade_date = %s
+                ORDER BY {sort_key} {order}, board_name ASC
+            """, params + [trade_date])
+            rows = cur.fetchall()
+
+        return jsonify({
+            'trade_date': trade_date,
+            'rows': rows,
+            'total': len(rows),
+        })
+    finally:
+        close_connection(conn)
+
+
+@app.route('/api/industry_index_dates')
+def api_industry_index_dates():
+    """返回所有有数据的交易日（降序），供页面交易日下拉选择。"""
+    rows = query_db(
+        "SELECT DISTINCT trade_date FROM industry_index_daily_t ORDER BY trade_date DESC")
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    return jsonify({'dates': [r['trade_date'] for r in rows]})
 
 
 @app.route('/api/industry_index_kline')

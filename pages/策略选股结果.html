@@ -862,6 +862,7 @@ async function downloadCsv() {
 }
 
 // ---- 以股选股结果导出CSV：列格式与下载CSV(条件选股)一致，仅股票代码+股票名称 ----
+// 文件名格式：登录账号_策略名称_日期后缀.csv
 async function downloadFsCsv() {
   const srcRows = _fsResult ? _fsResult.rows : _fsDbRows;
   if (!srcRows || !srcRows.length) { alert('当前没有可下载的以股选股结果'); return; }
@@ -876,14 +877,25 @@ async function downloadFsCsv() {
       rows.push([row.ts_code, row.stock_name || '']);
     }
     if (!rows.length) { alert('当前没有可下载的以股选股结果'); return; }
-    // 文件名 = 策略名（如 量价形态相似选股.csv）
-    const name = (_fsResult ? _fsResult.title : '以股选股历史结果').replace(/[\\/:*?"<>|]/g, '_');
+    // 获取当前登录账号
+    let account = 'anonymous';
+    try {
+      const u = await fetch('/api/current_user').then(r => r.json());
+      if (u && u.account) account = String(u.account);
+    } catch(e) { /* 取账号失败时用默认值 */ }
+    // 策略名（如 量价形态相似选股）
+    const strategyName = (_fsResult ? _fsResult.title : '以股选股历史结果').replace(/[\\/:*?"<>|]/g, '_');
+    // 日期后缀：优先取结果中的交易日，回退当天日期（YYYYMMDD）
+    const dateSuffix = (srcRows[0] && srcRows[0].trade_date)
+                       ? srcRows[0].trade_date.replace(/-/g, '')
+                       : todayCompact();
+    const fname = `${account}_${strategyName}_${dateSuffix}.csv`;
     // 首部 \uFEFF 为 UTF-8 BOM，保证 Excel 直接打开中文不乱码
     const csv = '\uFEFF股票代码,股票名称\n'
               + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
     const a = document.createElement('a');
-    a.href = url; a.download = name + '.csv'; a.click();
+    a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
     alert('生成CSV失败: ' + err);
