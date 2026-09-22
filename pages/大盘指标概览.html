@@ -191,7 +191,14 @@ function render(data) {
   ['A1','A2','A3','B4'].forEach(function(k) {
     var m = kpiMap[k];
     var el = document.getElementById('kpi-' + k.toLowerCase());
-    if (el) el.textContent = m ? fmtVal(m) : 'N/A';
+    if (!el) return;
+    el.textContent = m ? fmtVal(m) : 'N/A';
+    // 涨幅中位数（A3）按正负红涨绿跌，其余指标保持默认色
+    el.classList.remove('idx-up', 'idx-down');
+    if (k === 'A3' && m && m.value !== null && m.value !== undefined) {
+      if (m.value > 0) el.classList.add('idx-up');
+      else if (m.value < 0) el.classList.add('idx-down');
+    }
   });
 
   // 按分组渲染表格
