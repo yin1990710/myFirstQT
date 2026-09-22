@@ -244,11 +244,11 @@ else
 fi
 
 # 步骤24：A股大盘风险指数MRI
-log "[步骤24/28] 开始执行 A股大盘风险指数MRI (report_market_risk_metricx.py)..."
-if ${VENV_PYTHON} report_market_risk_metricx.py >> "${LOG_DIR}/report_market_risk_metricx_${DATE}.log" 2>&1; then
-    log "[步骤24/28] ✅ A股大盘风险指数MRI (report_market_risk_metricx.py) 执行成功"
+log "[步骤24/28] 开始执行 A股大盘风险指数MRI (report_market_risk_index.py)..."
+if ${VENV_PYTHON} report_market_risk_index.py >> "${LOG_DIR}/report_market_risk_index_${DATE}.log" 2>&1; then
+    log "[步骤24/28] ✅ A股大盘风险指数MRI (report_market_risk_index.py) 执行成功"
 else
-    log "[步骤24/28] ❌ A股大盘风险指数MRI (report_market_risk_metricx.py) 执行失败，停止任务"
+    log "[步骤24/28] ❌ A股大盘风险指数MRI (report_market_risk_index.py) 执行失败，停止任务"
     exit 1
 fi
 

@@ -12,19 +12,22 @@ A股大盘风险指数（Market Risk Index, MRI）
   4. 离线可验证：--selftest 用合成样本验证打分与合成逻辑，不依赖外网。
 
 用法
-  python report_market_risk_metricx.py                          # 自动取数（需 akshare）
-  python report_market_risk_metricx.py --input mri_manual.json  # 自动取数 + 手工补数（推荐）
-  python report_market_risk_metricx.py --init-manual            # 生成手工补数模板
-  python report_market_risk_metricx.py --selftest               # 离线自检
-  python report_market_risk_metricx.py --json out.json          # 指定 JSON 输出路径
+  python report_market_risk_index.py                          # 自动取数（需 akshare）
+  python report_market_risk_index.py --input mri_manual.json  # 自动取数 + 手工补数（推荐）
+  python report_market_risk_index.py --init-manual            # 生成手工补数模板
+  python report_market_risk_index.py --selftest               # 离线自检
+  python report_market_risk_index.py --json out.json          # 指定 JSON 输出路径
 
 指标可获取性（AkShare 免费源实测，2026-09）
-  ✅ 全自动（14 项）：PE分位、PB分位、ERP、融资余额/流通市值、期权IV、涨停家数、
-                     M1-M2剪刀差、BIAS250、均线破坏、波动率、市场宽度背离、PMI、汇率、10Y国债变动
+  ✅ 全自动（15 项）：PE分位、PB分位、ERP、融资余额/流通市值、期权IV、涨停家数、
+                     M1-M2剪刀差、BIAS250、均线破坏、波动率、市场宽度背离、PMI、汇率、
+                     10Y国债变动、热门赛道成交额占比（前3行业）
   注意：PMI 优先取【国家统计局官方制造业PMI】(macro_china_pmi，更新至最新月)；
         备选金十源 (macro_china_pmi_yearly) 数据仅更新至 2025-08，已降级为兜底。
-  ✍️ 需手工补数（7 项）：基金仓位、DR007偏离、北向流入、
-                     赛道拥挤度、股指期货贴水、期权PCR、个股相关系数
+  注意：热门赛道成交额占比 = 申万一级行业成交额前3 / 31个一级行业成交额合计 × 100%。
+        数据源：东财行业板块接口（calc_em_boards.get_industry_boards，含三级降级）+ 申万一级名单（ak.sw_index_first_info）。
+  ✍️ 需手工补数（6 项）：基金仓位、DR007偏离、北向流入、
+                     股指期货贴水、期权PCR、个股相关系数
   说明：北向资金自 2024-08 起停止披露实时数据。
 
 阈值均为历史经验参考值，务必用滚动窗口自行校准（见报告第九节）。
@@ -106,7 +109,7 @@ INDICATORS = [
 
     # ---- 市场结构与风险传导 ----
     dict(key="sector_crowding", dim="结构", name="热门赛道成交额占比（前3行业）", unit="%",
-         rule=">40%-45% 极度拥挤，均值回归风险大", auto=False,
+         rule=">40%-45% 极度拥挤，均值回归风险大", auto=True,
          score=lambda v: 2 if v >= 40 else (1 if v >= 30 else 0)),
     dict(key="iff_basis", dim="结构", name="股指期货年化贴水幅度（IF/IC/IM）", unit="%",
          rule="贴水大幅走阔 = 机构悲观、对冲需求激增", auto=False,
@@ -154,14 +157,16 @@ def score_indicator(ind: dict, value):
         return None
 
 
-def compute_index(values: dict) -> dict:
+def compute_index(values: dict, why: dict = None) -> dict:
+    why = why or {}
     rows, dim_acc = [], {}
     for ind in INDICATORS:
         v = values.get(ind["key"])
         s = score_indicator(ind, v)
         rows.append(dict(key=ind["key"], dim=ind["dim"], name=ind["name"],
                          unit=ind["unit"], rule=ind["rule"], auto=ind["auto"],
-                         value=v, score=s))
+                         value=v, score=s,
+                         detail=why.get(ind["key"])))
         if s is not None:
             dim_acc.setdefault(ind["dim"], []).append(s)
 
@@ -226,14 +231,14 @@ def _num(x):
         return None
 
 
-def fetch_all(verbose: bool = True) -> dict:
-    """返回 {key: value}。任一项失败置 None 并记录原因。"""
+def fetch_all(verbose: bool = True):
+    """返回 (values, why)。任一项失败置 None 并在 why 中记录原因。"""
     v = {i["key"]: None for i in INDICATORS}
     why = {}
     ak = _ak()
     if ak is None:
         print("[提示] 未检测到 akshare，联网取数已跳过。可 --input 手工填数或 --selftest 自检。")
-        return v
+        return v, why
 
     # ---- 1. 指数日线：技术维度 ----
     idx = _try([("stock_zh_index_daily", dict(symbol="sh000300"))])
@@ -488,6 +493,64 @@ def fetch_all(verbose: bool = True) -> dict:
         except Exception:
             why["usdcny_1m"] = "汇率序列解析失败"
 
+    # ---- 9. 热门赛道成交额占比（前3行业）—— 结构维度 ----
+    # 分子：申万一级行业成交额前3之和；分母：31个申万一级行业成交额合计
+    SW_L1_FALLBACK = [   # 申万一级行业 31 个（2021版），akshare/tushare 均失败时兜底
+        "农林牧渔", "基础化工", "钢铁", "有色金属", "电子", "家用电器",
+        "食品饮料", "纺织服饰", "轻工制造", "医药生物", "公用事业",
+        "交通运输", "房地产", "商贸零售", "社会服务", "综合", "建筑材料",
+        "建筑装饰", "电力设备", "国防军工", "计算机", "传媒", "通信",
+        "银行", "非银金融", "汽车", "机械设备", "煤炭", "石油石化",
+        "环保", "美容护理",
+    ]
+    try:
+        import calc_em_boards
+        boards = calc_em_boards.get_industry_boards(no_proxy=True)
+        if boards is not None and not boards.empty and "成交额(元)" in boards.columns:
+            # 申万一级行业名单：akshare -> tushare(去"申万"前缀) -> 硬编码兜底
+            lv1_names = None
+            try:
+                lv1_df = ak.sw_index_first_info()
+                lv1_names = set(lv1_df["行业名称"].dropna().astype(str).tolist())
+            except Exception:
+                pass
+            if not lv1_names:
+                try:
+                    import tushare as ts
+                    pro = ts.pro_api()
+                    sw = pro.index_basic(market="SW")
+                    # tushare 名称带"申万"前缀（如"申万农林牧渔"），去掉后与东财板块名对齐
+                    lv1_names = {n.replace("申万", "", 1) for n in sw["name"].dropna().astype(str)}
+                    # 仅保留与硬编码一级名单的交集，剔除二级/三级/主题指数
+                    lv1_names &= set(SW_L1_FALLBACK)
+                except Exception:
+                    lv1_names = set(SW_L1_FALLBACK)
+            if not lv1_names:
+                lv1_names = set(SW_L1_FALLBACK)
+            lv1 = boards[boards["名称"].astype(str).isin(lv1_names)].copy()
+            miss = lv1_names - set(boards["名称"].astype(str))
+            amt = lv1["成交额(元)"].astype(float)
+            total = float(amt.sum())
+            if total > 0 and len(amt) >= 3:
+                top3 = amt.nlargest(3)
+                ratio = float(top3.sum()) / total * 100
+                v["sector_crowding"] = round(ratio, 2)
+                top3_names = lv1.loc[top3.index, "名称"].tolist()
+                why["sector_crowding"] = (
+                    f"Top3合计占比 {ratio:.2f}%（"
+                    + "、".join(
+                        f"{n} {float(lv1.loc[lv1['名称']==n, '成交额(元)'].iloc[0])/total*100:.1f}%"
+                        for n in top3_names)
+                    + "）"
+                    + (f"；{len(miss)}个一级未匹配" if miss else "")
+                )
+            else:
+                why["sector_crowding"] = "申万一级行业成交额数据不足"
+        else:
+            why["sector_crowding"] = "行业板块接口不可用或无成交额字段"
+    except Exception as e:
+        why["sector_crowding"] = f"取数失败: {e}"
+
     if verbose:
         auto_missing = [k for k, val in v.items()
                         if val is None and any(i["key"] == k and i["auto"] for i in INDICATORS)]
@@ -498,7 +561,7 @@ def fetch_all(verbose: bool = True) -> dict:
         if stale:
             print("[复核提示] 已取到值但数据可能滞后：" +
                   "；".join(f"{k}({why[k]})" for k in stale))
-    return v
+    return v, why
 
 
 # ----------------------------------------------------------------------------
@@ -604,7 +667,7 @@ def main():
         init_manual(a.init_manual_path)
         return 0
 
-    values = fetch_all()
+    values, why = fetch_all()
     if a.input:
         with open(a.input, encoding="utf-8") as f:
             manual = json.load(f)
@@ -614,7 +677,7 @@ def main():
             values[k] = val
         print(f"[已合并] 手工补数 {sum(1 for k, v in manual.items() if not k.startswith('_') and v is not None)} 项")
 
-    res = compute_index(values)
+    res = compute_index(values, why)
     print_report(res)
 
     out = a.json_out

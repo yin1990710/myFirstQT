@@ -35,6 +35,8 @@
                 font-size: 13px; cursor: pointer; }
   .bar button.reset { background: #888; }
   .bar button.download { background: #0f9d58; }
+  .bar button.fix { background: #0f9d58; }
+  .bar button.fix.active { background: #1a73e8; }   /* 已固定时变蓝 */
   .bar button:disabled { background: #bbb; cursor: not-allowed; }
   #count { font-size: 13px; color: #666; }
   #msg { font-size: 13px; color: #d93025; }
@@ -202,6 +204,8 @@
   <label class="fs-hide">结束日期 <input id="endDate" type="date"></label>
   <button id="queryBtn" class="fs-hide" onclick="query()">查询</button>
   <button class="reset fs-hide" onclick="resetFilters()">重置</button>
+  <button id="fixQueryBtn" class="fix fs-hide" onclick="toggleFixQuery()">固定查询条件和结果</button>
+  <button id="fixFsBtn" class="fix fs-only" onclick="toggleFixFs()">固定查询条件和结果</button>
   <button class="download fs-hide" id="downloadBtn" onclick="downloadCsv()">下载CSV</button>
   <button class="download fs-only" id="fsDownloadBtn" onclick="downloadFsCsv()">下载CSV</button>
   <button class="add-pool" id="addPoolBtn" onclick="addToMyStocks()">加入我的股票池</button>
@@ -229,6 +233,81 @@ let sortKey = 'trade_date', sortDir = -1;
 const PAGE_SIZE = 20;   // 每页最多展示 20 条
 let currentPage = 1;    // 当前页码（从 1 开始）
 const NAV_KEY = 'stock_nav';   // 跳转详情页时传递的导航上下文 key
+
+// ---------- 固定查询条件和结果（localStorage 持久化，跨页面切换保留） ----------
+const FIX_QUERY_KEY = 'strategy_results_fixed_query';   // 条件选股
+const FIX_FS_KEY = 'strategy_results_fixed_fs';         // 以股选股
+let _isFixQuery = false;
+let _isFixFs = false;
+
+function safeJsonParse(s) { try { return s ? JSON.parse(s) : null; } catch(e) { return null; } }
+
+// ---- 条件选股固定 ----
+function saveFixQuery() {
+  const data = {
+    strategy: document.getElementById('strategy').value,
+    startDate: document.getElementById('startDate').value,
+    endDate: document.getElementById('endDate').value,
+    rows: ROWS,
+    currentPage, sortKey, sortDir,
+    ts: Date.now()
+  };
+  try { localStorage.setItem(FIX_QUERY_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function loadFixQuery() { return safeJsonParse(localStorage.getItem(FIX_QUERY_KEY)); }
+function clearFixQuery() { try { localStorage.removeItem(FIX_QUERY_KEY); } catch(e) {} }
+function setFixQueryUI(fixed) {
+  _isFixQuery = fixed;
+  const btn = document.getElementById('fixQueryBtn');
+  if (!btn) return;
+  btn.classList.toggle('active', fixed);
+  btn.textContent = fixed ? '取消固定' : '固定查询条件和结果';
+}
+function toggleFixQuery() {
+  if (_isFixQuery) {
+    clearFixQuery();
+    setFixQueryUI(false);
+    document.getElementById('msg').textContent = '已取消固定查询条件和结果';
+  } else {
+    if (!ROWS.length) { alert('当前无查询结果可固定，请先查询'); return; }
+    saveFixQuery();
+    setFixQueryUI(true);
+    document.getElementById('msg').textContent = '✅ 已固定当前查询条件和结果，切换页面后仍保留';
+  }
+}
+
+// ---- 以股选股固定 ----
+function saveFixFs() {
+  const data = {
+    fsResult: _fsResult,
+    fsDbRows: _fsDbRows,
+    currentPage, sortKey, sortDir,
+    ts: Date.now()
+  };
+  try { localStorage.setItem(FIX_FS_KEY, JSON.stringify(data)); } catch(e) {}
+}
+function loadFixFs() { return safeJsonParse(localStorage.getItem(FIX_FS_KEY)); }
+function clearFixFs() { try { localStorage.removeItem(FIX_FS_KEY); } catch(e) {} }
+function setFixFsUI(fixed) {
+  _isFixFs = fixed;
+  const btn = document.getElementById('fixFsBtn');
+  if (!btn) return;
+  btn.classList.toggle('active', fixed);
+  btn.textContent = fixed ? '取消固定' : '固定查询条件和结果';
+}
+function toggleFixFs() {
+  if (_isFixFs) {
+    clearFixFs();
+    setFixFsUI(false);
+    document.getElementById('msg').textContent = '已取消固定查询条件和结果';
+  } else {
+    const src = _fsResult ? _fsResult.rows : _fsDbRows;
+    if (!src || !src.length) { alert('当前无以股选股结果可固定，请先查询'); return; }
+    saveFixFs();
+    setFixFsUI(true);
+    document.getElementById('msg').textContent = '✅ 已固定当前查询条件和结果，切换页面后仍保留';
+  }
+}
 
 // 当前排序口径下的完整记录（分页切片前）
 function sortedRows() {
@@ -327,7 +406,28 @@ fetch('/api/strategies').then(r => r.json()).then(d => {
     const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
   });
   if (urlStrategy) sel.value = urlStrategy;
-}).finally(async () => { await setDefaultDates(); query(); });
+}).finally(async () => {
+  // 优先恢复固定的条件选股数据（跨页面切换保留），否则默认查询最新
+  const fixed = loadFixQuery();
+  if (fixed && fixed.rows && fixed.rows.length) {
+    // 恢复查询条件
+    if (fixed.strategy != null) document.getElementById('strategy').value = fixed.strategy;
+    if (fixed.startDate != null) document.getElementById('startDate').value = fixed.startDate;
+    if (fixed.endDate != null) document.getElementById('endDate').value = fixed.endDate;
+    // 恢复结果与分页/排序状态
+    ROWS = fixed.rows;
+    currentPage = fixed.currentPage || 1;
+    if (fixed.sortKey) sortKey = fixed.sortKey;
+    if (fixed.sortDir != null) sortDir = fixed.sortDir;
+    setFixQueryUI(true);
+    resetSSS();
+    render();
+    document.getElementById('msg').textContent = '已恢复固定查询条件和结果';
+  } else {
+    await setDefaultDates();
+    query();
+  }
+});
 
 // ---- 策略执行面板：条件选股 / 以股选股 两个可切换卡片 ----
 let _strategyMeta = [];   // 来自 /api/strategies_meta 的全部策略元数据
@@ -421,8 +521,24 @@ function renderCat(cat) {
   syncResultView();
   render();
   updateSelCount();
-  // 切到以股选股卡片时，从 DB 加载最近有数据日期的结果（刚执行过的 _fsResult 优先展示）
-  if (cat === FIND_SIMILAR_CAT) queryFs();
+  // 切到以股选股卡片时：优先恢复固定数据，否则从 DB 加载最近有数据日期的结果
+  if (cat === FIND_SIMILAR_CAT) {
+    const fixedFs = loadFixFs();
+    if (fixedFs && (fixedFs.fsResult || (fixedFs.fsDbRows && fixedFs.fsDbRows.length))) {
+      _fsResult = fixedFs.fsResult || null;
+      _fsDbRows = fixedFs.fsDbRows || [];
+      currentPage = fixedFs.currentPage || 1;
+      if (fixedFs.sortKey) sortKey = fixedFs.sortKey;
+      if (fixedFs.sortDir != null) sortDir = fixedFs.sortDir;
+      setFixFsUI(true);
+      resetSSS();
+      syncResultView();
+      render();
+      document.getElementById('msg').textContent = '已恢复固定查询条件和结果';
+    } else {
+      queryFs();
+    }
+  }
 }
 
 // 勾选：条件选股多选入集合；以股选股单选，选中后展开其参数表单
@@ -686,6 +802,9 @@ function startFindSimilarPolling(script) {
           clearInterval(_fsTimer); _fsTimer = null;
           setFindSimilarStatus(script, 'success', `✅ 计算完成（${s.duration}秒），相似股票已展示在下方列表`);
           showFindSimilarResults(script);   // 结果直显下方表格，替代跳转其他页面
+          // 重新执行后清除固定状态（结果已刷新）
+          clearFixFs();
+          setFixFsUI(false);
         } else if (s.status === 'failed') {
           clearInterval(_fsTimer); _fsTimer = null;
           setFindSimilarStatus(script, 'failed', `❌ 执行失败（退出码 ${s.rc}）`);
@@ -791,6 +910,9 @@ function query() {
     ROWS = d.rows || [];
     currentPage = 1;    // 新查询结果回到第 1 页
     resetSSS();         // 清空短线强弱得分缓存，随新结果重新加载
+    // 重新查询后清除固定状态（结果已刷新）
+    clearFixQuery();
+    setFixQueryUI(false);
     render();
   }).catch(err => msgEl.textContent = '查询失败: ' + err)
     .finally(() => { btn.disabled = false; btn.textContent = '查询'; });
@@ -808,8 +930,12 @@ async function queryFs() {
       .then(r => r.json());
     if (d.error) { _fsDbRows = []; render(); return; }
     _fsDbRows = d.rows || [];
+    _fsResult = null;        // queryFs 加载的是 DB 历史结果，清空实时结果
     currentPage = 1;
     resetSSS();
+    // 重新查询后清除固定状态（结果已刷新）
+    clearFixFs();
+    setFixFsUI(false);
     render();
   } catch (e) { /* 忽略，保持空列表 */ }
 }
@@ -1175,16 +1301,20 @@ async function loadInlineKline(code, containerId) {
     // 取最近 120 个交易日
     const klines = d.klines.slice(-120);
     const vols = d.vols.slice(-120);
-    renderInlineChart(container, klines, vols, d.marks, code, d.stock_name);
+    const amounts = (d.amounts || []).slice(-120);
+    renderInlineChart(container, klines, vols, amounts, d.marks, code, d.stock_name);
   } catch (e) {
     container.innerHTML = `<div class="kline-loading">K线数据加载失败: ${e}</div>`;
   }
 }
 
-function renderInlineChart(container, klines, vols, marks, code, stockName) {
+function renderInlineChart(container, klines, vols, amounts, marks, code, stockName) {
   container.innerHTML = '';
   const chart = echarts.init(container);
-  const rows = klines.map((k, i) => ({ ...k, vol: vols[i] }));
+  const rows = klines.map((k, i) => ({
+    ...k, vol: vols[i],
+    amount: amounts ? amounts[i] : null,   // 千元
+  }));
   const dates = rows.map(k => k.date);
   const candle = rows.map(k => k.ohlc);
   // 只保留 120 日窗口内的策略选中标记
@@ -1216,10 +1346,11 @@ function renderInlineChart(container, klines, vols, marks, code, stockName) {
         const pct = k.pct_chg;
         const pctColor = pct == null ? '#888' : (pct > 0 ? '#d93025' : (pct < 0 ? '#0f9d58' : '#888'));
         const pctTxt = pct == null ? '—' : (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
-        const volTxt = k.vol == null ? '—' : (k.vol / 10000).toFixed(2) + ' 万手';
+        const amtYi = (k.amount == null) ? null : (k.amount / 100000);   // 千元 → 亿元
+        const amtTxt = (amtYi == null) ? '—' : amtYi.toFixed(2) + ' 亿';
         let html = `<b>${date}</b><br/>开 ${o}　收 ${c}<br/>低 ${lo}　高 ${hi}`
                  + `<br/>涨跌 <span style="color:${pctColor}">${pctTxt}</span>`
-                 + `<br/>量 ${volTxt}`;
+                 + `<br/>成交额 ${amtTxt}`;
         if (markMap[date]) html += `<br/><span style="color:#f5a623">★ 策略选中: ${markMap[date]}</span>`;
         return html;
       }

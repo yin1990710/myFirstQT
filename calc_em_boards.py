@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-em_boards.py — 东方财富「行业板块 + 概念板块」数据获取（游资/短线语境口径）
+calc_em_boards.py — 东方财富「行业板块 + 概念板块」数据获取（游资/短线语境口径）
 
 能力清单（均基于 push2.eastmoney.com 官方接口，2026-09-20 实测）：
   1. industry  东财行业板块列表（约 86 个，含涨跌幅/上涨下跌家数/领涨股/主力净流入）
@@ -17,12 +17,12 @@ em_boards.py — 东方财富「行业板块 + 概念板块」数据获取（游
   - 本机若设置了 http_proxy 代理导致 requests 报 ProxyError，加 --no-proxy。
 
 用法示例：
-  python3 em_boards.py industry                 # 东财行业板块列表（含当日涨跌）
-  python3 em_boards.py concept                  # 东财概念板块列表
-  python3 em_boards.py cons BK1036              # 半导体成分股
-  python3 em_boards.py stock 688213             # 思特威所属的行业+概念板块
-  python3 em_boards.py stock 688213 --label     # 同上，并把板块标注为 行业/概念
-  python3 em_boards.py industry --out boards.csv
+  python3 calc_em_boards.py industry                 # 东财行业板块列表（含当日涨跌）
+  python3 calc_em_boards.py concept                  # 东财概念板块列表
+  python3 calc_em_boards.py cons BK1036              # 半导体成分股
+  python3 calc_em_boards.py stock 688213             # 思特威所属的行业+概念板块
+  python3 calc_em_boards.py stock 688213 --label     # 同上，并把板块标注为 行业/概念
+  python3 calc_em_boards.py industry --out boards.csv
 """
 
 import argparse
@@ -43,11 +43,11 @@ HEADERS = {
 }
 
 # clist 通用字段映射（东财板块/成分列表）
-CLIST_FIELDS = ("f12,f14,f3,f8,f62,f104,f105,f128,f20")
+CLIST_FIELDS = ("f12,f14,f3,f6,f8,f62,f104,f105,f128,f20")
 CLIST_COLS = {
-    "f12": "代码", "f14": "名称", "f3": "涨跌幅%", "f8": "换手率%",
-    "f62": "主力净流入(元)", "f104": "上涨家数", "f105": "下跌家数",
-    "f128": "领涨股", "f20": "总市值(元)",
+    "f12": "代码", "f14": "名称", "f3": "涨跌幅%", "f6": "成交额(元)",
+    "f8": "换手率%", "f62": "主力净流入(元)", "f104": "上涨家数",
+    "f105": "下跌家数", "f128": "领涨股", "f20": "总市值(元)",
 }
 
 # slist（个股所属板块）字段映射
@@ -284,11 +284,11 @@ def main():
         df = get_concept_boards(args.no_proxy)
     elif args.cmd == "cons":
         if not args.arg:
-            ap.error("cons 需要 BK 代码，如: em_boards.py cons BK1036")
+            ap.error("cons 需要 BK 代码，如: calc_em_boards.py cons BK1036")
         df = get_board_constituents(args.arg, args.no_proxy)
     else:  # stock
         if not args.arg:
-            ap.error("stock 需要 6 位代码，如: em_boards.py stock 688213")
+            ap.error("stock 需要 6 位代码，如: calc_em_boards.py stock 688213")
         df = get_stock_boards(args.arg, args.no_proxy, label=args.label)
 
     pd.set_option("display.max_rows", 50, "display.width", 160,

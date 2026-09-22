@@ -4,7 +4,7 @@
 """
 update_stock_dfcf_industry.py — 更新股票东财行业分类
 
-数据来源：em_boards.get_stock_boards()（东财 slist 个股反查所属板块接口）
+数据来源：calc_em_boards.get_stock_boards()（东财 slist 个股反查所属板块接口）
   - 入参为 6 位股票代码（不带交易所后缀，如 688213）
   - 返回该股全部所属板块（行业+概念+风格，如半导体/AI芯片/国产芯片…）
 
@@ -18,7 +18,7 @@ import time
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from module_mysql_connection import get_mysql_connection, close_connection
-from em_boards import get_stock_boards
+from calc_em_boards import get_stock_boards
 
 # 每次请求间隔（秒），避免被东财限流
 REQUEST_INTERVAL = 0.15
@@ -61,7 +61,7 @@ def read_all_stocks():
 
 
 def fetch_boards_for_stock(ts_code):
-    """调用 em_boards.get_stock_boards 获取个股所属板块。
+    """调用 calc_em_boards.get_stock_boards 获取个股所属板块。
 
     入参 ts_code 带后缀（如 688213.SH），调用时去掉后缀传 6 位代码。
     返回 list[(board_code, board_name)]，失败返回空列表。

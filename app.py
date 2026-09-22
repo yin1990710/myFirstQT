@@ -631,13 +631,13 @@ def api_stock_data_monitor():
 
 @app.route('/mri')
 def mri_dashboard():
-    """A股大盘风险指数（MRI 实时仪表盘），由 report_market_risk_metricx.py 生成。"""
+    """A股大盘风险指数（MRI 实时仪表盘），由 report_market_risk_index.py 生成。"""
     path = os.path.join(PAGE_DIR, 'A股大盘风险指数MRI.html')
     if not os.path.exists(path):
         return ('<!DOCTYPE html><meta charset="utf-8">'
                 '<title>MRI 仪表盘未生成</title><body style="font-family:sans-serif;padding:40px">'
                 '<h2>MRI 实时仪表盘尚未生成</h2>'
-                '<p>请先运行 <code>python report_market_risk_metricx.py</code> 生成报告。</p>'
+                '<p>请先运行 <code>python report_market_risk_index.py</code> 生成报告。</p>'
                 '<p><a href="/">返回首页</a></p></body>'), 404
     return send_from_directory(PAGE_DIR, 'A股大盘风险指数MRI.html')
 
@@ -887,7 +887,7 @@ def api_market_overview_refresh_status():
 
 @app.route('/api/mri_data')
 def api_mri_data():
-    """返回 MRI 风险指数数据 JSON（由 report_market_risk_metricx.py 生成到 pages/mri_data.json）。"""
+    """返回 MRI 风险指数数据 JSON（由 report_market_risk_index.py 生成到 pages/mri_data.json）。"""
     path = os.path.join(PAGE_DIR, 'mri_data.json')
     if not os.path.exists(path):
         return jsonify({'error': '数据尚未生成，请先点击「重新生成报告」'}), 404
@@ -896,7 +896,7 @@ def api_mri_data():
 
 
 # MRI 报告重新生成（单任务，复用手动执行状态管理）
-_MRI_SCRIPT = 'report_market_risk_metricx.py'
+_MRI_SCRIPT = 'report_market_risk_index.py'
 _mri_state = {'status': 'idle'}  # idle | running | success | failed
 _mri_lock = threading.Lock()
 
@@ -912,7 +912,7 @@ def _reap_mri_process(proc, started):
 
 @app.route('/api/mri_regenerate', methods=['POST'])
 def api_mri_regenerate():
-    """后台重新生成 MRI 报告（运行 report_market_risk_metricx.py）。"""
+    """后台重新生成 MRI 报告（运行 report_market_risk_index.py）。"""
     with _mri_lock:
         if _mri_state.get('status') == 'running':
             return jsonify({'error': '报告正在生成中，请勿重复触发',

@@ -4,7 +4,7 @@
 """
 update_em_board_daily.py — 东方财富行业/概念板块当日快照入库
 
-数据来源：em_boards.py（push2.eastmoney.com 官方接口）
+数据来源：calc_em_boards.py（push2.eastmoney.com 官方接口）
   - get_industry_boards()  东财行业板块列表（约 86 个）
   - get_concept_boards()   东财概念板块列表（400+ 个）
 
@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from module_mysql_connection import get_mysql_connection, close_connection
-from em_boards import get_industry_boards, get_concept_boards
+from calc_em_boards import get_industry_boards, get_concept_boards
 
 
 def get_target_date():

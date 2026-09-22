@@ -38,6 +38,7 @@ h1 .doc-btn:hover{background:#eef4ff;}
 .card .val{font-size:24px;font-weight:700;}
 .card .note{font-size:11px;margin-top:4px;}
 .note{color:#5a6472;font-size:12px;}
+.rule-sub{color:#9aa3af;font-size:11px;}   /* 风险读法列中静态规则的小字样式 */
 table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
 th{background:#1f2430;color:#fff;padding:7px 8px;text-align:left;font-size:12px;}
 td{border:1px solid #d9dee6;padding:5px 8px;vertical-align:top;}
@@ -133,11 +134,13 @@ function render(d) {
 
   var rows = '';
   d.rows.forEach(function(r) {
+    // 风险读法列：优先展示指标详细说明（detail，含 Top3 行业占比等可解释信息），无则展示静态规则 rule
+    var ruleText = r.detail ? esc(r.detail) + '<br><span class="rule-sub">' + esc(r.rule) + '</span>' : esc(r.rule);
     rows += '<tr><td>' + esc(r.dim) + '</td><td>' + esc(r.name) + '</td>'
       + '<td style="text-align:right">' + esc(fmtValue(r)) + '</td>'
       + '<td style="text-align:center">' + (r.score === null ? '-' : r.score) + '</td>'
       + '<td class="note">' + (r.auto ? '自动' : '手工') + '</td>'
-      + '<td class="note">' + esc(r.rule) + '</td></tr>';
+      + '<td class="note">' + ruleText + '</td></tr>';
   });
 
   var idxVal = d.index === null ? 'N/A' : d.index;
