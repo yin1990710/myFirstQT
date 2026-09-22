@@ -141,44 +141,66 @@ def _akshare_fallback(kind: str) -> pd.DataFrame:
         os.environ.update(saved)
 
 
-def _tushare_fallback(kind: str) -> pd.DataFrame:
-    """东财 clist + akshare 全挂时，用 tushare 申万行业指数兜底（仅 industry）。
+# 申万一级行业 31 个（2021版），tushare 降级时精确过滤用（sw_daily 按日返回全量，含二三级）
+SW_L1_NAMES = {
+    "农林牧渔", "基础化工", "钢铁", "有色金属", "电子", "家用电器",
+    "食品饮料", "纺织服饰", "轻工制造", "医药生物", "公用事业",
+    "交通运输", "房地产", "商贸零售", "社会服务", "综合", "建筑材料",
+    "建筑装饰", "电力设备", "国防军工", "计算机", "传媒", "通信",
+    "银行", "非银金融", "汽车", "机械设备", "煤炭", "石油石化",
+    "环保", "美容护理",
+}
 
-    申万一级（801010-801099）约 31 个行业，数据来自 sw_daily 接口，
-    字段与东财口径差异：无主力净流入/上涨下跌家数/领涨股，有 PE/PB/总市值。
+
+def _tushare_fallback(kind: str) -> pd.DataFrame:
+    """东财 clist + akshare 全挂时，用 tushare 申万一级行业指数兜底（仅 industry）。
+
+    数据来自 sw_daily 接口，按交易日批量取数（仅 2 次 API 调用，避免逐个行业
+    查询触发频率限制）。字段与东财口径差异：无主力净流入/上涨下跌家数/领涨股。
+    sw_daily 的 amount/total_mv 单位为万元，统一 ×10000 转为元。
     """
     if kind != "industry":
         raise RuntimeError("tushare 降级仅支持 industry")
     import tushare as ts
-    pro = ts.pro_api()
-    # 申万一级行业指数代码：801010-801099（排除 801001-801009 等非行业指数）
-    basic = pro.index_basic(market='SW')
-    l1 = basic[basic['ts_code'].str.match(r'^8010[1-9]\d\.SI$')].copy()
-    if l1.empty:
-        raise RuntimeError("tushare 申万一级行业为空")
-
     from datetime import datetime, timedelta
+    pro = ts.pro_api()
+
     end = datetime.now().strftime('%Y%m%d')
     start = (datetime.now() - timedelta(days=15)).strftime('%Y%m%d')
 
+    # 1. 用单个行业探最新有数据的交易日（盘后 tushare 可能尚未更新当日）
+    probe = pro.sw_daily(ts_code='801010.SI', start_date=start, end_date=end)
+    if probe is None or probe.empty:
+        raise RuntimeError("tushare sw_daily 探测数据为空")
+    latest_date = str(probe.sort_values('trade_date').iloc[-1]['trade_date'])
+
+    # 2. 按最新交易日一次取全部申万指数（含二三级），再按一级名称白名单过滤
+    daily = pro.sw_daily(trade_date=latest_date)
+    if daily is None or daily.empty:
+        raise RuntimeError(f"tushare sw_daily 交易日 {latest_date} 返回空")
+    daily = daily.copy()
+    daily['_name'] = daily['name'].astype(str).str.replace('申万', '', n=1)
+    l1 = daily[daily['_name'].isin(SW_L1_NAMES)].copy()
+    if l1.empty:
+        raise RuntimeError("tushare 申万一级行业过滤后为空")
+
     out = []
-    for _, row in l1.iterrows():
-        daily = pro.sw_daily(ts_code=row['ts_code'], start_date=start, end_date=end)
-        if daily is not None and not daily.empty:
-            latest = daily.sort_values('trade_date').iloc[-1]
-            out.append({
-                '代码': row['ts_code'],
-                '名称': row['name'],
-                '涨跌幅%': latest.get('pct_change'),
-                '换手率%': None,
-                '主力净流入(元)': None,
-                '上涨家数': None,
-                '下跌家数': None,
-                '领涨股': None,
-                '总市值(元)': latest.get('total_mv'),
-            })
-    if not out:
-        raise RuntimeError("tushare sw_daily 全部为空")
+    for _, latest in l1.iterrows():
+        amt_wan = latest.get('amount')
+        mv_wan = latest.get('total_mv')
+        out.append({
+            '代码': latest['ts_code'],
+            '名称': latest['_name'],
+            '涨跌幅%': latest.get('pct_change'),
+            '换手率%': None,
+            '成交额(元)': float(amt_wan) * 10000 if pd.notna(amt_wan) else None,
+            '主力净流入(元)': None,
+            '上涨家数': None,
+            '下跌家数': None,
+            '领涨股': None,
+            '总市值(元)': float(mv_wan) * 10000 if pd.notna(mv_wan) else None,
+            '交易日': latest_date,
+        })
     return pd.DataFrame(out)
 
 

@@ -529,6 +529,8 @@ def fetch_all(verbose: bool = True):
                 lv1_names = set(SW_L1_FALLBACK)
             lv1 = boards[boards["名称"].astype(str).isin(lv1_names)].copy()
             miss = lv1_names - set(boards["名称"].astype(str))
+            # 剔除成交额为空的行（tushare 降级时个别行业可能缺当日数据）
+            lv1 = lv1[lv1["成交额(元)"].notna()].copy()
             amt = lv1["成交额(元)"].astype(float)
             total = float(amt.sum())
             if total > 0 and len(amt) >= 3:
@@ -536,6 +538,12 @@ def fetch_all(verbose: bool = True):
                 ratio = float(top3.sum()) / total * 100
                 v["sector_crowding"] = round(ratio, 2)
                 top3_names = lv1.loc[top3.index, "名称"].tolist()
+                # tushare 降级数据按交易日取最新，盘后 tushare 可能尚未更新当日，提示实际数据日期
+                date_note = ""
+                if "交易日" in lv1.columns:
+                    dates = sorted(set(str(x) for x in lv1["交易日"].dropna()))
+                    if dates:
+                        date_note = f"；数据源:tushare申万，数据日期 {dates[-1]}"
                 why["sector_crowding"] = (
                     f"Top3合计占比 {ratio:.2f}%（"
                     + "、".join(
@@ -543,6 +551,7 @@ def fetch_all(verbose: bool = True):
                         for n in top3_names)
                     + "）"
                     + (f"；{len(miss)}个一级未匹配" if miss else "")
+                    + date_note
                 )
             else:
                 why["sector_crowding"] = "申万一级行业成交额数据不足"

@@ -133,7 +133,6 @@
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
     <a href="/industry-heat">行业热度</a>
-    <a href="/industry-index">行业指数</a>
     <a href="/my_stocks">我的股票池</a>
     <a href="/stock-detail">个股详情</a>
     <a href="/etf">ETF专区</a>
@@ -317,7 +316,13 @@ function loadData(){
     const cur = d.trade_date||'';
     dateSel.innerHTML = dates.map(dt=>`<option value="${dt}" ${dt===cur?'selected':''}>${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}</option>`).join('');
     _curDate = cur;
-    _allRows = d.rows||[];
+    // 涨跌比约定：没有下跌股票（上涨占比100%）时展示为100
+    _allRows = (d.rows||[]).map(r=>{
+      if((r.up_down_ratio===null || r.up_down_ratio===undefined) && Number(r.up_ratio)>=1){
+        r.up_down_ratio = 100;
+      }
+      return r;
+    });
 
     // 无行业筛选时刷新联想数据源（当日全部板块名）
     if(!bn){

@@ -1528,6 +1528,170 @@ def api_strategy_analysis():
     return jsonify({'strategies': data})
 
 
+@app.route('/api/strategy_analysis_cumulative')
+def api_strategy_analysis_cumulative():
+    """各策略选股的【按交易日累积】结果（实时聚合 strategy_selected_stock_daily_t）。
+
+    每个策略按交易日输出：
+      - 当日选股数 pick_count（含 T+10 未满、尚无涨幅的记录）
+      - 当日已结算样本数 gain_count、当日平均10日最大涨幅 avg_gain
+      - 截至当日的累积选股数 cum_count
+      - 截至当日累积样本的平均10日最大涨幅 cum_avg（多日累积股票平均涨幅）
+    strategy 字段为逗号分隔多策略串时，同一行归属到每个策略。
+    """
+    rows = query_db(
+        "SELECT strategy, trade_date, max_gain_10d "
+        "FROM strategy_selected_stock_daily_t ORDER BY trade_date")
+    if rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+
+    dates = sorted({r['trade_date'] for r in rows if r.get('trade_date')})
+    # {strategy: {date: {'pick':n, 'gain_sum':x, 'gain_n':m}}}
+    sm = {}
+    for r in rows:
+        td = r.get('trade_date')
+        if not td:
+            continue
+        for s in (r.get('strategy') or '').split(','):
+            s = s.strip()
+            if not s:
+                continue
+            d = sm.setdefault(s, {}).setdefault(
+                td, {'pick': 0, 'gain_sum': 0.0, 'gain_n': 0})
+            d['pick'] += 1
+            g = r.get('max_gain_10d')
+            if g is not None:
+                d['gain_sum'] += float(g)
+                d['gain_n'] += 1
+
+    strategies = []
+    for name, daymap in sm.items():
+        daily, cum = [], []
+        cum_pick = 0
+        cum_gain_sum, cum_gain_n = 0.0, 0
+        for td in dates:
+            d = daymap.get(td)
+            if d is None:
+                # 该策略当日无选股：累积值沿用前期
+                cum.append({'date': td, 'cum_count': cum_pick,
+                            'cum_gain_count': cum_gain_n,
+                            'cum_avg': round(cum_gain_sum / cum_gain_n, 4) if cum_gain_n else None})
+                continue
+            cum_pick += d['pick']
+            cum_gain_sum += d['gain_sum']
+            cum_gain_n += d['gain_n']
+            daily.append({'date': td, 'pick_count': d['pick'],
+                          'gain_count': d['gain_n'],
+                          'avg_gain': round(d['gain_sum'] / d['gain_n'], 4) if d['gain_n'] else None})
+            cum.append({'date': td, 'cum_count': cum_pick,
+                        'cum_gain_count': cum_gain_n,
+                        'cum_avg': round(cum_gain_sum / cum_gain_n, 4) if cum_gain_n else None})
+        final_avg = round(cum_gain_sum / cum_gain_n, 4) if cum_gain_n else None
+        strategies.append({
+            'strategy': name,
+            'total_count': cum_pick,
+            'total_gain_count': cum_gain_n,
+            'final_avg': final_avg,
+            'latest_date': max(daymap.keys()),
+            'daily': daily,
+            'cum': cum,
+        })
+    strategies.sort(key=lambda x: (x['final_avg'] is None, -(x['final_avg'] or 0)))
+    return jsonify({'dates': dates, 'strategies': strategies})
+
+
+@app.route('/api/strategy_analysis_window')
+def api_strategy_analysis_window():
+    """最近 N 个交易日窗口内各策略选股的 10 日平均最大涨幅/最大跌幅（动态实时计算）。
+
+    口径与 update_strategy_selected_stock_daily.py 一致：
+      max_gain = (max(T+1~T+10 收盘) / T 日收盘 - 1) × 100，
+      max_down = (min(T+1~T+10 收盘) / T 日收盘 - 1) × 100，
+      不足 10 个未来日时按实际已有未来日计算（至少 1 个未来日才计入）。
+    直接从 stock_daily_t 实时取价，不依赖 max_gain_10d/max_down_10d 回填。
+    返回：{window_dates, price_end_date, strategies:
+           [{strategy, avg_gain, avg_down, sample_count, full_count, partial_count}]}
+    """
+    days = request.args.get('days', default=10, type=int)
+    days = max(1, min(days, 60))
+
+    # 1. 选股表中最近 N 个有选股记录的交易日（窗口）
+    win_rows = query_db(
+        "SELECT DISTINCT trade_date FROM strategy_selected_stock_daily_t "
+        "ORDER BY trade_date DESC LIMIT %s", (days,))
+    if win_rows is None:
+        return jsonify({'error': '数据库连接失败'}), 500
+    if not win_rows:
+        return jsonify({'window_dates': [], 'strategies': []})
+    window_dates = sorted(r['trade_date'] for r in win_rows)
+    min_d, max_d = window_dates[0], window_dates[-1]
+
+    # 2. 窗口最晚日之后再取 10 个交易日，保证 T+10 价格可取
+    future_rows = query_db(
+        "SELECT DISTINCT trade_date FROM stock_daily_t WHERE trade_date>%s "
+        "ORDER BY trade_date ASC LIMIT 10", (max_d,))
+    future_dates = [r['trade_date'] for r in future_rows]
+    price_end = future_dates[-1] if future_dates else max_d
+
+    # 3. 一次性取窗口起始日 ~ price_end 的全部收盘价
+    price_rows = query_db(
+        "SELECT ts_code, trade_date, close FROM stock_daily_t "
+        "WHERE trade_date>=%s AND trade_date<=%s AND close>0",
+        (min_d, price_end))
+    # {ts_code: {trade_date: close}}
+    price_map = {}
+    for r in price_rows:
+        price_map.setdefault(r['ts_code'], {})[r['trade_date']] = float(r['close'])
+
+    # 4. 取窗口内全部选股记录
+    ph = ','.join(['%s'] * len(window_dates))
+    picks = query_db(
+        f"SELECT ts_code, trade_date, strategy FROM strategy_selected_stock_daily_t "
+        f"WHERE trade_date IN ({ph})", window_dates)
+
+    # {strategy: {'pick':总选股数, 'gsum':x,'dsum':y,'n':可计算样本,'full':a,'partial':b}}
+    # 最新交易日选入、尚无 T+1 未来行情的股票计入 pick_count 但涨跌幅暂不可算（null）
+    sm = {}
+    for p in picks:
+        code, td = p['ts_code'], p['trade_date']
+        px = price_map.get(code)
+        future_closes = None
+        if px and td in px:
+            future_closes = [px[d] for d in sorted(px) if d > td][:10]
+        for s in (p.get('strategy') or '').split(','):
+            s = s.strip()
+            if not s:
+                continue
+            a = sm.setdefault(s, {'pick': 0, 'gsum': 0.0, 'dsum': 0.0, 'n': 0,
+                                  'full': 0, 'partial': 0})
+            a['pick'] += 1
+            if not future_closes:
+                continue
+            gain = (max(future_closes) / px[td] - 1) * 100
+            down = (min(future_closes) / px[td] - 1) * 100
+            is_full = len(future_closes) >= 10
+            a['gsum'] += gain
+            a['dsum'] += down
+            a['n'] += 1
+            a['full' if is_full else 'partial'] += 1
+
+    strategies = []
+    for name, a in sm.items():
+        strategies.append({
+            'strategy': name,
+            'avg_gain': round(a['gsum'] / a['n'], 4) if a['n'] else None,
+            'avg_down': round(a['dsum'] / a['n'], 4) if a['n'] else None,
+            'pick_count': a['pick'],
+            'sample_count': a['n'],
+            'full_count': a['full'],
+            'partial_count': a['partial'],
+        })
+    strategies.sort(key=lambda x: (x['avg_gain'] is None, -(x['avg_gain'] or 0)))
+    return jsonify({'window_dates': window_dates,
+                    'price_end_date': price_end,
+                    'strategies': strategies})
+
+
 @app.route('/api/strategies_meta')
 def api_strategies_meta():
     """扫描所有 select_*.py，返回策略中文名、入库策略名及选股条件说明。"""

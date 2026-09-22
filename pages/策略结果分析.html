@@ -28,13 +28,22 @@
                  border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all .2s; }
   .page-tabs a:hover { color: #1a1a1a; }
   .page-tabs a.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px;
+         background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 12px 16px;
+         font-size: 13px; }
+  .bar label { color: #555; white-space: nowrap; }
+  .bar select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
+  .bar button { padding: 6px 16px; border: none; border-radius: 6px; background: #1a73e8; color: #fff;
+                font-size: 13px; cursor: pointer; }
+  .bar button:hover { background: #1558b0; }
+  .bar .win-info { color: #888; }
   .chart-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
                 padding: 20px; margin-top: 16px; }
   .chart-card .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
   .chart-card .chart-hint { font-size: 13px; color: #888; margin-bottom: 12px; line-height: 1.6; }
   #strategyChart { width: 100%; height: 480px; }
   .empty { text-align: center; color: #999; font-size: 14px; padding: 60px 0; }
-  .summary { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 13px; color: #555; }
+  .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; font-size: 13px; color: #555; }
   .summary .item { background: #f0f4ff; border: 1px solid #d0e0ff; border-radius: 6px; padding: 8px 14px; }
   .summary .item .label { color: #888; margin-right: 6px; }
   .summary .item .val { font-weight: 600; color: #1a73e8; }
@@ -52,7 +61,6 @@
     <a href="/market-overview">大盘指标概览</a>
     <a href="/mri">A股大盘风险指数</a>
     <a href="/industry-heat">行业热度</a>
-    <a href="/industry-index">行业指数</a>
     <a href="/my_stocks">我的股票池</a>
     <a href="/stock-detail">个股详情</a>
     <a href="/etf">ETF专区</a>
@@ -68,9 +76,24 @@
   <a href="/my_stocks">我的股票池</a>
 </div>
 
+<div class="bar">
+  <label>统计窗口：最近</label>
+  <select id="winDays">
+    <option value="5">5</option>
+    <option value="10" selected>10</option>
+    <option value="15">15</option>
+    <option value="20">20</option>
+    <option value="30">30</option>
+  </select>
+  <label>个交易日</label>
+  <button id="refreshBtn">刷新计算</button>
+  <span class="win-info" id="winInfo"></span>
+</div>
+
 <div class="chart-card">
-  <div class="chart-title">各策略选股结果 · 10 日算术平均涨幅</div>
-  <div class="chart-hint">横轴：策略名称　|　纵轴：选入后 T+1～T+10 个交易日内最高收盘相对 T 日收盘的平均最大涨幅（%）　|　数据来源：strategy_result_analysis_t（由 calc_strategy_result_analysis.py 计算）</div>
+  <div class="chart-title">各策略选股结果 · 窗口内10日平均最大涨幅 / 平均最大跌幅</div>
+  <div class="chart-hint">横轴：策略名称　|　纵轴：统计窗口内被该策略选中的股票，在选入后 T+1～T+10 个交易日内最高/最低收盘相对 T 日收盘的最大涨幅（红）、最大跌幅（绿）的算术平均值（%）　|　价格实时取自 stock_daily_t 动态计算；窗口内近期选入、T+10 尚未走完的股票按实际已有未来日计算（tooltip 中区分已满10日/未满10日样本数）</div>
+  <div id="futureTip" style="display:none;color:#b07d2b;font-size:13px;background:#fdf6e3;border:1px solid #f0e0a8;border-radius:6px;padding:8px 12px;margin-bottom:10px;">窗口内选股尚无 T+1 之后的行情数据（最新交易日选入的股票需下一交易日起才可计算），涨跌幅暂显示 N/A。</div>
   <div id="strategyChart"><div class="empty">加载中…</div></div>
   <div class="summary" id="summary"></div>
 </div>
@@ -78,76 +101,124 @@
 <script>
 let _chart = null;
 
-function renderChart(list) {
+function fmtDate(d) { return d ? d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8) : d; }
+
+function renderChart(d) {
   const dom = document.getElementById('strategyChart');
   if (typeof echarts === 'undefined') {
     dom.innerHTML = '<div class="empty">图表库 echarts 加载失败，请检查网络后刷新</div>';
     return;
   }
-  if (!list || !list.length) {
-    dom.innerHTML = '<div class="empty">暂无回测数据。<br/>请先运行 update_strategy_selected_stock_daily.py 回填 max_gain_10d，再运行 calc_strategy_result_analysis.py 生成统计数据。</div>';
+  const list = d.strategies || [];
+  if (!list.length) {
+    dom.innerHTML = '<div class="empty">窗口内暂无选股数据。</div>';
     document.getElementById('summary').innerHTML = '';
+    document.getElementById('futureTip').style.display = 'none';
     return;
   }
 
   if (_chart) { _chart.dispose(); _chart = null; }
   _chart = echarts.init(dom);
-
+  const pct = v => (v === null || v === undefined) ? 'N/A' : Number(v).toFixed(2) + '%';
   _chart.setOption({
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: function (params) {
-        const p = params[0];
-        const d = list[p.dataIndex];
-        return `<b>${d.strategy}</b><br/>10日平均涨幅：<b>${Number(d.avg_gain_10d).toFixed(1)}%</b><br/>样本数：${d.stock_count}<br/>最新选入日：${d.latest_trade_date || '-'}`;
+        const x = list[params[0].dataIndex];
+        return `<b>${x.strategy}</b>` +
+               `<br/><span style="color:#d93025">平均最大涨幅：<b>${pct(x.avg_gain)}</b></span>` +
+               `<br/><span style="color:#0f9d58">平均最大跌幅：<b>${pct(x.avg_down)}</b></span>` +
+               `<br/>选股数：${x.pick_count}（可计算 ${x.sample_count}：已满10日 ${x.full_count} / 未满10日 ${x.partial_count}）`;
       }
     },
-    grid: { left: 60, right: 30, top: 30, bottom: 90 },
+    legend: { top: 0, data: ['平均最大涨幅', '平均最大跌幅'] },
+    grid: { left: 60, right: 30, top: 40, bottom: 110 },
     xAxis: {
       type: 'category',
-      data: list.map(d => d.strategy),
+      data: list.map(x => x.strategy),
       axisLabel: { rotate: 30, fontSize: 12, interval: 0 },
       axisTick: { alignWithLabel: true }
     },
     yAxis: {
       type: 'value',
-      name: '平均涨幅 (%)',
+      name: '平均最大涨/跌幅 (%)',
       axisLabel: { formatter: '{value}%' }
     },
-    series: [{
-      type: 'bar',
-      data: list.map(d => ({
-        value: d.avg_gain_10d,
-        itemStyle: { color: d.avg_gain_10d >= 0 ? '#d93025' : '#0f9d58' }
-      })),
-      barMaxWidth: 50,
-      label: { show: true, position: 'top', formatter: p => Number(p.value).toFixed(1) + '%', fontSize: 11, color: '#555' }
-    }]
+    series: [
+      {
+        name: '平均最大涨幅',
+        type: 'bar',
+        data: list.map(x => x.avg_gain),
+        itemStyle: { color: '#d93025' },
+        barMaxWidth: 36,
+        label: {
+          show: true, position: 'top', fontSize: 10, color: '#d93025',
+          formatter: p => (p.value === null || p.value === undefined) ? 'N/A' : Number(p.value).toFixed(1) + '%'
+        }
+      },
+      {
+        name: '平均最大跌幅',
+        type: 'bar',
+        data: list.map(x => x.avg_down),
+        itemStyle: { color: '#0f9d58' },
+        barMaxWidth: 36,
+        label: {
+          show: true, position: 'bottom', fontSize: 10, color: '#0f9d58',
+          formatter: p => (p.value === null || p.value === undefined) ? 'N/A' : Number(p.value).toFixed(1) + '%'
+        }
+      }
+    ]
   });
 
-  const totalSamples = list.reduce((s, d) => s + d.stock_count, 0);
-  const best = list[0];
-  const worst = list[list.length - 1];
-  const posCnt = list.filter(d => d.avg_gain_10d >= 0).length;
+  // 全部策略均无可计算样本（窗口只含最新交易日、尚无未来行情）时提示
+  document.getElementById('futureTip').style.display =
+    list.length && list.every(x => x.sample_count === 0) ? 'block' : 'none';
+
+  const withGain = list.filter(x => x.avg_gain !== null && x.avg_gain !== undefined);
+  const totalSamples = list.reduce((s, x) => s + (x.pick_count || 0), 0);
+  const posCnt = withGain.filter(x => x.avg_gain > 0).length;
+  const best = withGain.slice().sort((a, b) => b.avg_gain - a.avg_gain)[0];
+  const worst = withGain.slice().sort((a, b) => a.avg_gain - b.avg_gain)[0];
+  // 风险控制视角：平均最大跌幅最浅（最接近0）与最深（最小）
+  const withDown = list.filter(x => x.avg_down !== null && x.avg_down !== undefined);
+  const shallowest = withDown.slice().sort((a, b) => b.avg_down - a.avg_down)[0];
+  const deepest = withDown.slice().sort((a, b) => a.avg_down - b.avg_down)[0];
   document.getElementById('summary').innerHTML =
     `<div class="item"><span class="label">策略数</span><span class="val">${list.length}</span></div>` +
-    `<div class="item"><span class="label">总样本</span><span class="val">${totalSamples}</span></div>` +
-    `<div class="item"><span class="label">正收益策略</span><span class="val">${posCnt}</span></div>` +
-    (best ? `<div class="item"><span class="label">最佳</span><span class="val">${best.strategy} ${Number(best.avg_gain_10d).toFixed(1)}%</span></div>` : '') +
-    (worst ? `<div class="item"><span class="label">最差</span><span class="val">${worst.strategy} ${Number(worst.avg_gain_10d).toFixed(1)}%</span></div>` : '');
+    `<div class="item"><span class="label">窗口总样本</span><span class="val">${totalSamples}</span></div>` +
+    `<div class="item"><span class="label">正收益策略</span><span class="val">${posCnt}/${withGain.length}</span></div>` +
+    (best ? `<div class="item"><span class="label">涨幅最佳</span><span class="val">${best.strategy} +${Number(best.avg_gain).toFixed(2)}%</span></div>` : '') +
+    (worst ? `<div class="item"><span class="label">涨幅最差</span><span class="val">${worst.strategy} ${Number(worst.avg_gain).toFixed(2)}%</span></div>` : '') +
+    (shallowest ? `<div class="item"><span class="label">回撤最浅</span><span class="val">${shallowest.strategy} ${Number(shallowest.avg_down).toFixed(2)}%</span></div>` : '') +
+    (deepest ? `<div class="item"><span class="label">回撤最深</span><span class="val">${deepest.strategy} ${Number(deepest.avg_down).toFixed(2)}%</span></div>` : '');
 }
 
 async function loadAnalysis() {
+  const days = document.getElementById('winDays').value;
+  document.getElementById('strategyChart').innerHTML = '<div class="empty">计算中…</div>';
+  document.getElementById('winInfo').textContent = '';
+  document.getElementById('futureTip').style.display = 'none';
   try {
-    const r = await fetch('/api/strategy_analysis');
+    const r = await fetch('/api/strategy_analysis_window?days=' + encodeURIComponent(days));
     const d = await r.json();
-    renderChart(d.strategies || []);
+    if (d.error) {
+      document.getElementById('strategyChart').innerHTML = `<div class="empty">${d.error}</div>`;
+      return;
+    }
+    const ws = d.window_dates || [];
+    if (ws.length) {
+      document.getElementById('winInfo').textContent =
+        `窗口：${fmtDate(ws[0])} ~ ${fmtDate(ws[ws.length - 1])}（${ws.length} 个交易日）`;
+    }
+    renderChart(d);
   } catch (e) {
     document.getElementById('strategyChart').innerHTML = `<div class="empty">加载失败：${e}</div>`;
   }
 }
 
+document.getElementById('refreshBtn').onclick = loadAnalysis;
+document.getElementById('winDays').onchange = loadAnalysis;
 window.addEventListener('resize', () => { if (_chart) _chart.resize(); });
 loadAnalysis();
 </script>

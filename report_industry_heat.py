@@ -181,14 +181,21 @@ def compute_industry_heat(trade_date):
                 pct_median = statistics.median(pcts) if pcts else None
                 avg_strength = (sum(strengths) / len(strengths)) if strengths else None
 
-                up_down_ratio = (up_count / down_count) if down_count > 0 else None
+                # 真实涨跌比用于热度分计算；无下跌股票时展示值约定为100（不参与热度分，避免分值失真）
+                calc_ratio = (up_count / down_count) if down_count > 0 else None
+                if down_count > 0:
+                    up_down_ratio = up_count / down_count
+                elif up_count > 0:
+                    up_down_ratio = 100
+                else:
+                    up_down_ratio = None
                 up_ratio = up_count / n if n > 0 else None
                 turnover_ratio = (total_amount / total_mv) if total_mv > 0 else None
 
-                # 综合打分 = 涨/跌比例 × 涨幅中位数 × 平均短线强弱得分
+                # 综合打分 = 涨/跌比例 × 涨幅中位数 × 平均短线强弱得分（使用真实比值，全涨时不打分）
                 heat_score = None
-                if up_down_ratio is not None and pct_median is not None and avg_strength is not None:
-                    heat_score = up_down_ratio * pct_median * avg_strength
+                if calc_ratio is not None and pct_median is not None and avg_strength is not None:
+                    heat_score = calc_ratio * pct_median * avg_strength
 
                 results.append({
                     'trade_date': trade_date,
