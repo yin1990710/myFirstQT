@@ -34,7 +34,6 @@ pages/mri_data.json
 10天涨20个点*/
 10天涨幅大于20个点*/
 2浪启动*/
-2浪趋势*/
 2浪日线选股策略*/
 二浪日线选股策略*/
 底部企稳*/
@@ -51,11 +50,7 @@ monitor_stock_data*/
 以图选股*/
 量价相似*/
 V形反转*/
-二浪选股*/
 二浪早识别*/
-二浪相似*/
-W23二浪选股*/
-经典二浪选股*/
 底部反弹*/
 
 # Output files (per-stock charts & dated reports at root)

@@ -131,16 +131,6 @@ const STRATEGY_CONFIG = {
       { key: 'min_score', label: '相似度阈值', type: 'number', step: '0.01', default: 0.70 },
     ],
   },
-  'find_similar_wave2.py': {
-    title: '二浪候选 × DTW 量价相似度二次打分',
-    params: [
-      { key: 'code', label: '标杆模板股票代码(可选)', type: 'text', placeholder: '默认自动取最高分' },
-      { key: 'start', label: '模板起始日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
-      { key: 'end', label: '模板结束日(可选)', type: 'text', placeholder: 'YYYYMMDD' },
-      { key: 'min_score', label: '二浪打分阈值(100分制)', type: 'number', step: '1' },
-      { key: 'top', label: '输出前N只', type: 'number' },
-    ],
-  },
 };
 
 let _currentScript = '';

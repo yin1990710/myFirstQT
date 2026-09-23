@@ -54,13 +54,6 @@ STRATEGY_REGISTRY = {
         'type': 'list',
         'label': '底部反弹选股策略',
     },
-    '二浪启动选股策略': {
-        'module': 'select_2wave_up',
-        'analyze': 'analyze_stocks',
-        'min_lookback': 170,
-        'type': 'list',
-        'label': '二浪启动选股策略',
-    },
     '二浪日线选股策略': {
         'module': 'select_2wave_daily',
         'analyze': 'analyze_stocks',
@@ -81,13 +74,6 @@ STRATEGY_REGISTRY = {
         'min_lookback': 170,
         'type': 'list',
         'label': 'V型反转选股策略',
-    },
-    'W23二浪选股策略': {
-        'module': 'select_2wave_w23',
-        'analyze': 'analyze_stocks',
-        'min_lookback': 200,
-        'type': 'list',
-        'label': 'W23二浪选股策略',
     },
 }
 

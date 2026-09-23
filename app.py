@@ -1273,7 +1273,7 @@ def api_strategies_run():
         cmd_args.extend(['--target-date', target_date])
 
     # 脚本级命令行参数（key=脚本名，value=参数字典）：
-    #   支持脚本通过 argparse 接收 --xxx 参数，如 select_wave2.py 的 --min-score
+    #   支持脚本通过 argparse 接收 --xxx 参数，如 find_similar_ma5.py 的 --top
     #   每项 (key, value) 依次拼接为 "--{key} {value}" 追加到该脚本命令行末尾
     scripts_args = payload.get('scripts_args') or {}
     if not isinstance(scripts_args, dict):
@@ -3056,7 +3056,7 @@ def api_find_similar_run():
                 return jsonify({'error': '缺少目标股票代码 target 参数'}), 400
             cmd_args.append(target)
         else:
-            # find_similar_wave2.py / find_similar_price_vol.py 用 --code/--start/--end
+            # find_similar_price_vol.py 用 --code/--start/--end
             code = (args_map.get('code') or '').strip()
             if code:
                 cmd_args.extend(['--code', code])

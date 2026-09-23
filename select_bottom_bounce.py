@@ -4,7 +4,7 @@
 """
 选股策略: 底部反弹选股策略
 
-选股条件采用 STOCK_FILTERS 注册表方式（参考 select_2wave_up.py / find_similar_ma5.py），
+选股条件采用 STOCK_FILTERS 注册表方式（参考 find_similar_ma5.py），
 新增条件只需追加一个 _filter_xxx 函数与一行注册；apply_filters 统一执行并返回未通过原因。
 
 选股条件（对齐 prompt#L360-366）：
@@ -42,7 +42,7 @@ RANGE_MAX_RATIO = 0.50       # 近200日 最低收盘/最高收盘 上限
 RECENT_DAYS = 30             # 最低收盘价须出现在最近N个交易日内
 MA30_SLOPE_DAYS = 10         # ma30斜率观察期：T日 vs T-N日
 RECENT_MA_DAYS = 3           # 最近N个交易日 ma5 均须高于 ma30
-MIN_SHORT_STRENGTH = 75      # 最新日短线强弱得分下限
+MIN_SHORT_STRENGTH = 70      # 最新日短线强弱得分下限
 
 
 # ---------- 工具函数 ----------
