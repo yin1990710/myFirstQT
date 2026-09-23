@@ -119,25 +119,26 @@ else
     exit 1
 fi
 
-# 步骤11：ETF基础信息与日交易数据
-log "[步骤11/25] 开始执行 ETF基础信息与日交易数据 (update_etf_daily.py)..."
-if ${VENV_PYTHON} update_etf_daily.py >> "${LOG_DIR}/update_etf_daily_${DATE}.log" 2>&1; then
-    log "[步骤11/25] ✅ ETF基础信息与日交易数据 (update_etf_daily.py) 执行成功"
-else
-    log "[步骤11/25] ❌ ETF基础信息与日交易数据 (update_etf_daily.py) 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤12：沪深交易所市场总貌数据
-log "[步骤12/25] 开始执行 沪深交易所市场总貌数据 (update_exchange_market_overview.py)..."
+# 步骤11：沪深交易所市场总貌数据
+log "[步骤11/25] 开始执行 沪深交易所市场总貌数据 (update_exchange_market_overview.py)..."
 if ${VENV_PYTHON} update_exchange_market_overview.py >> "${LOG_DIR}/update_exchange_market_overview_${DATE}.log" 2>&1; then
-    log "[步骤12/25] ✅ 沪深交易所市场总貌数据 (update_exchange_market_overview.py) 执行成功"
+    log "[步骤11/25] ✅ 沪深交易所市场总貌数据 (update_exchange_market_overview.py) 执行成功"
 else
-    log "[步骤12/25] ❌ 沪深交易所市场总貌数据 (update_exchange_market_overview.py) 执行失败，停止任务"
+    log "[步骤11/25] ❌ 沪深交易所市场总貌数据 (update_exchange_market_overview.py) 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤13：选股结果回测指标回填
+# 步骤12：核心指数日K线（上证指数/科创50/创业板指/中证全指）
+# 注意：必须先于步骤14执行——回测指标回填依赖 index_daily_t 当日指数收盘计算 T+10 同期指数涨幅
+log "[步骤12/25] 开始执行 核心指数日K线 (update_market_index_daily.py)..."
+if ${VENV_PYTHON} update_market_index_daily.py >> "${LOG_DIR}/update_market_index_daily_${DATE}.log" 2>&1; then
+    log "[步骤12/25] ✅ 核心指数日K线 (update_market_index_daily.py) 执行成功"
+else
+    log "[步骤12/25] ❌ 核心指数日K线 (update_market_index_daily.py) 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤13：选股结果 T+10 回测指标回填（依赖步骤4个股日线与步骤12指数日K线均已完成）
 log "[步骤13/25] 开始执行 选股结果回测指标回填 (update_strategy_selected_stock_daily.py)..."
 if ${VENV_PYTHON} update_strategy_selected_stock_daily.py >> "${LOG_DIR}/update_strategy_selected_stock_daily_${DATE}.log" 2>&1; then
     log "[步骤13/25] ✅ 选股结果回测指标回填 (update_strategy_selected_stock_daily.py) 执行成功"
@@ -146,51 +147,51 @@ else
     exit 1
 fi
 
-# 步骤14：核心指数日K线（上证指数/科创50/创业板指/中证全指）
-log "[步骤14/25] 开始执行 核心指数日K线 (update_market_index_daily.py)..."
-if ${VENV_PYTHON} update_market_index_daily.py >> "${LOG_DIR}/update_market_index_daily_${DATE}.log" 2>&1; then
-    log "[步骤14/25] ✅ 核心指数日K线 (update_market_index_daily.py) 执行成功"
-else
-    log "[步骤14/25] ❌ 核心指数日K线 (update_market_index_daily.py) 执行失败，停止任务"
-    exit 1
-fi
-
 log "========== 第二批任务：选股策略 =========="
 
 
-# 步骤15：近120日区间突破策略
-log "[步骤15/25] 开始执行 近120日区间突破策略 (select_newhigh_in_120d.py)..."
+# 步骤14：近120日区间突破策略
+log "[步骤14/25] 开始执行 近120日区间突破策略 (select_newhigh_in_120d.py)..."
 if ${VENV_PYTHON} select_newhigh_in_120d.py >> "${LOG_DIR}/select_newhigh_in_120d_${DATE}.log" 2>&1; then
-    log "[步骤15/25] ✅ 近120日区间突破策略 (select_newhigh_in_120d.py) 执行成功"
+    log "[步骤14/25] ✅ 近120日区间突破策略 (select_newhigh_in_120d.py) 执行成功"
 else
-    log "[步骤15/25] ❌ 近120日区间突破策略 (select_newhigh_in_120d.py) 执行失败，停止任务"
+    log "[步骤14/25] ❌ 近120日区间突破策略 (select_newhigh_in_120d.py) 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤16：V形反转策略
-log "[步骤16/25] 开始执行 V形反转策略 (select_v_reverse.py)..."
-if ${VENV_PYTHON} select_v_reverse.py >> "${LOG_DIR}/select_v_reverse_${DATE}.log" 2>&1; then
-    log "[步骤16/25] ✅ V形反转策略 (select_v_reverse.py) 执行成功"
-else
-    log "[步骤16/25] ❌ V形反转策略 (select_v_reverse.py) 执行失败，停止任务"
-    exit 1
-fi
-
-# 步骤17：当日涨停股票策略
-log "[步骤17/25] 开始执行 当日涨停股票策略 (select_limitup_1d.py)..."
+# 步骤15：当日涨停股票策略
+log "[步骤15/25] 开始执行 当日涨停股票策略 (select_limitup_1d.py)..."
 if ${VENV_PYTHON} select_limitup_1d.py >> "${LOG_DIR}/select_limitup_1d_${DATE}.log" 2>&1; then
-    log "[步骤17/25] ✅ 当日涨停股票策略 (select_limitup_1d.py) 执行成功"
+    log "[步骤15/25] ✅ 当日涨停股票策略 (select_limitup_1d.py) 执行成功"
 else
-    log "[步骤17/25] ❌ 当日涨停股票策略 (select_limitup_1d.py) 执行失败，停止任务"
+    log "[步骤15/25] ❌ 当日涨停股票策略 (select_limitup_1d.py) 执行失败，停止任务"
     exit 1
 fi
 
-# 步骤18：二浪日线选股策略
-log "[步骤18/25] 开始执行 二浪日线选股策略 (select_2wave_daily.py)..."
+# 步骤16：二浪日线选股策略
+log "[步骤16/25] 开始执行 二浪日线选股策略 (select_2wave_daily.py)..."
 if ${VENV_PYTHON} select_2wave_daily.py >> "${LOG_DIR}/select_2wave_daily_${DATE}.log" 2>&1; then
-    log "[步骤18/25] ✅ 二浪日线选股策略 (select_2wave_daily.py) 执行成功"
+    log "[步骤16/25] ✅ 二浪日线选股策略 (select_2wave_daily.py) 执行成功"
 else
-    log "[步骤18/25] ❌ 二浪日线选股策略 (select_2wave_daily.py) 执行失败，停止任务"
+    log "[步骤16/25] ❌ 二浪日线选股策略 (select_2wave_daily.py) 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤17：底部反弹选股策略
+log "[步骤17/25] 开始执行 底部反弹选股策略 (select_bottom_bounce.py)..."
+if ${VENV_PYTHON} select_bottom_bounce.py >> "${LOG_DIR}/select_bottom_bounce_${DATE}.log" 2>&1; then
+    log "[步骤17/25] ✅ 底部反弹选股策略 (select_bottom_bounce.py) 执行成功"
+else
+    log "[步骤17/25] ❌ 底部反弹选股策略 (select_bottom_bounce.py) 执行失败，停止任务"
+    exit 1
+fi
+
+# 步骤18：高换手率选股策略
+log "[步骤18/25] 开始执行 高换手率选股策略 (select_high_exchange.py)..."
+if ${VENV_PYTHON} select_high_exchange.py >> "${LOG_DIR}/select_high_exchange_${DATE}.log" 2>&1; then
+    log "[步骤18/25] ✅ 高换手率选股策略 (select_high_exchange.py) 执行成功"
+else
+    log "[步骤18/25] ❌ 高换手率选股策略 (select_high_exchange.py) 执行失败，停止任务"
     exit 1
 fi
 
