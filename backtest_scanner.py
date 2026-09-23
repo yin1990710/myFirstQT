@@ -68,13 +68,6 @@ STRATEGY_REGISTRY = {
         'type': 'list',
         'label': '高换手率选股策略',
     },
-    'V型反转选股策略': {
-        'module': 'select_v_reverse',
-        'analyze': 'analyze_stocks',
-        'min_lookback': 170,
-        'type': 'list',
-        'label': 'V型反转选股策略',
-    },
 }
 
 
