@@ -12,20 +12,20 @@ from module_mysql_connection import get_mysql_connection, close_connection
 
 import tushare as ts
 
-def read_stock_index_codes():
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '股指代码', 'stock_index.csv')
-    if not os.path.exists(csv_path):
-        print(f"❌ 未找到文件: {csv_path}")
-        return None
-    
-    try:
-        df = pd.read_csv(csv_path)
-        codes = df.iloc[:, 0].tolist()
-        print(f"✅ 成功读取 {len(codes)} 个股指代码")
-        return codes
-    except Exception as e:
-        print(f"❌ 读取CSV文件失败: {e}")
-        return None
+# 股指常量：ts_code -> 股指名称（原 股指代码/stock_index.csv 内容硬编码）
+STOCK_INDEXES = {
+    '000001.SH':  '上证指数',
+    '000300.SH':  '沪深300',
+    '000905.SH':  '中证500',
+    '000852.SH':  '中证1000',
+    '000985.CSI': '中证全指',
+}
+
+def get_stock_index_codes():
+    """直接返回常量中的股指代码列表（保持原有顺序）。"""
+    codes = list(STOCK_INDEXES.keys())
+    print(f"✅ 加载 {len(codes)} 个股指代码")
+    return codes
 
 def create_table(connection):
     create_sql = """
@@ -74,17 +74,18 @@ def fetch_index_data(codes):
     pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
     
     for code in codes:
-        print(f"🔄 正在获取 {code} 的数据...")
+        name = STOCK_INDEXES.get(code, '')
+        print(f"🔄 正在获取 {code} {name} 的数据...")
         try:
             df = pro.index_daily(ts_code=code)
             if df is not None and not df.empty:
                 df = df.fillna(0)
                 all_data.append(df)
-                print(f"✅ 获取 {code} 数据成功，共 {len(df)} 条")
+                print(f"✅ 获取 {code} {name} 数据成功，共 {len(df)} 条")
             else:
-                print(f"⚠️ {code} 没有数据")
+                print(f"⚠️ {code} {name} 没有数据")
         except Exception as e:
-            print(f"❌ 获取 {code} 数据失败: {e}")
+            print(f"❌ 获取 {code} {name} 数据失败: {e}")
     
     if all_data:
         result = pd.concat(all_data, ignore_index=True)
@@ -142,7 +143,7 @@ def main():
     print("股指日数据更新")
     print("=" * 80)
     
-    codes = read_stock_index_codes()
+    codes = get_stock_index_codes()
     if not codes:
         print("❌ 没有获取到股指代码，退出程序")
         return

@@ -11,20 +11,19 @@ from module_mysql_connection import get_mysql_connection, close_connection
 
 import tushare as ts
 
-def read_stock_index_codes():
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '股指期货代码', 'stock_index_future.csv')
-    if not os.path.exists(csv_path):
-        print(f"❌ 未找到文件: {csv_path}")
-        return None
-    
-    try:
-        df = pd.read_csv(csv_path)
-        codes = df.iloc[:, 0].tolist()
-        print(f"✅ 成功读取 {len(codes)} 个股指合约代码")
-        return codes
-    except Exception as e:
-        print(f"❌ 读取CSV文件失败: {e}")
-        return None
+# 股指期货合约常量：ts_code -> 合约含义（原 股指期货代码/stock_index_future.csv 内容硬编码）
+STOCK_INDEX_FUTURES = {
+    'IML.CFX': '中证1000',
+    'ICL.CFX': '中证500',
+    'IHL.CFX': '上证',
+    'IFL.CFX': '沪深300',
+}
+
+def get_stock_index_codes():
+    """直接返回常量中的股指期货合约代码列表（保持原有顺序）。"""
+    codes = list(STOCK_INDEX_FUTURES.keys())
+    print(f"✅ 加载 {len(codes)} 个股指合约代码")
+    return codes
 
 def create_table(connection):
     create_sql = """
@@ -141,7 +140,7 @@ def main():
     print("股指期货日数据更新")
     print("=" * 80)
     
-    codes = read_stock_index_codes()
+    codes = get_stock_index_codes()
     if not codes:
         print("❌ 没有获取到股指合约代码，退出程序")
         return
