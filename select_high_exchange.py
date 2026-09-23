@@ -4,21 +4,20 @@
 """
 选股策略: 高换手率选股策略
 
-选股条件（对齐 prompt#L302-315）：
-1. 读取 stock_daily_t + stock_daily_basic_info_t 最近 10 个交易日，按 ts_code + trade_date 关联
-2. 去除最近一个交易日总市值 total_mv < 100亿（1,000,000 万元）的股票
-3. 最近 10 个交易日内至少有 5 个交易日的换手率 turnover_rate_f 满足：
-   - 100亿~300亿  → 换手率 > 15%
-   - 300亿~500亿  → 换手率 > 10%
-   - 500亿~800亿  → 换手率 > 8%
-   - >800亿       → 换手率 > 6%
-4. 最近 2 个交易日 close > ma5 且 ma5 > ma30
-5. 去除非 A 股（仅保留 .SH / .SZ）
-6. 全部条件以 STOCK_FILTERS 注册表实现（参考 find_similar_ma5.py）：
-   A股板块、最新日总市值>=100亿、有效交易日>=10日、近10日高换手达标>=5日、
-   近2日close>ma5>ma30；新增条件只需追加一个 _filter_xxx 与一行注册
-7. CSV 输出对齐 select_2wave_up_v2.py（csv.writer + utf-8-sig + 表头 股票代码）
-8. 文件夹「高换手+当日日期后缀」（已存在则删除重建）
+选股条件：
+1. 读取 stock_daily_t + stock_daily_basic_info_t 最近 20 个交易日数据，按 ts_code + trade_date 关联
+2. 去除最近一个交易日（T日）总市值 total_mv < 80亿的股票
+3. 记最近一个交易日为T日，选出满足以下条件的股票：
+   - T-4~T日（最近5日）有一日涨幅(pct_chg) > 8%，且当日成交额 >= T-19~T-5日（前15日）平均成交额的2倍
+   - T-4~T日平均换手率 turnover_rate_f 满足（按T日总市值分档）：
+     100亿~300亿  → 换手率 > 15%
+     300亿~500亿  → 换手率 > 10%
+     500亿~800亿  → 换手率 > 8%
+     >800亿       → 换手率 > 6%
+   - 最近3个交易日 ma5 > ma30
+4. 全部条件以 STOCK_FILTERS 注册表实现（参考 find_similar_ma5.py）
+5. 将满足条件的股票代码写入 高换手.csv，utf-8-sig 编码
+6. 新建文件夹「高换手+当日日期后缀」（已存在则删除重建）存放CSV
 """
 
 import os
@@ -73,11 +72,13 @@ def create_folder(target_date):
 
 
 # ---------- 策略参数 ----------
-LOOKBACK_DAYS = 10              # 换手率统计/数据读取窗口（最近交易日数）
-MIN_HIT_DAYS = 5                # 窗口内换手率达标的最少天数
-ABOVE_MA_DAYS = 2               # close>ma5>ma30 需连续满足的交易日数
-MIN_MARKET_CAP_WAN = 1_000_000  # 最新日总市值下限（万元）= 100亿
-MIN_SHORT_STRENGTH = 60.0       # 最新日短线强弱得分>60
+LOOKBACK_DAYS = 20              # 数据读取窗口（最近交易日数）
+SURGE_WINDOW = 5                # T-4~T 日窗口（放量涨幅判定 + 平均换手率统计）
+BASE_WINDOW = LOOKBACK_DAYS - SURGE_WINDOW  # T-19~T-5 日窗口（基准平均成交额）
+SURGE_PCT = 8.0                 # T-4~T 日单日涨幅阈值（%）
+VOL_MULTIPLE = 2.0              # 放量倍数：当日成交额 >= VOL_MULTIPLE × 基准平均成交额
+MIN_MARKET_CAP_WAN = 800_000    # T日总市值下限（万元）= 80亿
+RECENT_MA_DAYS = 3              # 最近需满足 ma5 > ma30 的交易日数
 
 # 换手率分档表（万元总市值下限, 换手率阈值%）：按顺序匹配首个 mv>=下界 的档位
 MV_TR_TIERS = [
@@ -106,7 +107,8 @@ def get_turnover_threshold(total_mv_wan):
 # records 已按日期升序并剔除 close<=0 的脏数据。
 
 def build_context(ts_code, records):
-    """计算单只股票的高换手特征上下文。"""
+    """计算单只股票的高换手特征上下文。records 已按日期升序、剔除 close<=0 脏数据。"""
+    # T日总市值（取最近一条有市值的记录）
     latest_mv = 0.0
     for r in reversed(records):
         if r['total_mv'] > 0:
@@ -114,12 +116,32 @@ def build_context(ts_code, records):
             break
 
     threshold = get_turnover_threshold(latest_mv)
-    hit_days = 0
-    if threshold is not None:
-        for r in records[-LOOKBACK_DAYS:]:
-            tr = r['turnover_rate_f']
-            if tr is not None and tr > threshold:
-                hit_days += 1
+
+    # 窗口切分：T-19~T-5（基准成交额）、T-4~T（放量涨幅 + 平均换手率）
+    base_window = records[:BASE_WINDOW]          # T-19 ~ T-5
+    surge_window = records[-SURGE_WINDOW:]        # T-4 ~ T
+
+    # T-19~T-5 平均成交额（剔除空值/0）
+    base_amounts = [r['amount'] for r in base_window
+                    if r['amount'] is not None and r['amount'] > 0]
+    avg_base_amount = (sum(base_amounts) / len(base_amounts)) if base_amounts else 0.0
+
+    # T-4~T 有一日涨幅>SURGE_PCT 且 成交额>=VOL_MULTIPLE×基准平均成交额
+    surge_hit = False
+    surge_day = None
+    for r in surge_window:
+        pct, amt = r['pct_chg'], r['amount']
+        if (pct is not None and pct > SURGE_PCT
+                and amt is not None and avg_base_amount > 0
+                and amt >= VOL_MULTIPLE * avg_base_amount):
+            surge_hit = True
+            surge_day = r['trade_date']
+            break
+
+    # T-4~T 平均换手率
+    turnover_vals = [r['turnover_rate_f'] for r in surge_window
+                     if r['turnover_rate_f'] is not None]
+    avg_turnover = (sum(turnover_vals) / len(turnover_vals)) if turnover_vals else None
 
     return {
         'ts_code': ts_code,
@@ -127,9 +149,10 @@ def build_context(ts_code, records):
         'bars': len(records),
         'latest_mv': latest_mv,
         'threshold': threshold,
-        'hit_days': hit_days,
-        'short_strength_score': (float(records[-1].get('short_strength_score'))
-                                 if records and records[-1].get('short_strength_score') is not None else None),
+        'avg_base_amount': avg_base_amount,
+        'surge_hit': surge_hit,
+        'surge_day': surge_day,
+        'avg_turnover': avg_turnover,
     }
 
 
@@ -140,33 +163,33 @@ def _filter_a_share(ctx):
 
 
 def _filter_min_market_cap(ctx):
-    """最新有市值记录的交易日总市值 >= 100亿。"""
+    """T日总市值 >= 80亿。"""
     return ctx['latest_mv'] >= MIN_MARKET_CAP_WAN
 
 
 def _filter_enough_bars(ctx):
-    """有效交易日不少于 LOOKBACK_DAYS（10日）。"""
+    """有效交易日不少于 LOOKBACK_DAYS（20日）。"""
     return ctx['bars'] >= LOOKBACK_DAYS
 
 
-def _filter_turnover_hits(ctx):
-    """近10个交易日内换手率达标（按市值分档）天数 >= MIN_HIT_DAYS（5日）。"""
-    return ctx['threshold'] is not None and ctx['hit_days'] >= MIN_HIT_DAYS
+def _filter_surge_with_volume(ctx):
+    """T-4~T日有一日涨幅>SURGE_PCT 且 成交额>=VOL_MULTIPLE×T-19~T-5平均成交额。"""
+    return ctx['surge_hit']
 
 
-def _filter_ma_bull(ctx):
-    """最近 ABOVE_MA_DAYS（2）个交易日 close > ma5 且 ma5 > ma30（均线需为正）。"""
+def _filter_avg_turnover(ctx):
+    """T-4~T日平均换手率 > 市值分档阈值（无分档/无换手率数据视为不通过）。"""
+    return (ctx['threshold'] is not None
+            and ctx['avg_turnover'] is not None
+            and ctx['avg_turnover'] > ctx['threshold'])
+
+
+def _filter_ma5_above_ma30(ctx):
+    """最近 RECENT_MA_DAYS（3）个交易日 ma5 > ma30（均线需为正）。"""
     return all(
-        r['close'] > 0 and r['ma5'] > 0 and r['ma30'] > 0
-        and r['close'] > r['ma5'] and r['ma5'] > r['ma30']
-        for r in ctx['records'][-ABOVE_MA_DAYS:]
+        r['ma5'] > 0 and r['ma30'] > 0 and r['ma5'] > r['ma30']
+        for r in ctx['records'][-RECENT_MA_DAYS:]
     )
-
-
-def _filter_short_strength(ctx):
-    """最新一个交易日短线强弱得分 > MIN_SHORT_STRENGTH（无得分视为不通过）。"""
-    s = ctx.get('short_strength_score')
-    return s is not None and s > MIN_SHORT_STRENGTH
 
 
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
@@ -174,9 +197,9 @@ STOCK_FILTERS = [
     ('非沪深A股', _filter_a_share),
     (f'最新日总市值<{MIN_MARKET_CAP_WAN/10000:.0f}亿', _filter_min_market_cap),
     (f'有效交易日不足{LOOKBACK_DAYS}日', _filter_enough_bars),
-    (f'近{LOOKBACK_DAYS}日高换手达标<{MIN_HIT_DAYS}天', _filter_turnover_hits),
-    (f'近{ABOVE_MA_DAYS}日close<=ma5或ma5<=ma30', _filter_ma_bull),
-    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
+    (f'近{SURGE_WINDOW}日无单日涨幅>{SURGE_PCT:g}%且成交额>={VOL_MULTIPLE:g}倍', _filter_surge_with_volume),
+    (f'近{SURGE_WINDOW}日平均换手率未达分档阈值', _filter_avg_turnover),
+    (f'近{RECENT_MA_DAYS}日存在ma5<=ma30', _filter_ma5_above_ma30),
 ]
 
 
@@ -191,7 +214,7 @@ def apply_filters(ctx):
 def read_stock_data(start_date, end_date):
     """
     读取 stock_daily_t + stock_daily_basic_info_t 在 [start_date, end_date] 区间，
-    LEFT JOIN 按 ts_code + trade_date，获取 close/ma5/ma30/total_mv/turnover_rate_f
+    LEFT JOIN 按 ts_code + trade_date，获取 close/pct_chg/amount/total_mv/turnover_rate_f
     """
     conn = get_mysql_connection()
     if not conn:
@@ -202,11 +225,11 @@ def read_stock_data(start_date, end_date):
         SELECT
             d.ts_code,
             d.trade_date,
-            d.open,
             d.close,
+            d.pct_chg,
+            d.amount,
             d.ma5,
             d.ma30,
-            d.short_strength_score,
             b.total_mv,
             b.turnover_rate_f
         FROM stock_daily_t d
@@ -245,10 +268,15 @@ def analyze_stocks(data):
         turnover = float(turnover) if turnover is not None else None
         stock_data[ts_code].append({
             'trade_date':      record['trade_date'],
-            'open':            float(record['open']  or 0),
             'close':           float(record['close'] or 0),
-            'ma5':             float(record['ma5']   or 0),
-            'ma30':            float(record['ma30']  or 0),
+            'pct_chg':         (float(record['pct_chg'])
+                               if record['pct_chg'] is not None else None),
+            'amount':          (float(record['amount'])
+                               if record['amount'] is not None else None),
+            'ma5':             (float(record['ma5'])
+                               if record['ma5'] is not None else 0.0),
+            'ma30':            (float(record['ma30'])
+                               if record['ma30'] is not None else 0.0),
             'total_mv':        total_mv,
             'turnover_rate_f': turnover,
         })
@@ -266,7 +294,7 @@ def analyze_stocks(data):
             continue
         records.sort(key=lambda x: x['trade_date'])
 
-        # 特征上下文 + 注册式过滤（板块/市值/天数/换手达标/均线多头）
+        # 特征上下文 + 注册式过滤（板块/市值/天数/放量涨幅/平均换手达标）
         ctx = build_context(ts_code, records)
         ok, reasons = apply_filters(ctx)
         if not ok:
@@ -275,13 +303,12 @@ def analyze_stocks(data):
             continue
 
         result.append({
-            'ts_code':     ts_code,
-            'close':       records[-1]['close'],
-            'ma5':         records[-1]['ma5'],
-            'ma30':        records[-1]['ma30'],
-            'total_mv':    ctx['latest_mv'],
-            'threshold':   ctx['threshold'],
-            'hit_days':    ctx['hit_days'],
+            'ts_code':      ts_code,
+            'close':        records[-1]['close'],
+            'total_mv':     ctx['latest_mv'],
+            'threshold':    ctx['threshold'],
+            'avg_turnover': ctx['avg_turnover'],
+            'surge_day':    ctx['surge_day'],
         })
 
     # 按市值从大到小排序
@@ -322,15 +349,16 @@ def main():
     target_date = get_target_date()
 
     print("=" * 80)
-    print("📊 高换手率选股策略 (近10日至少5日换手达标+近2日close>ma5>ma30)")
+    print("📊 高换手率选股策略 (T-4~T放量涨幅+平均换手率分档达标)")
     print("=" * 80)
     print("\n📊 选股逻辑：")
-    print("  1. 基础过滤：A股上市，最新日总市值 > 100亿")
-    print("  2. 近10日至少5日换手率达标（按市值分档：15%/10%/8%/6%）")
-    print("  3. 近2日 close > ma5 且 ma5 > ma30")
+    print(f"  1. 基础过滤：沪深A股，T日总市值 >= {MIN_MARKET_CAP_WAN/10000:.0f}亿")
+    print(f"  2. T-4~T日有一日涨幅>{SURGE_PCT:g}% 且 成交额>={VOL_MULTIPLE:g}×T-19~T-5平均成交额")
+    print("  3. T-4~T日平均换手率达标（按T日市值分档：100~300亿>15%/300~500亿>10%/500~800亿>8%/>800亿>6%）")
+    print(f"  4. 最近{RECENT_MA_DAYS}个交易日 ma5 > ma30")
     print("=" * 80)
 
-    # ---------- 步骤A：获取最近 10 个交易日 ----------
+    # ---------- 步骤A：获取最近 LOOKBACK_DAYS 个交易日 ----------
     print(f"\n📅 目标日期: {target_date}")
     trade_dates = get_last_n_trade_dates(target_date, LOOKBACK_DAYS)
     start_date = trade_dates[0]
@@ -358,11 +386,13 @@ def main():
 
         print("\n🔥 精选股票（按市值降序，前20只）：")
         for i, s in enumerate(selected[:20], 1):
+            avg_tr = s['avg_turnover'] if s['avg_turnover'] is not None else 0.0
             print(
                 f"{i:>2}. {s['ts_code']:<11} "
-                f"收{s['close']:>8.2f} MA5{s['ma5']:>8.2f} MA30{s['ma30']:>8.2f} | "
+                f"收{s['close']:>8.2f} | "
                 f"市值{s['total_mv']/10000:>8.1f}亿 | "
-                f"阈值{s['threshold']:>4.0f}% 达标{s['hit_days']:>2}天"
+                f"阈值{s['threshold']:>4.0f}% 近{SURGE_WINDOW}日均换手{avg_tr:>5.2f}% | "
+                f"放量日{s['surge_day'] or '-'}"
             )
 
         # 选股结果入库（便于回测）
