@@ -139,16 +139,16 @@ def find_turning_points(records):
 # ---------- 灵活过滤条件（新增条件只需在 STOCK_FILTERS 中追加一行） ----------
 MIN_BARS = 45                  # 参与计算的最少有效交易日数
 WAVE_WINDOW = 40               # 二浪结构识别窗口（近40个交易日）
-MIN_FIRST_WAVE_DAYS = 8        # 第一波至少8个交易日
-MIN_ADJUST_DAYS = 2            # 回调至少2个交易日
+MIN_FIRST_WAVE_DAYS = 10       # 第一波至少10个交易日
+MIN_ADJUST_DAYS = 5            # 回调至少5个交易日
 MIN_CIRC_MV_WAN = 500000       # 流通市值≥50亿（circ_mv单位万元）
-MIN_TOTAL_MV_WAN = 20000       # 总市值≥2亿（total_mv单位万元）
+MIN_TOTAL_MV_WAN = 500000       # 总市值≥50亿（total_mv单位万元）
 MIN_AMOUNT_YI = 5.0            # 最新日成交额>5亿
 MIN_FIRST_WAVE_GAIN = 15.0     # 第一波涨幅≥15%
 MA30_BREAK_TOLERANCE = 0.90    # 回调收盘价不低于当日MA30×0.9（允许10%误差）
 MAX_ADJUST_VOL_RATIO = 0.60    # 调整期均量≤放量上涨阶段均量的60%
 MIN_TODAY_GAIN = 5.0           # 最新日涨幅≥5%
-MIN_SHORT_STRENGTH = 60.0      # 最新日短线强弱得分>60
+MIN_SHORT_STRENGTH = 65.0      # 最新日短线强弱得分>65
 
 
 def _filter_circ_mv(ctx):
