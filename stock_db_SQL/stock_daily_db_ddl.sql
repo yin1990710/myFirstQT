@@ -468,8 +468,8 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
   `max_down_10d` float DEFAULT NULL COMMENT '10个交易日中最大跌幅(%,T+1~T+10最低close/T日close)',
   `max_down_20d` float DEFAULT NULL COMMENT '20个交易日中最大跌幅(%,T+1~T+20最低close/T日close)',
   `max_gain_20d` float DEFAULT NULL COMMENT '20个交易日中最大涨幅(%,T+1~T+20最高close/T日close)',
-  `max_gain_to_date` decimal(8,2) DEFAULT NULL COMMENT '至今区间最大涨幅(%)',
-  `max_down_to_date` decimal(8,2) DEFAULT NULL COMMENT '至今区间最大跌幅(%)',
+  `sse_index_same_inc` decimal(8,2) DEFAULT NULL COMMENT '同期上证指数涨幅',
+  `chinext_index_same_inc` decimal(8,2) DEFAULT NULL COMMENT '同期创业板指数涨幅',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`ts_code`,`trade_date`)

@@ -1729,7 +1729,7 @@ def api_results():
     sql = """
         SELECT ts_code, stock_name, trade_date, strategy, selected,
                max_gain_10d, max_down_10d, max_gain_20d, max_down_20d,
-               max_gain_to_date, max_down_to_date
+               sse_index_same_inc, chinext_index_same_inc
         FROM strategy_selected_stock_daily_t
         WHERE 1=1
     """
@@ -1765,7 +1765,7 @@ def api_results():
     # Decimal → float，便于前端 JSON 序列化
     for r in rows:
         for k in ('max_gain_10d', 'max_down_10d', 'max_gain_20d', 'max_down_20d',
-                  'max_gain_to_date', 'max_down_to_date'):
+                  'sse_index_same_inc', 'chinext_index_same_inc'):
             if r[k] is not None:
                 r[k] = float(r[k])
     return jsonify({'rows': rows, 'total': len(rows)})
