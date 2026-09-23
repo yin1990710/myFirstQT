@@ -147,11 +147,11 @@ else
 fi
 
 # 步骤14：核心指数日K线（上证指数/科创50/创业板指/中证全指）
-log "[步骤14/27] 开始执行 核心指数日K线 (update_index_daily.py)..."
-if ${VENV_PYTHON} update_index_daily.py >> "${LOG_DIR}/update_index_daily_${DATE}.log" 2>&1; then
-    log "[步骤14/27] ✅ 核心指数日K线 (update_index_daily.py) 执行成功"
+log "[步骤14/27] 开始执行 核心指数日K线 (update_market_index_daily.py)..."
+if ${VENV_PYTHON} update_market_index_daily.py >> "${LOG_DIR}/update_market_index_daily_${DATE}.log" 2>&1; then
+    log "[步骤14/27] ✅ 核心指数日K线 (update_market_index_daily.py) 执行成功"
 else
-    log "[步骤14/27] ❌ 核心指数日K线 (update_index_daily.py) 执行失败，停止任务"
+    log "[步骤14/27] ❌ 核心指数日K线 (update_market_index_daily.py) 执行失败，停止任务"
     exit 1
 fi
 

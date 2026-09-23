@@ -46,7 +46,7 @@ INDEX_FUTURE_PAIRS = [
     ('000852.SH', 'IM', 'IM'),   # 中证1000  vs  IM 合约
 ]
 
-# 头部指数概览：4个市场核心指数（index_daily_t 由 update_index_daily.py 每日采集）
+# 头部指数概览：4个市场核心指数（index_daily_t 由 update_market_index_daily.py 每日采集）
 INDEX_OVERVIEW_CODES = [
     ('000001.SH', '上证指数'),
     ('000688.SH', '科创50'),
