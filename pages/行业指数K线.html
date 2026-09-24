@@ -194,7 +194,7 @@ function loadDates(){
       _curTradeDate = _dates[0];
       onQuery();
     }else{
-      document.getElementById('tbody').innerHTML = `<tr><td colspan="${SUB_COLSPAN}" class="empty">暂无行业指数数据，请先运行 calc_industry_index.py</td></tr>`;
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="${SUB_COLSPAN}" class="empty">暂无行业指数数据</td></tr>`;
     }
   }).catch(e=>showMsg('交易日加载失败: '+e));
 }
