@@ -112,7 +112,7 @@ def _compute_stock_metrics(cursor, ts_code, trade_date):
 def _fetch_selected_records(cursor, strategy, start_date, end_date):
     """从 strategy_selected_stock_daily_t 读取选股记录（不含预计算指标，指标由 _compute_stock_metrics 实时计算）。"""
     sql = """
-        SELECT ts_code, stock_name, trade_date, strategy, selected
+        SELECT ts_code, stock_name, selected_date, strategy, selected
         FROM strategy_selected_stock_daily_t
         WHERE selected = 1
     """
@@ -121,12 +121,12 @@ def _fetch_selected_records(cursor, strategy, start_date, end_date):
         sql += " AND FIND_IN_SET(%s, strategy)"
         params.append(strategy)
     if start_date:
-        sql += " AND trade_date >= %s"
+        sql += " AND selected_date >= %s"
         params.append(start_date)
     if end_date:
-        sql += " AND trade_date <= %s"
+        sql += " AND selected_date <= %s"
         params.append(end_date)
-    sql += " ORDER BY trade_date, ts_code"
+    sql += " ORDER BY selected_date, ts_code"
     cursor.execute(sql, params)
     return cursor.fetchall()
 
@@ -200,6 +200,12 @@ def run_backtest(strategy=None, start_date=None, end_date=None, records=None):
                 records = [dict(r) for r in records]  # 确保是 dict
             else:
                 records = _fetch_selected_records(cursor, strategy, start_date, end_date)
+
+            # 统一键名：DB 模式返回 selected_date，扫描模式返回 trade_date
+            # 归一化后后续统一用 r['trade_date']
+            for r in records:
+                if 'trade_date' not in r and 'selected_date' in r:
+                    r['trade_date'] = r.pop('selected_date')
             if not records:
                 return {
                     'strategy': strategy,

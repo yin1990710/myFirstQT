@@ -222,13 +222,11 @@
 const COLS = [
   {key: 'ts_code',      label: '股票代码',    type: 'str', link: true},
   {key: 'stock_name',   label: '股票名称',    type: 'str', link: true},
-  {key: 'trade_date',   label: '交易日',      type: 'str'},
+  {key: 'selected_date',  label: '入选日期',    type: 'str'},
   {key: 'strategy',     label: '策略',        type: 'str'},
-  {key: 'sse_index_same_inc', label: '同期上证指数涨幅%', type: 'pct'},
-  {key: 'chinext_index_same_inc', label: '同期创业板指数涨幅%', type: 'pct'},
 ];
 let ROWS = [];
-let sortKey = 'trade_date', sortDir = -1;
+let sortKey = 'selected_date', sortDir = -1;
 const PAGE_SIZE = 20;   // 每页最多展示 20 条
 let currentPage = 1;    // 当前页码（从 1 开始）
 const NAV_KEY = 'stock_nav';   // 跳转详情页时传递的导航上下文 key
@@ -374,7 +372,7 @@ document.querySelectorAll('th[data-key]').forEach(th => th.onclick = async e => 
   if (e.target.closest('a')) return;
   const k = th.dataset.key;
   if (sortKey === k) sortDir = -sortDir;
-  else { sortKey = k; sortDir = (k === 'ts_code' || k === 'trade_date' || k === 'sss_score') ? -1 : 1; }
+  else { sortKey = k; sortDir = (k === 'ts_code' || k === 'selected_date' || k === 'sss_score') ? -1 : 1; }
   render();
   // 首次按得分排序时，分数尚未全量加载：先拉取全部股票评分再重排（空评分排末尾）
   if (k === 'sss_score') {
@@ -834,7 +832,7 @@ function syncResultView() {
       + (_fsResult.rows.length ? '' : '（无符合条件的股票）')
       + `</span>`;
   } else if (_fsDbRows.length) {
-    const dt = _fsDbRows[0].trade_date || '';
+    const dt = _fsDbRows[0].selected_date || '';
     el.innerHTML = `<span>📋 以股选股历史结果（${dt}），共 ${_fsDbRows.length} 条记录</span>`;
   } else {
     el.innerHTML = '<span>👆 勾选一个以股选股策略并点击「查询相似股票」，结果将展示在这里</span>';
@@ -857,7 +855,7 @@ function showFindSimilarResults(script) {
           ts_code: x.ts_code,
           stock_name: x.stock_name,
           strategy: (FS_CONFIG[script] || {}).title || script,
-          trade_date: d.result_date || '',
+          selected_date: d.result_date || '',
         })),
       };
       currentPage = 1;
@@ -871,7 +869,7 @@ function resetFilters() {
   setDefaultDates().then(() => query());
 }
 
-// 日历控件值为 YYYY-MM-DD，后端 trade_date 为 YYYYMMDD，去掉连字符即可
+// 日历控件值为 YYYY-MM-DD，后端 selected_date 为 YYYYMMDD，去掉连字符即可
 function compactDate(v) {
   return v ? v.replace(/-/g, '') : '';
 }
@@ -1001,8 +999,8 @@ async function downloadFsCsv() {
     // 策略名（如 量价形态相似选股）
     const strategyName = (_fsResult ? _fsResult.title : '以股选股历史结果').replace(/[\\/:*?"<>|]/g, '_');
     // 日期后缀：优先取结果中的交易日，回退当天日期（YYYYMMDD）
-    const dateSuffix = (srcRows[0] && srcRows[0].trade_date)
-                       ? srcRows[0].trade_date.replace(/-/g, '')
+    const dateSuffix = (srcRows[0] && srcRows[0].selected_date)
+                       ? srcRows[0].selected_date.replace(/-/g, '')
                        : todayCompact();
     const fname = `${account}_${strategyName}_${dateSuffix}.csv`;
     // 首部 \uFEFF 为 UTF-8 BOM，保证 Excel 直接打开中文不乱码
@@ -1114,7 +1112,7 @@ function render() {
   const isFsView = _activeCat === FIND_SIMILAR_CAT && _fsResult;
   document.getElementById('body').innerHTML = pageRows.map((r, i) =>
     `<tr class="data-row">`
-    + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${isFsView ? (r.trade_date || todayCompact()) : (r.trade_date||'')}" data-strategy="${isFsView ? (_fsResult.title).replace(/"/g,'&quot;') : (r.strategy||'').replace(/"/g,'&quot;')}"></td>`
+    + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${isFsView ? (r.selected_date || todayCompact()) : (r.selected_date||'')}" data-strategy="${isFsView ? (_fsResult.title).replace(/"/g,'&quot;') : (r.strategy||'').replace(/"/g,'&quot;')}"></td>`
     + `<td>${(currentPage - 1) * PAGE_SIZE + i + 1}</td>`
     + COLS.map(c => {
         let cells = renderCell(r, c);

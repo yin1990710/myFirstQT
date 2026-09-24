@@ -9,7 +9,7 @@
   strategy_selected_stock_daily_t 表，便于后续回测。
 
 写入规则：
-  1. 主键为 (ts_code, trade_date)。
+  1. 主键为 (ts_code, selected_date)。
   2. 主键冲突时，不新增行，而是把新策略追加到已有行的 strategy 字段，
      多个策略用逗号分隔（同一策略已存在则不重复追加）。
   3. selected 语义：任一策略选中即为 1；原行为 0 且新策略 selected=1 时更新为 1。
@@ -36,7 +36,8 @@ CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS strategy_selected_stock_daily_t (
       ts_code VARCHAR(12) NOT NULL COMMENT '股票代码',
       stock_name VARCHAR(50) NULL COMMENT '股票名称(来自stock_info_t，可空)',
-      trade_date VARCHAR(8) NOT NULL COMMENT '交易日(选股目标日)',
+      selected_date VARCHAR(8) NOT NULL COMMENT '入选日期(股票被策略选中并写入表的日期)',
+      compute_date VARCHAR(8) NULL COMMENT '结果回填日期(回填10日涨跌幅和同期指数涨幅指标的日期)',
       strategy VARCHAR(128) NOT NULL COMMENT '选股策略，多个用逗号分隔(如2wave_daily,2wave_w23)',
       selected TINYINT NOT NULL DEFAULT 1 COMMENT '是否被选中(0:否,1:是)，任一策略选中即为1',
       max_gain_10d FLOAT NULL COMMENT '10个交易日中最大涨幅(%)',
@@ -45,7 +46,7 @@ CREATE_TABLE_SQL = """
       max_gain_20d FLOAT NULL COMMENT '20个交易日中最大涨幅(%)',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-      PRIMARY KEY (ts_code, trade_date)
+      PRIMARY KEY (ts_code, selected_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
       COMMENT='每日选股结果记录表(便于回测)'
 """
@@ -54,7 +55,7 @@ CREATE_TABLE_SQL = """
 # stock_name：已有值则保留，为空时用本次新值补齐
 UPSERT_SQL = """
     INSERT INTO strategy_selected_stock_daily_t
-      (ts_code, stock_name, trade_date, strategy, selected)
+      (ts_code, stock_name, selected_date, strategy, selected)
     VALUES (%s, %s, %s, %s, %s) AS new
     ON DUPLICATE KEY UPDATE
       strategy_selected_stock_daily_t.strategy = IF(
@@ -154,7 +155,7 @@ def record_selected_stocks(strategy, rows, selection_date):
             # 注意：strategy 字段是逗号拼接的多策略名，需用 FIND_IN_SET 匹配包含
             cursor.execute(
                 "DELETE FROM strategy_selected_stock_daily_t "
-                "WHERE trade_date = %s AND FIND_IN_SET(%s, strategy) > 0",
+                "WHERE selected_date = %s AND FIND_IN_SET(%s, strategy) > 0",
                 (selection_date, strategy))
             name_map = _fetch_stock_name_map(
                 cursor, [r.get('ts_code') for r in rows])
@@ -169,7 +170,7 @@ def record_selected_stocks(strategy, rows, selection_date):
         conn.commit()
         n1 = sum(1 for r in rows if r.get('selected', 1))
         nn = sum(1 for v in values if v[1])
-        print(f"✅ 选股结果已入库: strategy={strategy} trade_date={selection_date} "
+        print(f"✅ 选股结果已入库: strategy={strategy} selected_date={selection_date} "
               f"共{len(rows)}条(selected=1共{n1}条, 含股票名称{nn}条)")
     except Exception as e:
         print(f"❌ 选股结果入库失败: {e}")

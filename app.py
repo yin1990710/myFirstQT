@@ -1540,16 +1540,16 @@ def api_strategy_analysis_cumulative():
     strategy 字段为逗号分隔多策略串时，同一行归属到每个策略。
     """
     rows = query_db(
-        "SELECT strategy, trade_date, max_gain_10d "
-        "FROM strategy_selected_stock_daily_t ORDER BY trade_date")
+        "SELECT strategy, selected_date, max_gain_10d "
+        "FROM strategy_selected_stock_daily_t ORDER BY selected_date")
     if rows is None:
         return jsonify({'error': '数据库连接失败'}), 500
 
-    dates = sorted({r['trade_date'] for r in rows if r.get('trade_date')})
+    dates = sorted({r['selected_date'] for r in rows if r.get('selected_date')})
     # {strategy: {date: {'pick':n, 'gain_sum':x, 'gain_n':m}}}
     sm = {}
     for r in rows:
-        td = r.get('trade_date')
+        td = r.get('selected_date')
         if not td:
             continue
         for s in (r.get('strategy') or '').split(','):
@@ -1617,13 +1617,13 @@ def api_strategy_analysis_window():
 
     # 1. 选股表中最近 N 个有选股记录的交易日（窗口）
     win_rows = query_db(
-        "SELECT DISTINCT trade_date FROM strategy_selected_stock_daily_t "
-        "ORDER BY trade_date DESC LIMIT %s", (days,))
+        "SELECT DISTINCT selected_date FROM strategy_selected_stock_daily_t "
+        "ORDER BY selected_date DESC LIMIT %s", (days,))
     if win_rows is None:
         return jsonify({'error': '数据库连接失败'}), 500
     if not win_rows:
         return jsonify({'window_dates': [], 'strategies': []})
-    window_dates = sorted(r['trade_date'] for r in win_rows)
+    window_dates = sorted(r['selected_date'] for r in win_rows)
     min_d, max_d = window_dates[0], window_dates[-1]
 
     # 2. 窗口最晚日之后再取 10 个交易日，保证 T+10 价格可取
@@ -1646,14 +1646,14 @@ def api_strategy_analysis_window():
     # 4. 取窗口内全部选股记录
     ph = ','.join(['%s'] * len(window_dates))
     picks = query_db(
-        f"SELECT ts_code, trade_date, strategy FROM strategy_selected_stock_daily_t "
-        f"WHERE trade_date IN ({ph})", window_dates)
+        f"SELECT ts_code, selected_date, strategy FROM strategy_selected_stock_daily_t "
+        f"WHERE selected_date IN ({ph})", window_dates)
 
     # {strategy: {'pick':总选股数, 'gsum':x,'dsum':y,'n':可计算样本,'full':a,'partial':b}}
     # 最新交易日选入、尚无 T+1 未来行情的股票计入 pick_count 但涨跌幅暂不可算（null）
     sm = {}
     for p in picks:
-        code, td = p['ts_code'], p['trade_date']
+        code, td = p['ts_code'], p['selected_date']
         px = price_map.get(code)
         future_closes = None
         if px and td in px:
@@ -1727,7 +1727,7 @@ def api_results():
     category = request.args.get('category', '').strip()
 
     sql = """
-        SELECT ts_code, stock_name, trade_date, strategy, selected,
+        SELECT ts_code, stock_name, selected_date, strategy, selected,
                max_gain_10d, max_down_10d, max_gain_20d, max_down_20d,
                sse_index_same_inc, chinext_index_same_inc
         FROM strategy_selected_stock_daily_t
@@ -1751,12 +1751,12 @@ def api_results():
         sql += " AND FIND_IN_SET(%s, strategy)"
         params.append(strategy)
     if start:
-        sql += " AND trade_date >= %s"
+        sql += " AND selected_date >= %s"
         params.append(start)
     if end:
-        sql += " AND trade_date <= %s"
+        sql += " AND selected_date <= %s"
         params.append(end)
-    sql += " ORDER BY trade_date DESC, ts_code"
+    sql += " ORDER BY selected_date DESC, ts_code"
 
     rows = query_db(sql, params)
     if rows is None:
@@ -1780,7 +1780,7 @@ def api_results_latest_date():
     category = request.args.get('category', '').strip()
     strategy = request.args.get('strategy', '').strip()
 
-    sql = "SELECT MAX(trade_date) AS d FROM strategy_selected_stock_daily_t WHERE 1=1"
+    sql = "SELECT MAX(selected_date) AS d FROM strategy_selected_stock_daily_t WHERE 1=1"
     params = []
     if category:
         cat_label = '以股选股' if category == 'find_similar' else '条件选股'
@@ -2242,10 +2242,10 @@ def api_kline():
 
     # 该区间内的策略选中记录（含股票名称）
     marks = query_db("""
-        SELECT trade_date, strategy, stock_name
+        SELECT selected_date, strategy, stock_name
         FROM strategy_selected_stock_daily_t
-        WHERE ts_code = %s AND trade_date >= %s
-        ORDER BY trade_date
+        WHERE ts_code = %s AND selected_date >= %s
+        ORDER BY selected_date
     """, (code, earliest))
     if marks is None:
         marks = []
@@ -2267,7 +2267,7 @@ def api_kline():
         'klines': klines,
         'vols': vols,
         'amounts': amounts,
-        'marks': [{'date': _fmt_date(m['trade_date']),
+        'marks': [{'date': _fmt_date(m['selected_date']),
                    'strategy': m['strategy']} for m in marks],
     })
 

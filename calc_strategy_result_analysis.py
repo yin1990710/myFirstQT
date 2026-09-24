@@ -40,7 +40,7 @@ def aggregate_strategy_gains(cursor):
     返回：list[dict]，每个 dict 含 strategy / avg_gain_10d / stock_count / latest_trade_date。
     """
     cursor.execute("""
-        SELECT strategy, max_gain_10d, trade_date
+        SELECT strategy, max_gain_10d, selected_date
         FROM strategy_selected_stock_daily_t
         WHERE max_gain_10d IS NOT NULL
     """)
@@ -51,7 +51,7 @@ def aggregate_strategy_gains(cursor):
     for r in rows:
         strat_field = (r.get('strategy') or '').strip()
         gain = r.get('max_gain_10d')
-        trade_date = r.get('trade_date') or ''
+        selected_date = r.get('selected_date') or ''
         if gain is None:
             continue
         for s in strat_field.split(','):
@@ -61,8 +61,8 @@ def aggregate_strategy_gains(cursor):
             if s not in agg:
                 agg[s] = {'gains': [], 'latest_date': ''}
             agg[s]['gains'].append(float(gain))
-            if trade_date > agg[s]['latest_date']:
-                agg[s]['latest_date'] = trade_date
+            if selected_date > agg[s]['latest_date']:
+                agg[s]['latest_date'] = selected_date
 
     result = []
     for name, info in agg.items():

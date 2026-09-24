@@ -7,7 +7,7 @@
 核心功能：
   1. 读取 strategy_selected_stock_daily_t 表中最近 22 个交易日的选股记录。
   2. 读取 stock_daily_t 表中的收盘价数据。
-  3. 以 strategy_selected_stock_daily_t 的 trade_date 为基准日期（T日），计算
+  3. 以 strategy_selected_stock_daily_t 的 selected_date 为基准日期（T日），计算
      T 日后 10 个交易日（T+1~T+10）内和后 20 个交易日（T+1~T+20）内的
      最大涨幅和最大跌幅，回填 6 个回测指标：
     - max_gain_10d：T+1～T+10 个交易日内最高 close 相对 T 日 close 的最大涨幅（%）
@@ -16,7 +16,7 @@
     - max_gain_20d：T+1～T+20 个交易日内最高 close 相对 T 日 close 的最大涨幅（%）
     - sse_index_same_inc：T+1～T+10个交易日内上证指数涨幅（%，T+10日相对选股日T的上证指数 000001.SH 收盘涨跌幅）
     - chinext_index_same_inc：T+1～T+10个交易日内创业板指数涨幅（%，同上口径，创业板指 399006.SZ）
-  4. 结果按主键（ts_code + trade_date）更新回 strategy_selected_stock_daily_t 表。
+  4. 结果按主键（ts_code + selected_date）更新回 strategy_selected_stock_daily_t 表，并回填 compute_date（结果计算日期）。
 
 日期范围参数化：
   python3 backtest_strategy_results.py                          # 默认：表内最近 22 个交易日的记录
@@ -67,34 +67,34 @@ def parse_args():
 
 
 def fetch_target_dates(cursor, start_date=None, end_date=None):
-    """确定要回测的 trade_date 集合（升序）。缺省取表内最近 22 个交易日（覆盖 T+20 刚满窗的日期）。"""
+    """确定要回测的 selected_date 集合（升序）。缺省取表内最近 22 个交易日（覆盖 T+20 刚满窗的日期）。"""
     if start_date is None:
         cursor.execute("""
-            SELECT DISTINCT trade_date FROM strategy_selected_stock_daily_t
-            ORDER BY trade_date DESC LIMIT %s
+            SELECT DISTINCT selected_date FROM strategy_selected_stock_daily_t
+            ORDER BY selected_date DESC LIMIT %s
         """, (RECENT_TABLE_DAYS,))
     else:
-        sql = ("SELECT DISTINCT trade_date FROM strategy_selected_stock_daily_t "
-               "WHERE trade_date >= %s")
+        sql = ("SELECT DISTINCT selected_date FROM strategy_selected_stock_daily_t "
+               "WHERE selected_date >= %s")
         params = [start_date]
         if end_date is not None:
-            sql += " AND trade_date <= %s"
+            sql += " AND selected_date <= %s"
             params.append(end_date)
-        sql += " ORDER BY trade_date"
+        sql += " ORDER BY selected_date"
         cursor.execute(sql, params)
-    return sorted(r['trade_date'] for r in cursor.fetchall())
+    return sorted(r['selected_date'] for r in cursor.fetchall())
 
 
 def fetch_records_by_dates(cursor, dates):
-    """读取指定 trade_date 集合的选股记录。"""
+    """读取指定 selected_date 集合的选股记录。"""
     placeholders = ','.join(['%s'] * len(dates))
     cursor.execute(f"""
-        SELECT ts_code, trade_date, strategy, selected,
+        SELECT ts_code, selected_date, compute_date, strategy, selected,
                max_gain_10d, max_down_10d, max_down_20d, max_gain_20d,
                sse_index_same_inc, chinext_index_same_inc
         FROM strategy_selected_stock_daily_t
-        WHERE trade_date IN ({placeholders})
-        ORDER BY trade_date, ts_code
+        WHERE selected_date IN ({placeholders})
+        ORDER BY selected_date, ts_code
     """, dates)
     return cursor.fetchall()
 
@@ -124,7 +124,7 @@ def fetch_index_inc_map(cursor, dates):
     """计算各选股日 T 到 T+10 交易日的同期指数涨幅（%）。
 
     以 index_daily_t 上证指数交易日序列为日历（ROW_NUMBER 对齐），
-    T+10 = T 在日历中后第 10 个交易日；返回 {trade_date: (sse_inc, chinext_inc)}。
+    T+10 = T 在日历中后第 10 个交易日；返回 {selected_date: (sse_inc, chinext_inc)}。
     T 之后不足 10 个已入库指数交易日时该日不入表（对应字段保持 NULL）。
     """
     if not dates:
@@ -139,14 +139,14 @@ def fetch_index_inc_map(cursor, dates):
                 WHERE ts_code = %s
             ) x
         )
-        SELECT d.trade_date,
+        SELECT d.selected_date,
                (s10.close / s0.close - 1) * 100 AS sse_inc,
                (c10.close / c0.close - 1) * 100 AS chinext_inc
         FROM (
-            SELECT DISTINCT trade_date FROM strategy_selected_stock_daily_t
-            WHERE trade_date IN ({placeholders})
+            SELECT DISTINCT selected_date FROM strategy_selected_stock_daily_t
+            WHERE selected_date IN ({placeholders})
         ) d
-        JOIN cal t0  ON t0.trade_date = d.trade_date COLLATE utf8mb4_unicode_ci
+        JOIN cal t0  ON t0.trade_date = d.selected_date COLLATE utf8mb4_unicode_ci
         JOIN cal t10 ON t10.rn = t0.rn + {FUTURE_DAYS_10}
         JOIN index_daily_t s0  ON s0.ts_code  = %s AND s0.trade_date  = t0.trade_date
         JOIN index_daily_t s10 ON s10.ts_code = %s AND s10.trade_date = t10.trade_date
@@ -155,7 +155,7 @@ def fetch_index_inc_map(cursor, dates):
     """, (SSE_INDEX_CODE, *dates,
           SSE_INDEX_CODE, SSE_INDEX_CODE,
           CHINEXT_INDEX_CODE, CHINEXT_INDEX_CODE))
-    return {r['trade_date']: (float(r['sse_inc']), float(r['chinext_inc']))
+    return {r['selected_date']: (float(r['sse_inc']), float(r['chinext_inc']))
             for r in cursor.fetchall()}
 
 
@@ -205,9 +205,9 @@ def main():
             upd_10 = upd_20 = upd_td = 0
             skip_no_data = 0
             for r in to_process:
-                base_close = fetch_base_close(cursor, r['ts_code'], r['trade_date'])
+                base_close = fetch_base_close(cursor, r['ts_code'], r['selected_date'])
                 # 个股T日数据缺失时仍可回填同期指数涨幅（该指标与个股行情无关）
-                closes = (fetch_future_closes(cursor, r['ts_code'], r['trade_date'])
+                closes = (fetch_future_closes(cursor, r['ts_code'], r['selected_date'])
                           if base_close is not None else [])
 
                 sets, params = [], []
@@ -231,8 +231,8 @@ def main():
                     if r['max_gain_20d'] is None:
                         sets.append("max_gain_20d=%s")
                         params.append((max(w20) / base_close - 1) * 100)
-                # 同期指数涨幅（T+1~T+10，按 trade_date 取值；与个股行情无关）
-                index_inc = index_inc_map.get(r['trade_date'])
+                # 同期指数涨幅（T+1~T+10，按 selected_date 取值；与个股行情无关）
+                index_inc = index_inc_map.get(r['selected_date'])
                 if index_inc is not None:
                     sse_inc, chinext_inc = index_inc
                     if r['sse_index_same_inc'] is None:
@@ -241,14 +241,17 @@ def main():
                     if r['chinext_index_same_inc'] is None:
                         sets.append("chinext_index_same_inc=%s")
                         params.append(chinext_inc)
-                if not sets:
+                if not sets and r.get('compute_date') is not None:
                     skip_no_data += 1
                     continue
 
-                params += [r['ts_code'], r['trade_date']]
+                # 结果回填日期（本次 UPDATE 计算日）
+                sets.append("compute_date=%s")
+                params.append(datetime.now().strftime('%Y%m%d'))
+                params += [r['ts_code'], r['selected_date']]
                 cursor.execute(
                     f"UPDATE strategy_selected_stock_daily_t SET {', '.join(sets)} "
-                    "WHERE ts_code=%s AND trade_date=%s", params)
+                    "WHERE ts_code=%s AND selected_date=%s", params)
                 if 'max_gain_10d=%s' in sets or 'max_down_10d=%s' in sets:
                     upd_10 += 1
                 if 'max_gain_20d=%s' in sets or 'max_down_20d=%s' in sets:

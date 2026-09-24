@@ -461,7 +461,8 @@ DROP TABLE IF EXISTS `strategy_selected_stock_daily_t`;
 CREATE TABLE `strategy_selected_stock_daily_t` (
   `ts_code` varchar(12) NOT NULL COMMENT '股票代码',
   `stock_name` varchar(50) DEFAULT NULL COMMENT '股票名称(来自stock_info_t，可空)',
-  `trade_date` varchar(8) NOT NULL COMMENT '交易日(选股目标日)',
+  `selected_date` varchar(8) NOT NULL COMMENT '入选日期(股票被策略选中并写入表的日期)',
+  `compute_date` varchar(8) DEFAULT NULL COMMENT '结果回填日期(回填10日涨跌幅和同期指数涨幅指标的日期)',
   `strategy` varchar(128) NOT NULL COMMENT '选股策略，多个用逗号分隔(如2wave_daily,2wave_w23)',
   `selected` tinyint NOT NULL DEFAULT '1' COMMENT '是否被选中(0:否,1:是)，任一策略选中即为1',
   `max_gain_10d` float DEFAULT NULL COMMENT '10个交易日中最大涨幅(%,T+1~T+10最高close/T日close)',
@@ -472,7 +473,7 @@ CREATE TABLE `strategy_selected_stock_daily_t` (
   `chinext_index_same_inc` decimal(8,2) DEFAULT NULL COMMENT '同期创业板指数涨幅',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  PRIMARY KEY (`ts_code`,`trade_date`)
+  PRIMARY KEY (`ts_code`,`selected_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='每日选股结果记录表(便于回测)';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `task_run_log_t`;
