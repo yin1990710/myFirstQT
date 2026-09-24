@@ -110,6 +110,7 @@ def _load_full_data(end_date, lookback_days):
                     d.open, d.high, d.low, d.close, d.pre_close,
                     d.vol, d.amount, d.pct_chg,
                     d.ma5, d.ma30, d.qfq_adj_factor, d.turning_point,
+                    d.short_strength_score,
                     b.total_mv, b.circ_mv, b.turnover_rate_f,
                     i.stock_name
                 FROM stock_daily_t d

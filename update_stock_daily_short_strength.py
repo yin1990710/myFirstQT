@@ -241,8 +241,9 @@ def main():
     print(f"✅ 待评分股票：{len(grouped)} 只（{span_desc}），"
           f"约需 {40 * len(target_dates)}~{50 * len(target_dates)} 秒")
 
-    # 基准：沪深300 收盘序列（一次性取足整个区间 + 窗口缓冲）
-    bm_days = DAYS + len(target_dates) + 10
+    # 基准：沪深300 收盘序列（一次性取足，覆盖最早目标日往前 DAYS+lookback 窗口）
+    # 用 5000 天足够覆盖全量历史（沪深300 stock_index_daily_t 共 5998 条）
+    bm_days = 5000
     bm = fetch_benchmark(PARAMS["benchmark"], days=bm_days)
     print(f"📈 基准 {PARAMS['benchmark']}：取 {len(bm)} 个交易日收盘")
 
