@@ -19,15 +19,19 @@ A股大盘风险指数（Market Risk Index, MRI）
   python report_market_risk_index.py --json out.json          # 指定 JSON 输出路径
 
 指标可获取性（AkShare 免费源实测，2026-09）
-  ✅ 全自动（15 项）：PE分位、PB分位、ERP、融资余额/流通市值、期权IV、涨停家数、
+  ✅ 全自动（17 项）：PE分位、PB分位、ERP、融资余额/流通市值、期权IV、涨停家数、
                      M1-M2剪刀差、BIAS250、均线破坏、波动率、市场宽度背离、PMI、汇率、
-                     10Y国债变动、热门赛道成交额占比（前3行业）
+                     10Y国债变动、热门赛道成交额占比（前3行业）、股指期货年化贴水、期权PCR
   注意：PMI 优先取【国家统计局官方制造业PMI】(macro_china_pmi，更新至最新月)；
         备选金十源 (macro_china_pmi_yearly) 数据仅更新至 2025-08，已降级为兜底。
   注意：热门赛道成交额占比 = 申万一级行业成交额前3 / 31个一级行业成交额合计 × 100%。
         数据源：东财行业板块接口（calc_em_boards.get_industry_boards，含三级降级）+ 申万一级名单（ak.sw_index_first_info）。
-  ✍️ 需手工补数（6 项）：基金仓位、DR007偏离、北向流入、
-                     股指期货贴水、期权PCR、个股相关系数
+  注意：股指期货年化贴水（IF/IC/IM）取自本地 MySQL（stock_index_future_daily_t 期货
+        主力连续 × stock_index_daily_t 现货指数），原始口径未剔除分红，不依赖外网。
+  注意：期权 PCR 取自 Tushare Pro（opt_basic + opt_daily，需 2000 积分），中金所
+        IO/MO/HO 股指期权全合约合并口径；打分用持仓量 PCR（机构对冲/避险仓位，
+        判顶底的主流口径），成交量 PCR 在 detail 中一并展示。
+  ✍️ 需手工补数（4 项）：基金仓位、DR007偏离、北向流入、个股相关系数
   说明：北向资金自 2024-08 起停止披露实时数据。
 
 阈值均为历史经验参考值，务必用滚动窗口自行校准（见报告第九节）。
@@ -112,10 +116,10 @@ INDICATORS = [
          rule=">40%-45% 极度拥挤，均值回归风险大", auto=True,
          score=lambda v: 2 if v >= 40 else (1 if v >= 30 else 0)),
     dict(key="iff_basis", dim="结构", name="股指期货年化贴水幅度（IF/IC/IM）", unit="%",
-         rule="贴水大幅走阔 = 机构悲观、对冲需求激增", auto=False,
+         rule="贴水大幅走阔 = 机构悲观、对冲需求激增", auto=True,
          score=lambda v: 2 if v >= 8 else (1 if v >= 4 else 0)),
     dict(key="pcr_low", dim="结构", name="期权 PCR（认沽/认购比）", unit="",
-         rule="极端低 = 乐观（顶部信号），极端高 = 恐慌（底部信号）", auto=False,
+         rule="极端低 = 乐观（顶部信号），极端高 = 恐慌（底部信号）", auto=True,
          score=lambda v: 2 if v <= 0.6 else (1 if v <= 0.8 else 0)),
     dict(key="stock_corr", dim="结构", name="个股平均相关系数（近60日）", unit="",
          rule="抬升 = 系统性风险主导、分散化失效", auto=False,
@@ -231,10 +235,204 @@ def _num(x):
         return None
 
 
+# ---- 股指期货年化贴水（本地库，不依赖外网）----
+
+IFF_BASIS_PAIRS = {           # 期货主力连续合约 -> 现货指数（stock_index_daily_t）
+    "IFL.CFX": "000300.SH",   # IF -> 沪深300
+    "ICL.CFX": "000905.SH",   # IC -> 中证500
+    "IML.CFX": "000852.SH",   # IM -> 中证1000
+}
+IFF_BASIS_NAMES = {"IFL.CFX": "IF", "ICL.CFX": "IC", "IML.CFX": "IM"}
+
+
+def _contract_expiry(y: int, m: int) -> date:
+    """合约月份的到期日：第三个周五（CFFEX 股指期货规则）。"""
+    d = date(y, m, 1)
+    d += timedelta(days=(4 - d.weekday()) % 7)   # 定位首个周五（Mon=0 ... Fri=4）
+    return d + timedelta(days=14)
+
+
+def _days_to_expiry(d: date) -> int:
+    """当月连续合约距到期日的自然日数；到期日当天为 0。"""
+    y, m = d.year, d.month
+    for _ in range(3):
+        e = _contract_expiry(y, m)
+        if e >= d:
+            return (e - d).days
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
+    return 0
+
+
+def fetch_iff_basis():
+    """股指期货年化贴水幅度（IF/IC/IM，原始口径，未剔除分红）。
+
+    数据源（本地 MySQL）：
+      stock_index_future_daily_t 期货主力连续收盘 × stock_index_daily_t 现货指数收盘
+    计算口径（年化基差率，负数=贴水，绝对值即年化贴水幅度）：
+      年化基差率 = (期货价 − 现货价) / 现货价 × 365 / 剩余到期天数
+    剩余到期天数：库内连续序列为当月合约（到期日=合约月份第三个周五，到期
+    次一交易日切换次月合约，经基差跳变实测验证）；到期日当天基差已收敛于 0，
+    年化失真，该日跳过不参与计算。
+
+    返回 (value, detail)：value = 三品种年化贴水幅度均值（正数=贴水，单位 %），
+    失败返回 (None, 原因)。
+    """
+    try:
+        from module_mysql_connection import get_mysql_connection, close_connection
+    except Exception:
+        return None, "module_mysql_connection 不可用"
+    conn = get_mysql_connection()
+    if not conn:
+        return None, "数据库连接失败"
+    try:
+        per, latest_day = [], None     # per: [(品种, 年化基差率%, DTE, 5日均%)]
+        with conn.cursor() as cur:
+            for fut, spot in IFF_BASIS_PAIRS.items():
+                cur.execute("""
+                    SELECT f.trade_date, f.close fc, s.close sc
+                    FROM stock_index_future_daily_t f
+                    JOIN stock_index_daily_t s
+                      ON s.trade_date = f.trade_date AND s.ts_code = %s
+                    WHERE f.ts_code = %s AND f.close > 0 AND s.close > 0
+                    ORDER BY f.trade_date DESC
+                    LIMIT 30
+                """, (spot, fut))
+                ann = []               # [(trade_date, dte, 年化基差率%)]，倒序
+                for r in cur.fetchall():
+                    d = datetime.strptime(r["trade_date"], "%Y%m%d").date()
+                    dte = _days_to_expiry(d)
+                    if dte <= 0:
+                        continue       # 到期日基差收敛，年化无意义
+                    basis_pct = (float(r["fc"]) / float(r["sc"]) - 1) * 100
+                    ann.append((r["trade_date"], dte, basis_pct * 365.0 / dte))
+                if not ann:
+                    continue
+                name = IFF_BASIS_NAMES[fut]
+                latest_day = max(latest_day or "", ann[0][0])
+                per.append((name, ann[0][2], ann[0][1],
+                            sum(x[2] for x in ann[:5]) / min(len(ann), 5)))
+        if not per:
+            return None, "库内无期货×现货对齐数据"
+        # 指标取三品种年化贴水幅度（=-年化基差率）均值，正数=贴水
+        value = round(sum(-r for _, r, _, _ in per) / len(per), 2)
+        detail = ("；".join(f"{n} {r:+.1f}%（剩余{d}天，5日均{a:+.1f}%）"
+                            for n, r, d, a in per)
+                  + f"；{latest_day} 年化基差率(原始口径,未剔分红)，负数=贴水")
+        return value, detail
+    except Exception as e:
+        return None, f"计算失败: {e}"
+    finally:
+        close_connection(conn)
+
+
+# ---- 期权 PCR（Tushare Pro，中金所股指期权）----
+
+TS_TOKEN = "228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3"  # Tushare Pro token（需 2000 积分）
+PCR_DAYS = 10        # 拉取最近 N 个交易日（最新日打分 + 5日均）
+
+
+def fetch_option_pcr(days: int = PCR_DAYS):
+    """期权 PCR（认沽/认购比，中金所 IO/MO/HO 股指期权全合约合并口径）。
+
+    数据源（Tushare Pro，需 2000 积分）：
+      opt_basic(exchange='CFFEX') 合约清单（提供认购/认沽标识 call_put）
+      opt_daily(exchange='CFFEX', trade_date=D) 各合约日行情（vol 成交量、oi 持仓量）
+    两个口径（研报引用 PCR 时普遍不区分，本报告分别展示）：
+      成交量 PCR = Σ认沽vol / Σ认购vol —— 短线资金/交易情绪，波动大
+      持仓量 PCR = Σ认沽oi / Σ认购oi —— 机构对冲/避险仓位，判顶底主流口径
+    品种：IO(沪深300)、MO(中证1000)、HO(上证50)，全部到期月/行权价合约合并；
+      上交所 50ETF/300ETF 期权合约乘数不同，不纳入合并。
+    异常防护：分母（认购合计）为 0 的停牌/异常日跳过。
+
+    返回 (value, detail)：value = 最新交易日持仓量 PCR（打分口径），
+    detail 含成交量 PCR、5 日均值与分品种明细，失败返回 (None, 原因)。
+    """
+    try:
+        import tushare as ts
+    except Exception:
+        return None, "未安装 tushare"
+    try:
+        pro = ts.pro_api(TS_TOKEN)
+
+        # 合约清单：ts_code -> C/P（opt_daily 仅含存续合约，清单查不到时回退解析合约代码）
+        basic = pro.opt_basic(exchange="CFFEX")
+        cp_map = dict(zip(basic["ts_code"], basic["call_put"].astype(str)))
+
+        # 交易日历：近 45 自然日内的开市日，取最近 days 个
+        today = datetime.now().strftime("%Y%m%d")
+        start = (datetime.now() - timedelta(days=45)).strftime("%Y%m%d")
+        cal = pro.trade_cal(exchange="SSE", start_date=start, end_date=today, is_open="1")
+        tdays = sorted(str(x) for x in cal["cal_date"])[-days:]
+
+        # 逐日聚合：agg[day][prod] = [C_vol, P_vol, C_oi, P_oi]
+        agg = {}
+        for d in tdays:
+            df = pro.opt_daily(exchange="CFFEX", trade_date=d)
+            if df is None or len(df) == 0:
+                continue
+            day_agg = agg.setdefault(d, {})
+            for code, vol, oi in zip(df["ts_code"], df["vol"], df["oi"]):
+                cp = cp_map.get(code) or (code.split("-")[1] if "-" in code else "")
+                if cp not in ("C", "P"):
+                    continue
+                acc = day_agg.setdefault(code[:2], [0.0, 0.0, 0.0, 0.0])
+                if cp == "C":
+                    acc[0] += float(vol or 0); acc[2] += float(oi or 0)
+                else:
+                    acc[1] += float(vol or 0); acc[3] += float(oi or 0)
+
+        if not agg:
+            return None, "opt_daily 无数据"
+
+        # 全市场日度 PCR（IO/MO/HO 合并）
+        def day_pcr(day_agg):
+            cv = sum(a[0] for a in day_agg.values())
+            pv = sum(a[1] for a in day_agg.values())
+            co = sum(a[2] for a in day_agg.values())
+            po = sum(a[3] for a in day_agg.values())
+            vol_pcr = pv / cv if cv > 0 else None    # 认购成交为 0 = 异常日
+            oi_pcr = po / co if co > 0 else None
+            return vol_pcr, oi_pcr
+
+        days_sorted = sorted(agg)
+        oi_series = [(d, day_pcr(agg[d])[1]) for d in days_sorted]
+        oi_valid = [p for _, p in oi_series if p is not None]
+        if not oi_valid:
+            return None, "持仓量 PCR 无有效样本（认购持仓全为 0）"
+
+        latest_d = days_sorted[-1]
+        latest_vol_pcr, latest_oi_pcr = day_pcr(agg[latest_d])
+        avg5 = sum(oi_valid[-5:]) / min(len(oi_valid), 5)
+
+        # 分品种明细（最新日持仓量 PCR）
+        by_prod = []
+        for prod, name in (("IO", "IO沪深300"), ("MO", "MO中证1000"), ("HO", "HO上证50")):
+            _, oi_p = day_pcr({prod: agg[latest_d][prod]}) \
+                if prod in agg[latest_d] else (None, None)
+            if oi_p is not None:
+                by_prod.append(f"{name} {oi_p:.2f}")
+
+        value = round(latest_oi_pcr, 3)          # 打分口径：最新日持仓量 PCR
+        detail = (f"成交量PCR {'N/A' if latest_vol_pcr is None else format(latest_vol_pcr, '.2f')}；"
+                  f"持仓量PCR 5日均 {avg5:.2f}"
+                  + ("；" + "、".join(by_prod) if by_prod else "")
+                  + f"；{latest_d} 中金所IO/MO/HO全合约合并，负向指标：低=乐观(顶)、高=恐慌(底)")
+        return value, detail
+    except Exception as e:
+        return None, f"计算失败: {e}"
+
+
 def fetch_all(verbose: bool = True):
     """返回 (values, why)。任一项失败置 None 并在 why 中记录原因。"""
     v = {i["key"]: None for i in INDICATORS}
     why = {}
+
+    # ---- 0. 本地库/Tushare 直取（不依赖外网 akshare）----
+    v["iff_basis"], why["iff_basis"] = fetch_iff_basis()
+    v["pcr_low"], why["pcr_low"] = fetch_option_pcr()
+
     ak = _ak()
     if ak is None:
         print("[提示] 未检测到 akshare，联网取数已跳过。可 --input 手工填数或 --selftest 自检。")
