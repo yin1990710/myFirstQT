@@ -1,420 +1,409 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
-选股策略：5日均线相似度选股
+选股策略：5日均线 + 成交量节奏 相似度选股
+================================================================
+输入模板股票代码、开始日期、结束日期、相似度排名 N，扫描 stock_daily_t 全市场，
+计算每只股票与模板股票在选定日期范围内的相似度，按倒序返回前 N 只的
+股票代码、名称和相似度得分。
 
-核心功能：
-  根据输入的目标股票代码，从 stock_daily_t 表读取所有股票最近 10 个交易日的 MA5 / MA30
-  序列，找出与目标股票综合相似度最高的前 10 只股票。
-
-计算方法：
-  1. 取窗口长度 N=10，提取目标股票A、对比股票B 近 10 日 MA5 序列、MA30 序列
-  2. 分别做 MinMax 归一化
-  3. 计算归一后两个序列的 DTW 距离 d
-     （DTW 累积平方距离除以对齐步数取根号 —— 即逐步RMS偏差，
-       使 d 落在 [0,1] 量级：两序列完全一致时 d=0，逐点偏差为1时 d=1）
-  4. 换算得分：score = 1/(1+d)
-  5. 5日均线相似度 与 30日均线相似度 均按上述方法计算
-  6. 最终相似度 = WEIGHT_MA5 × 5日均线相似度 + WEIGHT_MA30 × 30日均线相似度
-     （权重常量各 0.5），按最终相似度降序取前 10 只
+综合相似度 = 5日均线相似度 × 0.5 + 成交量走势相似度 × 0.5
+  - 5日均线相似度：来自 module_ma5_similarity_compare.py
+      归一化 MA5 曲线相关 / DTW 形状 / MA5 收益率相关 / 斜率拐头 / MA5-MA20 状态
+  - 成交量节奏相似度：来自 module_volume_rhythm_compare.py
+      量能对数Z分 / 量比VR / DTW 形状 / 方向一致率 / 放缩量状态 Kappa
+两个子分均已剔除绝对价位与成交量级差异，且各自在模板打分日历上逐日对齐；
+全市场面板一次性取数（含均线/均量预热段），候选与模板的打分口径与两个
+成对比较模块完全一致。
 
 输出：
-  - CSV「{目标股票代码}.csv」（csv.writer + utf-8-sig，表头 股票代码）
-  - 文件夹「5日均线相似度+当日日期后缀」（已存在的删除重建）
+  - CSV「{模板代码}.csv」（csv.writer + utf-8-sig）
+  - 文件夹「5日均线相似度+结束日后缀」
+  - 选股结果写 strategy_selected_stock_daily_t（便于回测）
 
 用法：
-  python3 find_similar_ma5.py 301171.SZ                 # 默认窗口N=10
-  python3 find_similar_ma5.py 301171.SZ --window 30     # 自定义近30日窗口
-  python3 find_similar_ma5.py 301171.SZ --top 10
+  python3 find_similar_ma5.py 688213.SH --start 20260101 --end 20260630 --top 10
+  python3 find_similar_ma5.py 688213.SH --start 2026-01-01 --end 2026-06-30
+
+作为模块调用：
+  from find_similar_ma5 import find_similar_ma5
+  rows = find_similar_ma5('688213.SH', '20260101', '20260630', top_n=10)
 """
 
-import os
-import sys
-import csv
-import shutil
 import argparse
-import math
+import csv
+import os
+import shutil
+import sys
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
-import tushare as ts
+import numpy as np
+import pandas as pd
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from module_mysql_connection import get_mysql_connection, close_connection
 from module_insert_strategy_selected_record import record_selected_stocks
-
-pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
-
-# ---------- 灵活过滤条件（新增条件只需在 STOCK_FILTERS 中追加一行） ----------
-MA30_DEVIATION_MAX = 0.12  # 最新收盘价相对 ma30 的最大正偏离 +12%，排除严重超买
-MIN_AMOUNT_YI = 5.0        # 最近一个交易日最低成交额（亿元）；amount 单位千元，5亿=500000千元
-MIN_TURNOVER_RATE = 5.0    # 最近一个交易日最低换手率 turnover_rate_f（%）
-WEIGHT_MA5 = 0.5           # 5日均线相似度权重
-WEIGHT_MA30 = 0.5          # 30日均线相似度权重
+import module_ma5_similarity_compare as mam
+import module_volume_rhythm_compare as vrm
 
 
-def _filter_ma30_deviation(records):
-    """最近一个交易日收盘价相对 ma30 偏离不超过 +12%（排除严重超买）。"""
-    latest = records[-1]
-    if latest['close'] is None or latest['ma30'] is None or latest['ma30'] <= 0:
-        return False
-    return (latest['close'] / latest['ma30'] - 1) <= MA30_DEVIATION_MAX
-
-
-def _filter_min_amount(records):
-    """最近一个交易日成交额 > MIN_AMOUNT_YI 亿元（amount 单位千元，amount*1000 为元）。"""
-    latest = records[-1]
-    if latest['amount'] is None:
-        return False
-    return latest['amount'] * 1000 > MIN_AMOUNT_YI * 1e8
-
-
-def _filter_turnover_rate(records):
-    """最近一个交易日换手率 turnover_rate_f >= MIN_TURNOVER_RATE%。"""
-    latest = records[-1]
-    tr = latest.get('turnover_rate_f')
-    if tr is None:
-        return False
-    return tr >= MIN_TURNOVER_RATE
-
-
-def _filter_close_above_ma5(records):
-    """最近2个交易日收盘价均高于 ma5。"""
-    if len(records) < 2:
-        return False
-    for r in records[-2:]:
-        if r['close'] is None or r['ma5'] is None or r['ma5'] <= 0:
-            return False
-        if r['close'] <= r['ma5']:
-            return False
-    return True
-
-
-# 过滤条件注册表：每个条件为 (名称, 函数)；函数入参为该股票近N日记录（按日期升序），返回 True=通过
-STOCK_FILTERS = [
-    ('最新日close相对ma30偏离>+12%', _filter_ma30_deviation),
-    (f'最新日成交额<={MIN_AMOUNT_YI:g}亿', _filter_min_amount),
-    (f'最新日换手率<{MIN_TURNOVER_RATE:g}%', _filter_turnover_rate),
-    ('近2日close未均高于ma5', _filter_close_above_ma5),
-]
-
-
-def apply_filters(records):
-    """依次执行 STOCK_FILTERS 中的全部过滤条件，返回 (是否通过, 未通过的条件名列表)。"""
-    reasons = [name for name, fn in STOCK_FILTERS if not fn(records)]
-    return (len(reasons) == 0), reasons
-
-
-# ---------- 工具函数 ----------
-
-def get_target_date():
-    now = datetime.now()
-    if 0 <= now.hour < 15:
-        return (now - timedelta(days=1)).strftime('%Y%m%d')
-    return now.strftime('%Y%m%d')
-
-
-def get_last_n_trade_dates(target_date, n):
-    """返回 target_date 前（含）最近 n 个交易日列表。"""
-    end = target_date
-    start = (datetime.strptime(target_date, '%Y%m%d')
-             - timedelta(days=n * 2 + 15)).strftime('%Y%m%d')
-    df = pro.trade_cal(exchange='SSE', start_date=start, end_date=end,
-                       fields=['cal_date', 'is_open'])
-    if df is None or df.empty:
-        return [target_date]
-    opens = sorted(df[df['is_open'] == 1]['cal_date'].tolist())
-    if len(opens) > n:
-        opens = opens[-n:]
-    return opens
-
-
-def get_folder_name():
-    return f"5日均线相似度{get_target_date()}"
-
-
-def get_folder_path():
-    """新建（已存在的删除重建）5日均线相似度+日期后缀的文件夹，返回路径"""
-    folder_name = get_folder_name()
-    folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), folder_name)
-    if os.path.exists(folder_path):
-        shutil.rmtree(folder_path)
-        print(f"🗑️ 已删除旧文件夹: {folder_name}")
-    os.makedirs(folder_path)
-    print(f"📁 创建文件夹: {folder_name}")
-    return folder_path
-
-
-# ---------- 相似度算法 ----------
-
-def minmax_normalize(vals):
-    """MinMax 归一化到 [0,1]；常数序列（max==min）统一映射为 0.5。"""
-    lo, hi = min(vals), max(vals)
-    if hi - lo < 1e-12:
-        return [0.5] * len(vals)
-    return [(v - lo) / (hi - lo) for v in vals]
-
-
-def dtw_distance(a, b):
-    """
-    归一化序列的 DTW 距离。
-    经典 DP：D[i][j] = 局部平方误差 + min(三个前驱)。
-    最终距离 d = sqrt(累积平方误差 / 对齐步数)（逐步 RMS 偏差，量级 [0,1]）。
-    两序列完全一致时 d=0；逐点偏差为 1 时 d=1。
-    """
-    n, m = len(a), len(b)
-    INF = float('inf')
-    D = [[INF] * (m + 1) for _ in range(n + 1)]
-    K = [[0] * (m + 1) for _ in range(n + 1)]  # 对齐步数
-    D[0][0] = 0.0
-    for i in range(1, n + 1):
-        ai = a[i - 1]
-        for j in range(1, m + 1):
-            c = (ai - b[j - 1]) ** 2
-            # 三个前驱：对角 / 上 / 左
-            d_diag, d_up, d_left = D[i - 1][j - 1], D[i - 1][j], D[i][j - 1]
-            if d_diag <= d_up and d_diag <= d_left:
-                D[i][j] = d_diag + c
-                K[i][j] = K[i - 1][j - 1] + 1
-            elif d_up <= d_left:
-                D[i][j] = d_up + c
-                K[i][j] = K[i - 1][j] + 1
-            else:
-                D[i][j] = d_left + c
-                K[i][j] = K[i][j - 1] + 1
-    steps = K[n][m]
-    if steps <= 0:
-        return float('inf')
-    return math.sqrt(D[n][m] / steps)
-
-
-def similarity_score(a_raw, b_raw):
-    """MinMax归一化 + DTW 距离 + score = 1/(1+d)。"""
-    a = minmax_normalize(a_raw)
-    b = minmax_normalize(b_raw)
-    d = dtw_distance(a, b)
-    return 1.0 / (1.0 + d), d
-
-
-# ---------- 核心逻辑 ----------
-
-def read_ma5_data(start_date, end_date):
-    """读取 stock_daily_t 全市场 [start_date, end_date] 区间的 ts_code/trade_date/ma5/vol。"""
-    conn = get_mysql_connection()
-    if not conn:
-        print("❌ 数据库连接失败")
-        return []
-
-    query_sql = """
-        SELECT d.ts_code, d.trade_date, d.close, d.ma5, d.ma30, d.amount,
-               b.turnover_rate_f
-        FROM stock_daily_t d
-        LEFT JOIN stock_daily_basic_info_t b
-               ON d.ts_code = b.ts_code AND d.trade_date = b.trade_date
-        WHERE d.trade_date >= %s AND d.trade_date <= %s
-        ORDER BY d.ts_code, d.trade_date
-    """
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query_sql, (start_date, end_date))
-            results = cursor.fetchall()
-        print(f"✅ 成功读取 {len(results)} 条数据 ({start_date} ~ {end_date})")
-        return results
-    except Exception as e:
-        print(f"❌ 查询数据失败: {e}")
-        return []
-    finally:
-        close_connection(conn)
-
-
-def find_similar(target_code, data, trade_dates, window, top_n=10):
-    """计算全市场与目标股票的最终相似度（WEIGHT_MA5×MA5 + WEIGHT_MA30×MA30），返回降序前 top_n 只。
-
-    参数 window：序列窗口长度 N（交易日数）
-    """
-
-    # ---------- 组装：每只股票的 MA5 / MA30 序列 ----------
-    stock_data = {}
-    for record in data:
-        ts_code = record['ts_code']
-        if ts_code not in stock_data:
-            stock_data[ts_code] = []
-        stock_data[ts_code].append({
-            'trade_date': record['trade_date'],
-            'close':      float(record['close']) if record['close'] is not None else None,
-            'ma5': float(record['ma5']) if record['ma5'] is not None else None,
-            'ma30': float(record['ma30']) if record['ma30'] is not None else None,
-            'amount': float(record['amount']) if record['amount'] is not None else None,
-            'turnover_rate_f': (float(record['turnover_rate_f'])
-                                if record['turnover_rate_f'] is not None else None),
-        })
-
-    if target_code not in stock_data:
-        print(f"❌ 目标股票 {target_code} 不在 stock_daily_t 表中")
-        return []
-
-    cnt_data_missing = 0  # 近 N 日 MA5/MA30 数据不全
-    cnt_filtered = {}     # 过滤条件淘汰数（按条件名统计）
-
-    def extract_series(ts_code, field):
-        """提取恰好 window 个交易日的完整字段序列（日期与 trade_dates 一致），否则 None。"""
-        recs = stock_data.get(ts_code, [])
-        if len(recs) != window:
-            return None
-        dates = [r['trade_date'] for r in recs]
-        if dates != trade_dates:
-            return None
-        vals = [r[field] for r in recs]
-        if any(v is None for v in vals):
-            return None
-        return vals
-
-    ma5_a = extract_series(target_code, 'ma5')
-    ma30_a = extract_series(target_code, 'ma30')
-    if ma5_a is None or ma30_a is None:
-        print(f"❌ 目标股票 {target_code} 近{window}个交易日 MA5/MA30 数据不全，无法比较")
-        return []
-
-    result = []
-    for ts_code in stock_data:
-        if ts_code == target_code:
-            continue
-        recs = stock_data[ts_code]
-
-        # 过滤条件（如：最新日close相对ma30偏离≤+12%，排除严重超买）
-        ok, reasons = apply_filters(recs)
-        if not ok:
-            for name in reasons:
-                cnt_filtered[name] = cnt_filtered.get(name, 0) + 1
-            continue
-
-        ma5_b = extract_series(ts_code, 'ma5')
-        ma30_b = extract_series(ts_code, 'ma30')
-        if ma5_b is None or ma30_b is None:
-            cnt_data_missing += 1
-            continue
-
-        # 5日均线相似度
-        ma5_score, ma5_d = similarity_score(ma5_a, ma5_b)
-        # 30日均线相似度（方法同MA5：MinMax归一化 + DTW）
-        ma30_score, ma30_d = similarity_score(ma30_a, ma30_b)
-        # 最终相似度 = WEIGHT_MA5×5日均线相似度 + WEIGHT_MA30×30日均线相似度
-        final_score = WEIGHT_MA5 * ma5_score + WEIGHT_MA30 * ma30_score
-
-        result.append({
-            'ts_code': ts_code,
-            'final_score': round(final_score, 4),
-            'ma5_score': round(ma5_score, 4),
-            'ma30_score': round(ma30_score, 4),
-            'ma5_d': round(ma5_d, 4),
-            'ma30_d': round(ma30_d, 4),
-        })
-
-    result.sort(key=lambda x: x['final_score'], reverse=True)
-
-    # ---------- 漏斗统计 ----------
-    total = len(stock_data)
-    print("\n" + "=" * 60)
-    print(f"目标股票: {target_code}")
-    print(f"窗口长度: N={window} 个交易日（MA5 + MA30，MinMax归一化 + DTW）")
-    print(f"评分公式: 最终相似度 = {WEIGHT_MA5}×5日均线相似度 + {WEIGHT_MA30}×30日均线相似度")
-    print("         （每项 score = 1/(1+d)，d 为归一化序列的DTW距离）")
-    print("-" * 40)
-    print(f"  股票总数量:                       {total}")
-    for name, cnt in cnt_filtered.items():
-        print(f"  - 过滤[{name}] 淘汰: {cnt}")
-    print(f"  - 近{window}日MA5/MA30数据不全 淘汰: {cnt_data_missing}")
-    print(f"  - 目标股票自身:                   1")
-    print("-" * 40)
-    print(f"  参与排名: {len(result)}（无相似度阈值过滤，按最终相似度降序取前{top_n}）")
-    print("=" * 60)
-
-    return result[:top_n]
-
-
-def generate_csv_file(stocks, folder_path, target_code):
-    """CSV 以目标股票命名（如 301171.SZ.csv），csv.writer + utf-8-sig，单列 股票代码。"""
-    csv_filename = f"{target_code}.csv"
-    csv_path = os.path.join(folder_path, csv_filename)
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['股票代码'])
-        for s in stocks:
-            writer.writerow([s['ts_code']])
-    print(f"✅ CSV文件已生成（{len(stocks)}只）: {csv_path}")
-    return csv_path
-
-
-# ---------- 选股结果入库（便于回测） ----------
+# ---------- 常量 ----------
+WEIGHT_MA5 = 0.5                    # 5日均线相似度权重
+WEIGHT_VOLUME = 0.5                 # 成交量走势相似度权重
+MA_FAST = mam.DEFAULT_FAST          # 快线周期 5
+MA_SLOW = mam.DEFAULT_SLOW          # 慢线周期 20（多空状态 / 金叉死叉）
+VOL_MA = vrm.DEFAULT_MA             # 量比/对数Z分滚动窗口 20
+DEFAULT_TOP_N = 10
 
 STRATEGY_NAME = '5日均线相似度选股策略'
 
 
+# ---------- 数据读取（全市场面板，一次取数含预热段） ----------
+
+def _norm_date(d: str) -> str:
+    return str(d).replace("-", "").strip()
+
+
+def _seed_start(start: str) -> str:
+    """预热自然日：同时满足慢线 MA20 与成交量窗口 MA20 的滚动种子需求。"""
+    seed_days = max(MA_SLOW * 2 + 15, VOL_MA * 2 + 15)
+    return (datetime.strptime(start, "%Y%m%d") - timedelta(days=seed_days)).strftime("%Y%m%d")
+
+
+def load_market_panel(template_code: str, start: str, end: str
+                      ) -> Tuple[List[str], Dict[str, pd.DataFrame], Dict[str, str]]:
+    """一次性读取全市场 [seed, end] 的 close/vol 与股票名称。
+
+    返回 (template_dates, grouped, name_map)：
+      template_dates —— 模板股票在 [start,end] 内有行情的交易日（升序，打分日历）
+      grouped        —— {ts_code: DataFrame(trade_date, close, vol)}（含预热段）
+      name_map       —— {ts_code: stock_name}
+    """
+    seed = _seed_start(start)
+    conn = get_mysql_connection()
+    if not conn:
+        raise RuntimeError("数据库连接失败")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT trade_date FROM stock_daily_t
+                WHERE ts_code = %s AND trade_date >= %s AND trade_date <= %s
+                ORDER BY trade_date
+            """, (template_code, start, end))
+            template_dates = [r["trade_date"] for r in cur.fetchall()]
+            if not template_dates:
+                raise RuntimeError(f"模板股票 {template_code} 在 {start}~{end} 内无行情数据")
+
+            cur.execute("""
+                SELECT d.ts_code, d.trade_date, d.close, d.vol, i.stock_name
+                FROM stock_daily_t d
+                LEFT JOIN stock_info_t i
+                  ON d.ts_code = i.ts_code COLLATE utf8mb4_unicode_ci
+                WHERE d.trade_date >= %s AND d.trade_date <= %s
+                  AND (d.ts_code LIKE '%%.SH' OR d.ts_code LIKE '%%.SZ')
+                ORDER BY d.ts_code, d.trade_date
+            """, (seed, end))
+            rows = cur.fetchall()
+    finally:
+        close_connection(conn)
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise RuntimeError(f"stock_daily_t 在 {seed}~{end} 内无数据")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["vol"] = pd.to_numeric(df["vol"], errors="coerce")
+
+    name_map = (df.dropna(subset=["stock_name"])
+                  .drop_duplicates("ts_code")
+                  .set_index("ts_code")["stock_name"].to_dict())
+    grouped = {code: g[["trade_date", "close", "vol"]].reset_index(drop=True)
+               for code, g in df.groupby("ts_code", sort=False)}
+    return template_dates, grouped, name_map
+
+
+# ---------- 模板特征（两只子模块口径，只构造一次） ----------
+
+def build_template_features(g: pd.DataFrame, dates: List[str]) -> Dict[str, np.ndarray]:
+    """在模板自身交易日上算 MA 与量能节奏（含预热滚动），再按打分日历对齐。"""
+    ma_df = (mam.compute_mas(g[["trade_date", "close"]], MA_FAST, MA_SLOW)
+             .set_index("trade_date").reindex(dates))
+    nz = mam.normalize_ma(ma_df[f"ma{MA_FAST}"])
+    vol_df = (vrm.build_rhythm(g["vol"], g["trade_date"], VOL_MA)
+              .set_index("trade_date").reindex(dates))
+    return {
+        "ma_fast": ma_df[f"ma{MA_FAST}"].values,
+        "ma_slow": ma_df[f"ma{MA_SLOW}"].values,
+        "ma_rebase": nz["rebase"].values,
+        "ma_z": nz["zscore"].values,
+        "ma_ret": nz["return"].values,
+        "ma_state": mam.ma_state(ma_df[f"ma{MA_FAST}"], ma_df[f"ma{MA_SLOW}"]),
+        "vol_z": vol_df["z"].values,
+        "vol_vr": vol_df["vr"].values,
+        "vol_state": vol_df["state"].values,
+    }
+
+
+# ---------- 候选打分（复用两个模块的纯计算函数） ----------
+
+def _slope_agreement(a: np.ndarray, b: np.ndarray) -> float:
+    """压缩到共同有效段后的均线斜率方向一致率（与 mam.slope_agreement 同口径）。"""
+    sa, sb = np.sign(np.diff(a)), np.sign(np.diff(b))
+    msk = (sa != 0) & (sb != 0)
+    return float((sa[msk] == sb[msk]).mean()) if msk.sum() else float("nan")
+
+
+def score_candidate(g: pd.DataFrame,
+                    dates: List[str],
+                    tpl: Dict[str, np.ndarray]) -> Optional[Dict[str, float]]:
+    """计算单只候选的 MA5 相似度、成交量节奏相似度与综合分；样本不足返回 None。"""
+    # —— 均线侧 ——
+    ma_df = (mam.compute_mas(g[["trade_date", "close"]], MA_FAST, MA_SLOW)
+             .set_index("trade_date").reindex(dates))
+    # —— 量能侧 ——
+    vol_df = (vrm.build_rhythm(g["vol"], g["trade_date"], VOL_MA)
+              .set_index("trade_date").reindex(dates))
+
+    fast_b, slow_b = ma_df[f"ma{MA_FAST}"].values, ma_df[f"ma{MA_SLOW}"].values
+    vz_b, vr_b = vol_df["z"].values, vol_df["vr"].values
+
+    # 共同有效掩码：两侧均线 + 模板/候选量能Z分均可计算
+    mask = (np.isfinite(tpl["ma_fast"]) & np.isfinite(fast_b)
+            & np.isfinite(tpl["ma_slow"]) & np.isfinite(slow_b)
+            & np.isfinite(tpl["vol_z"]) & np.isfinite(vz_b))
+    overlap = int(mask.sum())
+    n_tpl = len(dates)
+    if (overlap < mam.MIN_OVERLAP_DAYS
+            or overlap / n_tpl < mam.MIN_OVERLAP_RATIO):
+        return None
+
+    # ================= MA5 相似度指标（module_ma5_similarity_compare 口径） =================
+    nz_b = mam.normalize_ma(ma_df[f"ma{MA_FAST}"])
+    reb_b, z_b, ret_b = nz_b["rebase"].values, nz_b["zscore"].values, nz_b["return"].values
+    band = max(3, int(mam.DTW_BAND_RATIO * overlap))
+
+    ma_metrics: Dict[str, float] = {}
+    ma_metrics["corr_rebase"] = mam.safe_corr(tpl["ma_rebase"][mask], reb_b[mask])
+    ma_metrics["corr_zscore"] = mam.safe_corr(tpl["ma_z"][mask], z_b[mask])
+    ma_metrics["corr_ma_return"] = mam.safe_corr(tpl["ma_ret"][mask], ret_b[mask])
+    ma_metrics["dtw_similarity"], _ = mam.dtw_similarity(
+        tpl["ma_z"][mask], z_b[mask], band)
+    ma_metrics["slope_agreement"] = _slope_agreement(
+        tpl["ma_fast"][mask], fast_b[mask])
+    st_b = mam.ma_state(ma_df[f"ma{MA_FAST}"], ma_df[f"ma{MA_SLOW}"])
+    po, kappa = mam.categorical_agreement(tpl["ma_state"][mask], st_b[mask])
+    ma_metrics["state_agreement"] = po
+    ma_metrics["kappa_state"] = kappa
+    ga, da = mam.cross_events(tpl["ma_fast"][mask], tpl["ma_slow"][mask])
+    gb, db = mam.cross_events(fast_b[mask], slow_b[mask])
+    ma_metrics["golden_jaccard"] = mam.event_jaccard(ga, gb)
+    ma_metrics["death_jaccard"] = mam.event_jaccard(da, db)
+    ma_score = mam.composite_score(ma_metrics)
+
+    # ================= 成交量节奏相似度指标（module_volume_rhythm_compare 口径） =================
+    st_vol_b = vol_df["state"].values
+    vol_metrics: Dict[str, float] = {}
+    # 相关系数复用均线模块的带掩码 Pearson（与量能模块内部 np.corrcoef 口径等价）
+    vol_metrics["corr_z"] = mam.safe_corr(tpl["vol_z"][mask], vz_b[mask])
+    vol_metrics["corr_vr"] = mam.safe_corr(tpl["vol_vr"][mask], vr_b[mask])
+    vol_metrics["dtw_similarity"] = vrm.dtw_similarity(
+        tpl["vol_z"][mask], vz_b[mask], band)
+    vol_metrics["direction_agreement"] = vrm.direction_agreement(
+        tpl["vol_z"][mask], vz_b[mask])
+    _, vol_kappa = vrm.state_kappa(tpl["vol_state"][mask], st_vol_b[mask])
+    vol_metrics["kappa_state"] = vol_kappa
+    vol_score = vrm.composite_score(vol_metrics)
+
+    if not (np.isfinite(ma_score) and np.isfinite(vol_score)):
+        return None
+
+    final_score = WEIGHT_MA5 * ma_score + WEIGHT_VOLUME * vol_score
+    return {
+        "score": float(final_score),
+        "ma5_score": float(ma_score),
+        "volume_score": float(vol_score),
+        "overlap_days": overlap,
+        "overlap_ratio": overlap / n_tpl,
+    }
+
+
+# ---------- 全市场扫描主入口 ----------
+
+def find_similar_ma5(template_code: str,
+                     start_date: str,
+                     end_date: str,
+                     top_n: int = DEFAULT_TOP_N,
+                     verbose: bool = True) -> List[Dict[str, object]]:
+    """扫描全市场，返回与模板在 [start_date, end_date] 综合相似度最高的前 top_n 只。
+
+    综合相似度 = 5日均线相似度×0.5 + 成交量走势相似度×0.5，按得分降序。
+    返回结果首条固定为模板股票自身（相似度 1.0，不占用 top_n 名额），
+    其后为相似度排名前 top_n 的候选股票，共 top_n+1 条。
+    每条：ts_code / stock_name / score / ma5_score / volume_score /
+          overlap_days / overlap_ratio / is_template
+    """
+    start, end = _norm_date(start_date), _norm_date(end_date)
+    if start > end:
+        raise ValueError(f"开始日期 {start} 晚于结束日期 {end}")
+    template_code = template_code.upper().strip()
+
+    dates, grouped, name_map = load_market_panel(template_code, start, end)
+    if template_code not in grouped:
+        raise RuntimeError(f"模板股票 {template_code} 不在 stock_daily_t 中")
+    tpl = build_template_features(grouped[template_code], dates)
+
+    results: List[Dict[str, object]] = []
+    skipped = 0
+    total = len(grouped)
+    for idx, (code, g) in enumerate(grouped.items(), 1):
+        if verbose and idx % 1000 == 0:
+            print(f"  扫描进度 {idx}/{total}，已命中 {len(results)}")
+        # 模板股票不参与候选扫描，统一以 1.0 分置顶返回
+        if code == template_code:
+            continue
+        try:
+            r = score_candidate(g, dates, tpl)
+        except Exception:
+            skipped += 1
+            continue
+        if r is None:
+            skipped += 1
+            continue
+        results.append({
+            "ts_code": code,
+            "stock_name": name_map.get(code, ""),
+            "score": round(r["score"], 4),
+            "ma5_score": round(r["ma5_score"], 4),
+            "volume_score": round(r["volume_score"], 4),
+            "overlap_days": r["overlap_days"],
+            "overlap_ratio": round(r["overlap_ratio"], 3),
+            "is_template": False,
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    top = results[:top_n]
+
+    # 模板记录置顶：自身与自身走势完全一致，相似度赋 1.0
+    template_row = {
+        "ts_code": template_code,
+        "stock_name": name_map.get(template_code, ""),
+        "score": 1.0,
+        "ma5_score": 1.0,
+        "volume_score": 1.0,
+        "overlap_days": len(dates),
+        "overlap_ratio": 1.0,
+        "is_template": True,
+    }
+    top = [template_row] + top
+
+    if verbose:
+        print("=" * 78)
+        print(f"模板 {template_code}（{name_map.get(template_code, '')}）"
+              f" {dates[0]}~{dates[-1]}，打分日历 {len(dates)} 个交易日")
+        print(f"评分公式：综合相似度 = {WEIGHT_MA5}×5日均线相似度 "
+              f"+ {WEIGHT_VOLUME}×成交量走势相似度")
+        print(f"扫描 {total} 只 → 参与排名 {len(results)} 只，"
+              f"样本不足/异常跳过 {skipped} 只，返回模板 + Top {top_n} 候选"
+              f"（共 {len(top)} 只）")
+        print("=" * 78)
+    return top
+
+
+# ---------- CSV 输出 ----------
+
+def get_folder_name(end_date: str) -> str:
+    return f"5日均线相似度{end_date}"
+
+
+def get_folder_path(end_date: str) -> str:
+    """新建（已存在的删除重建）5日均线相似度+结束日后缀文件夹，返回路径。"""
+    folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               get_folder_name(end_date))
+    if os.path.exists(folder_path):
+        shutil.rmtree(folder_path)
+        print(f"🗑️ 已删除旧文件夹: {get_folder_name(end_date)}")
+    os.makedirs(folder_path)
+    print(f"📁 创建文件夹: {get_folder_name(end_date)}")
+    return folder_path
+
+
+def generate_csv_file(stocks: List[Dict[str, object]], folder_path: str,
+                      template_code: str) -> str:
+    """CSV 以模板股票命名，utf-8-sig，首行为模板（相似度1.0），其后为候选排名。"""
+    csv_path = os.path.join(folder_path, f"{template_code}.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(["股票代码", "股票名称", "综合相似度",
+                         "5日均线相似度", "成交量节奏相似度", "共同交易日", "是否模板"])
+        for s in stocks:
+            writer.writerow([s["ts_code"], s["stock_name"], s["score"],
+                             s["ma5_score"], s["volume_score"], s["overlap_days"],
+                             "是" if s.get("is_template") else ""])
+    print(f"✅ CSV文件已生成（{len(stocks)}只，含模板）: {csv_path}")
+    return csv_path
+
+
 # ---------- 主入口 ----------
 
-def main():
-    parser = argparse.ArgumentParser(description='5日均线相似度选股（MinMax归一化 + DTW）')
-    parser.add_argument('target', type=str, help='目标股票代码，如 301171.SZ')
-    parser.add_argument('--window', type=int, default=10,
-                        help='序列窗口长度N（交易日数），默认10')
-    parser.add_argument('--top', type=int, default=10, help='输出前N只，默认10')
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="5日均线+成交量节奏相似度选股（模板区间 vs 全市场）")
+    parser.add_argument("template", type=str,
+                        help="模板股票代码，如 688213.SH")
+    parser.add_argument("--start", required=True,
+                        help="开始日期 YYYYMMDD（含）")
+    parser.add_argument("--end", required=True,
+                        help="结束日期 YYYYMMDD（含）")
+    parser.add_argument("--top", type=int, default=DEFAULT_TOP_N,
+                        help=f"相似度排名前N只，默认 {DEFAULT_TOP_N}")
     args = parser.parse_args()
 
-    target_code = args.target.upper().strip()
-    window = args.window
-    if window <= 1:
-        print("❌ --window 必须大于1")
-        return
-    target_date = get_target_date()
-
-    print("=" * 80)
-    print("🔍 5日均线相似度选股（目标股票 vs 全市场）")
-    print("=" * 80)
-    print(f"  目标股票: {target_code}")
-    print(f"  算法: 近{window}日 MA5/MA30 → MinMax归一化 → DTW距离 d → score=1/(1+d)")
-    print(f"  最终相似度 = {WEIGHT_MA5}×5日均线相似度 + {WEIGHT_MA30}×30日均线相似度（无阈值过滤）")
-    print(f"  输出: 最终相似度最高的前 {args.top} 只")
-    print("=" * 80)
-
-    # ---------- 步骤A：最近 N 个交易日 ----------
-    print(f"\n📅 目标日期: {target_date}")
-    trade_dates = get_last_n_trade_dates(target_date, window)
-    start_date, end_date = trade_dates[0], trade_dates[-1]
-    print(f"   查询区间: {start_date} ~ {end_date}（共{len(trade_dates)}个交易日）")
-
-    # ---------- 步骤B：读取 ----------
-    data = read_ma5_data(start_date, end_date)
-    if not data:
-        print("❌ 没有获取到数据，退出程序")
+    if args.top <= 0:
+        print("❌ --top 必须大于 0")
         return
 
-    # ---------- 步骤C：计算相似度 ----------
-    top_stocks = find_similar(target_code, data, trade_dates, window, top_n=args.top)
+    print("=" * 80)
+    print("🔍 5日均线+成交量节奏相似度选股（模板股票 vs 全市场）")
+    print("=" * 80)
+    print(f"  模板股票: {args.template}")
+    print(f"  日期区间: {args.start} ~ {args.end}")
+    print(f"  评分公式: 综合相似度 = {WEIGHT_MA5}×5日均线相似度 "
+          f"+ {WEIGHT_VOLUME}×成交量走势相似度")
+    print(f"  输出: 模板（相似度1.0）置顶 + 相似度倒序排名前 {args.top} 只候选")
+    print("=" * 80)
+
+    try:
+        top_stocks = find_similar_ma5(
+            args.template, args.start, args.end, top_n=args.top)
+    except Exception as exc:
+        print(f"❌ 计算失败：{exc}", file=sys.stderr)
+        return
 
     if not top_stocks:
-        print("\n⚠️ 没有可比较的股票（数据不全或目标股票数据缺失）")
+        print("\n⚠️ 没有可比较的股票（模板数据缺失或全市场共同交易日不足）")
         return
 
-    # ---------- 步骤D：输出 ----------
-    folder_path = get_folder_path()
-    csv_path = generate_csv_file(top_stocks, folder_path, target_code)
+    end_date = _norm_date(args.end)
+    folder_path = get_folder_path(end_date)
+    csv_path = generate_csv_file(top_stocks, folder_path, args.template.upper().strip())
 
-    # 选股结果入库（便于回测）
+    # 选股结果入库（便于回测，与 CSV 内容一致）
     record_selected_stocks(STRATEGY_NAME,
-                           [{'ts_code': s['ts_code'], 'selected': 1}
+                           [{"ts_code": s["ts_code"], "selected": 1}
                             for s in top_stocks], end_date)
 
     print("\n" + "=" * 80)
-    print("🎉 5日均线相似度选股完成！")
+    print("🎉 5日均线+成交量节奏相似度选股完成！")
     print(f"📁 文件夹路径: {folder_path}")
     print(f"📄 CSV路径: {csv_path}")
     print("=" * 80)
 
-    print(f"\n🔥 最终相似度排名前{len(top_stocks)}（降序）：")
+    print(f"\n🔥 模板置顶 + 综合相似度排名前{args.top}候选（降序）：")
     for i, s in enumerate(top_stocks, 1):
-        print(f"{i:>2}. {s['ts_code']:<11} 最终={s['final_score']:.4f}  "
-              f"(MA5={s['ma5_score']:.4f} + MA30={s['ma30_score']:.4f})  "
-              f"d_ma5={s['ma5_d']:.3f} d_ma30={s['ma30_d']:.3f}")
+        tag = " [模板]" if s.get("is_template") else ""
+        print(f"{i:>2}. {s['ts_code']:<11} {s['stock_name']:<9} "
+              f"综合={s['score']:.4f} (MA5={s['ma5_score']:.3f} "
+              f"量能={s['volume_score']:.3f}) 共同={s['overlap_days']}天{tag}")
 
 
 if __name__ == "__main__":

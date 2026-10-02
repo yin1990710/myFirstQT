@@ -8,7 +8,7 @@
 用 ts_code 和 trade_date 关联，选出满足以下条件的股票：
 1. 记最近一个交易日为A日，要求A日总市值 total_mv >= 100亿
 2. 最近10个交易日至少有1个交易日涨幅 (close - 前一日close) / 前一日close × 100% > 9.5%，记录为B日
-3. B日距离A日至少有4个交易日（不含B日）；且B日次日至A日（含A日）每个交易日涨跌幅绝对值 < 5%
+3. B日距离A日至少有3个交易日（不含B日）；且B日次日至A日（含A日）每个交易日涨跌幅绝对值 < 5%
 4. 最近3个交易日 ma5 > ma30
 5. 最近10个交易日中，阳线数 >= 4，且阳线平均成交量大于阴线平均成交量的1.5倍
    （阳线=close>open，阴线=close<open，平盘不计入；无阴线时量比条件自动满足）
@@ -35,11 +35,12 @@ pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 LOOKBACK_DAYS = 10              # 数据读取窗口（最近交易日数）
 MIN_MARKET_CAP_WAN = 1_000_000  # A日总市值下限（万元）= 100亿
 SURGE_PCT = 9.5                 # B日单日涨幅阈值（%）
-MIN_GAP_DAYS = 4                # B日距A日最少交易日数（不含B日）
+MIN_GAP_DAYS = 3                # B日距A日最少交易日数（不含B日）
 PULLBACK_ABS_PCT = 5.0          # B日次日~A日单日涨跌幅绝对值上限（%）
 RECENT_MA_DAYS = 3              # 最近需满足 ma5 > ma30 的交易日数
 MIN_YANG_DAYS = 4               # 窗口内阳线最少根数
 YANG_VOL_RATIO = 1.5            # 阳线平均成交量 / 阴线平均成交量 下限
+MIN_SHORT_STRENGTH = 60.0       # 最新日短线强弱得分 > 60（无得分视为不通过）
 
 
 # ---------- 工具函数 ----------
@@ -144,6 +145,7 @@ def build_context(ts_code, stock_name, records, target_date):
         'yang_days': yang_days,
         'yang_avg_vol': yang_avg_vol,
         'yin_avg_vol': yin_avg_vol,
+        'short_strength_score': window[-1].get('short_strength_score') if window else None,
     }
 
 
@@ -179,6 +181,12 @@ def _filter_yang_volume(ctx):
     return ctx['yang_avg_vol'] > YANG_VOL_RATIO * ctx['yin_avg_vol']
 
 
+def _filter_short_strength(ctx):
+    """最新日短线强弱得分 > MIN_SHORT_STRENGTH（60，无得分视为不通过）。"""
+    s = ctx.get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
 STOCK_FILTERS = [
     (f'非A日行情或有效交易日不足{LOOKBACK_DAYS}日', _filter_target_date_and_bars),
@@ -187,6 +195,7 @@ STOCK_FILTERS = [
     (f'近{RECENT_MA_DAYS}日存在ma5<=ma30', _filter_ma5_above_ma30),
     (f'近{LOOKBACK_DAYS}日阳线<{MIN_YANG_DAYS}根', _filter_yang_count),
     (f'阳线平均量未超阴线{YANG_VOL_RATIO:g}倍', _filter_yang_volume),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -218,6 +227,7 @@ def read_stock_data(start_date, end_date):
             d.vol,
             d.ma5,
             d.ma30,
+            d.short_strength_score,
             b.total_mv,
             i.stock_name
         FROM stock_daily_t d
@@ -264,6 +274,8 @@ def analyze_stocks(data, target_date):
             'vol':        (float(record['vol']) if record['vol'] is not None else 0.0),
             'ma5':        (float(record['ma5']) if record['ma5'] is not None else 0.0),
             'ma30':       (float(record['ma30']) if record['ma30'] is not None else 0.0),
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
             'total_mv':   total_mv,
         })
 
@@ -341,6 +353,7 @@ def main():
     print(f"  3. B日次日至A日单日涨跌幅绝对值 < {PULLBACK_ABS_PCT:g}%")
     print(f"  4. 近{RECENT_MA_DAYS}日 ma5 > ma30")
     print(f"  5. 近{LOOKBACK_DAYS}日阳线>={MIN_YANG_DAYS}根，阳线平均量>阴线{YANG_VOL_RATIO:g}倍")
+    print(f"  6. 最新日短线强弱得分 > {MIN_SHORT_STRENGTH:g}")
     print("=" * 80)
 
     # ---------- 步骤A：获取最近 10 个交易日 ----------

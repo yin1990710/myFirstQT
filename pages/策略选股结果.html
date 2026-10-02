@@ -108,6 +108,7 @@
   .fs-param-row input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 6px;
                         font-size: 13px; width: 170px; font-family: inherit; }
   .fs-param-row input:focus { border-color: #1a73e8; outline: none; }
+  .fs-param-row input[type="date"] { cursor: pointer; }
   .fs-param-row .fs-run { padding: 7px 22px; border: none; border-radius: 6px;
                           background: #1a73e8; color: #fff; font-size: 13px;
                           font-weight: 600; cursor: pointer; }
@@ -151,6 +152,12 @@
   thead th:first-child:hover { background: #1a73e8; }
   /* 行点击展开K线 */
   tbody tr.data-row { cursor: pointer; }
+  tbody tr.tpl-row { background: #eef4ff; }
+  tbody tr.tpl-row:hover { background: #e0ebff; }
+  .tpl-badge {
+    display: inline-block; padding: 1px 7px; border-radius: 9px;
+    background: #1a73e8; color: #fff; font-size: 11px; font-weight: 600;
+  }
   tr.kline-row td { padding: 0; background: #fafbfc; border-bottom: 1px solid #eee; }
   .kline-inline { width: 100%; height: 340px; padding: 4px 8px 8px; }
   .kline-loading { text-align: center; padding: 40px; color: #888; font-size: 14px; }
@@ -439,19 +446,20 @@ let _statusTimer = null;            // 条件选股轮询定时器
 const FIND_SIMILAR_CAT = '以股选股';
 const FS_CONFIG = {
   'find_similar_ma5.py': {
-    title: '5日均线相似度选股',
+    title: '5日均线+成交量节奏相似选股',
     params: [
-      { key: 'target', label: '目标股票代码', type: 'text', required: true, placeholder: '如 301171.SZ' },
-      { key: 'window', label: '窗口长度(交易日)', type: 'number', default: 10 },
-      { key: 'top', label: '输出前N只', type: 'number', default: 10 },
+      { key: 'target', label: '模板股票代码', type: 'text', required: true, placeholder: '如 688213.SH' },
+      { key: 'start', label: '开始日期', type: 'date', required: true },
+      { key: 'end', label: '结束日期', type: 'date', required: true },
+      { key: 'top', label: '相似度排名前N只', type: 'number', default: 10 },
     ],
   },
   'find_similar_price_vol.py': {
     title: '量价形态相似选股',
     params: [
       { key: 'code', label: '模板股票代码', type: 'text', default: '605111.SH' },
-      { key: 'start', label: '模板起始日(YYYYMMDD)', type: 'text', default: '20260127' },
-      { key: 'end', label: '模板结束日(YYYYMMDD)', type: 'text', default: '20260615' },
+      { key: 'start', label: '模板起始日', type: 'date', default: '20260127' },
+      { key: 'end', label: '模板结束日', type: 'date', default: '20260615' },
       { key: 'min_score', label: '相似度阈值', type: 'number', step: '0.01', default: 0.70 },
     ],
   },
@@ -662,7 +670,7 @@ function saveFsParams() {
   const o = _fsParams[_fsScript] || {};
   FS_CONFIG[_fsScript].params.forEach(p => {
     const el = document.getElementById('fs_' + p.key);
-    if (el) o[p.key] = el.value.trim();
+    if (el) o[p.key] = p.type === 'date' ? compactDate(el.value) : el.value.trim();
   });
   _fsParams[_fsScript] = o;
 }
@@ -682,8 +690,11 @@ function renderFindSimilarBox(visible) {
     const ph = p.placeholder ? `placeholder="${attrEsc(p.placeholder)}"` : '';
     const step = p.step ? `step="${p.step}"` : '';
     const req = p.required ? 'required' : '';
+    // date 组件值为 YYYY-MM-DD，缓存默认值为 YYYYMMDD，渲染时转换
+    const rawVal = vals[p.key] || '';
+    const val = p.type === 'date' ? toDateInput(rawVal) : rawVal;
     return `<label>${p.label}
-      <input type="${p.type}" id="fs_${p.key}" value="${attrEsc(vals[p.key] || '')}" ${ph} ${step} ${req}>
+      <input type="${p.type}" id="fs_${p.key}" value="${attrEsc(val)}" ${ph} ${step} ${req}>
     </label>`;
   }).join('');
   const st = _fsStatus[_fsScript];
@@ -709,10 +720,12 @@ function autoFillFsFromSelection() {
     if (p.key === 'code' || p.key === 'target') vals[p.key] = first.dataset.code;
     else if ((p.key === 'start' || p.key === 'end') && first.dataset.date) vals[p.key] = first.dataset.date;
   });
-  // 同步到已渲染的输入框（不整块重绘，避免打断正在进行的操作）
+  // 同步到已渲染的输入框（不整块重绘，避免打断正在进行的操作）；date 组件需转 YYYY-MM-DD
   FS_CONFIG[_fsScript].params.forEach(p => {
     const el = document.getElementById('fs_' + p.key);
-    if (el && vals[p.key] !== undefined) el.value = vals[p.key];
+    if (el && vals[p.key] !== undefined) {
+      el.value = p.type === 'date' ? toDateInput(vals[p.key]) : vals[p.key];
+    }
   });
 }
 
@@ -721,12 +734,13 @@ document.getElementById('body').addEventListener('change', e => {
   if (e.target.matches('input.row-cb')) autoFillFsFromSelection();
 });
 
-// 收集当前脚本非空参数
+// 收集当前脚本非空参数；date 组件值 YYYY-MM-DD 提交前转 YYYYMMDD
 function getFsArgs() {
   const args = {};
   FS_CONFIG[_fsScript].params.forEach(p => {
     const el = document.getElementById('fs_' + p.key);
-    if (el && el.value.trim()) args[p.key] = el.value.trim();
+    if (!el || !el.value) return;
+    args[p.key] = p.type === 'date' ? compactDate(el.value) : el.value.trim();
   });
   return args;
 }
@@ -749,10 +763,10 @@ function runFindSimilar() {
   if (!_fsScript) { alert('请先勾选一个以股选股策略'); return; }
   saveFsParams();
   const args = getFsArgs();
-  // ma5 的目标代码为必填位置参数（与以股选股.html/后端校验保持一致）
-  if (_fsScript === 'find_similar_ma5.py' && !args.target) {
-    alert('请填写目标股票代码，如 301171.SZ');
-    return;
+  // ma5 的模板代码与日期区间为必填（与以股选股.html/后端校验保持一致）
+  if (_fsScript === 'find_similar_ma5.py') {
+    if (!args.target) { alert('请填写模板股票代码，如 688213.SH'); return; }
+    if (!args.start || !args.end) { alert('请填写开始日期和结束日期（YYYYMMDD）'); return; }
   }
   const btn = document.getElementById('fsRunBtn');
   btn.disabled = true; btn.textContent = '执行中…';
@@ -826,9 +840,9 @@ function syncResultView() {
   bar.classList.add('fs-mode');
   el.style.display = 'flex';
   if (_fsResult) {
-    el.innerHTML = `<span>📌 <b>${attrEsc(_fsResult.title)}</b> 的相似股票结果`
+      el.innerHTML = `<span>📌 <b>${attrEsc(_fsResult.title)}</b> 的相似股票结果`
       + (_fsResult.template ? `（模板：${attrEsc(_fsResult.template)}）` : '')
-      + `，共 ${_fsResult.rows.length} 只`
+      + `，共 ${_fsResult.rows.length} 只（含模板）`
       + (_fsResult.rows.length ? '' : '（无符合条件的股票）')
       + `</span>`;
   } else if (_fsDbRows.length) {
@@ -856,6 +870,7 @@ function showFindSimilarResults(script) {
           stock_name: x.stock_name,
           strategy: (FS_CONFIG[script] || {}).title || script,
           selected_date: d.result_date || '',
+          is_template: !!(d.template_code && x.ts_code === d.template_code),
         })),
       };
       currentPage = 1;
@@ -872,6 +887,12 @@ function resetFilters() {
 // 日历控件值为 YYYY-MM-DD，后端 selected_date 为 YYYYMMDD，去掉连字符即可
 function compactDate(v) {
   return v ? v.replace(/-/g, '') : '';
+}
+
+// 以股选股参数缓存/数据集日期为 YYYYMMDD，回填 <input type="date"> 需转成 YYYY-MM-DD
+function toDateInput(v) {
+  if (v && /^\d{8}$/.test(v)) return v.slice(0, 4) + '-' + v.slice(4, 6) + '-' + v.slice(6, 8);
+  return v || '';
 }
 
 function query() {
@@ -1111,9 +1132,9 @@ function render() {
   // 以股选股卡片的结果行无交易日字段：入选日期补今天，便于加入我的股票池
   const isFsView = _activeCat === FIND_SIMILAR_CAT && _fsResult;
   document.getElementById('body').innerHTML = pageRows.map((r, i) =>
-    `<tr class="data-row">`
+    `<tr class="data-row${r.is_template ? ' tpl-row' : ''}">`
     + `<td><input type="checkbox" class="row-cb" data-code="${r.ts_code||''}" data-name="${(r.stock_name||'').replace(/"/g,'&quot;')}" data-date="${isFsView ? (r.selected_date || todayCompact()) : (r.selected_date||'')}" data-strategy="${isFsView ? (_fsResult.title).replace(/"/g,'&quot;') : (r.strategy||'').replace(/"/g,'&quot;')}"></td>`
-    + `<td>${(currentPage - 1) * PAGE_SIZE + i + 1}</td>`
+    + `<td>${r.is_template ? '<span class="tpl-badge">模板</span>' : ((currentPage - 1) * PAGE_SIZE + i + 1)}</td>`
     + COLS.map(c => {
         let cells = renderCell(r, c);
         if (c.key === 'strategy') cells += `<td class="sss-cell" data-code="${r.ts_code||''}">${sssCellHtml(r.ts_code)}</td>`;

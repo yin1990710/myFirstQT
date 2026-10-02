@@ -79,6 +79,7 @@ SURGE_PCT = 8.0                 # T-4~T 日单日涨幅阈值（%）
 VOL_MULTIPLE = 2.0              # 放量倍数：当日成交额 >= VOL_MULTIPLE × 基准平均成交额
 MIN_MARKET_CAP_WAN = 800_000    # T日总市值下限（万元）= 80亿
 RECENT_MA_DAYS = 3              # 最近需满足 ma5 > ma30 的交易日数
+MIN_SHORT_STRENGTH = 60.0       # 最新日短线强弱得分 > 60（无得分视为不通过）
 
 # 换手率分档表（万元总市值下限, 换手率阈值%）：按顺序匹配首个 mv>=下界 的档位
 MV_TR_TIERS = [
@@ -153,6 +154,7 @@ def build_context(ts_code, records):
         'surge_hit': surge_hit,
         'surge_day': surge_day,
         'avg_turnover': avg_turnover,
+        'short_strength_score': records[-1].get('short_strength_score') if records else None,
     }
 
 
@@ -192,6 +194,12 @@ def _filter_ma5_above_ma30(ctx):
     )
 
 
+def _filter_short_strength(ctx):
+    """最新日短线强弱得分 > MIN_SHORT_STRENGTH（60，无得分视为不通过）。"""
+    s = ctx.get('short_strength_score')
+    return s is not None and s > MIN_SHORT_STRENGTH
+
+
 # 过滤条件注册表：每个条件为 (淘汰原因名称, 函数)
 STOCK_FILTERS = [
     ('非沪深A股', _filter_a_share),
@@ -200,6 +208,7 @@ STOCK_FILTERS = [
     (f'近{SURGE_WINDOW}日无单日涨幅>{SURGE_PCT:g}%且成交额>={VOL_MULTIPLE:g}倍', _filter_surge_with_volume),
     (f'近{SURGE_WINDOW}日平均换手率未达分档阈值', _filter_avg_turnover),
     (f'近{RECENT_MA_DAYS}日存在ma5<=ma30', _filter_ma5_above_ma30),
+    (f'短线强弱得分<={MIN_SHORT_STRENGTH:g}', _filter_short_strength),
 ]
 
 
@@ -230,6 +239,7 @@ def read_stock_data(start_date, end_date):
             d.amount,
             d.ma5,
             d.ma30,
+            d.short_strength_score,
             b.total_mv,
             b.turnover_rate_f
         FROM stock_daily_t d
@@ -277,6 +287,8 @@ def analyze_stocks(data):
                                if record['ma5'] is not None else 0.0),
             'ma30':            (float(record['ma30'])
                                if record['ma30'] is not None else 0.0),
+            'short_strength_score': (float(record['short_strength_score'])
+                                     if record.get('short_strength_score') is not None else None),
             'total_mv':        total_mv,
             'turnover_rate_f': turnover,
         })
@@ -356,6 +368,7 @@ def main():
     print(f"  2. T-4~T日有一日涨幅>{SURGE_PCT:g}% 且 成交额>={VOL_MULTIPLE:g}×T-19~T-5平均成交额")
     print("  3. T-4~T日平均换手率达标（按T日市值分档：100~300亿>15%/300~500亿>10%/500~800亿>8%/>800亿>6%）")
     print(f"  4. 最近{RECENT_MA_DAYS}个交易日 ma5 > ma30")
+    print(f"  5. 最新日短线强弱得分 > {MIN_SHORT_STRENGTH:g}")
     print("=" * 80)
 
     # ---------- 步骤A：获取最近 LOOKBACK_DAYS 个交易日 ----------

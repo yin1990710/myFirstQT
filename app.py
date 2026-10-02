@@ -3049,12 +3049,17 @@ def api_find_similar_run():
         # 构造命令行参数
         args_map = payload.get('args') or {}
         cmd_args = []
-        # find_similar_ma5.py 的 target 是位置参数
+        # find_similar_ma5.py：模板代码为位置参数，另需 --start/--end
         if script == 'find_similar_ma5.py':
-            target = (args_map.get('target') or '').strip()
+            target = (args_map.get('target') or args_map.get('code') or '').strip()
             if not target:
-                return jsonify({'error': '缺少目标股票代码 target 参数'}), 400
+                return jsonify({'error': '缺少模板股票代码 target/code 参数'}), 400
+            start = (args_map.get('start') or '').strip()
+            end = (args_map.get('end') or '').strip()
+            if not start or not end:
+                return jsonify({'error': '缺少开始日期 start 或结束日期 end 参数'}), 400
             cmd_args.append(target)
+            cmd_args.extend(['--start', start, '--end', end])
         else:
             # find_similar_price_vol.py 用 --code/--start/--end
             code = (args_map.get('code') or '').strip()
@@ -3178,7 +3183,9 @@ def api_find_similar_results():
         template_code = params['code'].upper().strip()
 
     # 解析计算结果日期（结果列表的交易日）：
-    # ma5/wave2 日志为"目标日期[: ]YYYYMMDD"，price_vol 取"候选扫描区间"终点日
+    # - 旧 ma5/wave2 日志为"目标日期[: ]YYYYMMDD"
+    # - find_similar_ma5 新日志为"日期区间: YYYYMMDD ~ YYYYMMDD"，取结束日
+    # - price_vol 取"候选扫描区间"终点日
     result_date = None
     for line in lines:
         m = re.search(r'目标日期[:：]?\s*(\d{8})', line)
@@ -3187,10 +3194,10 @@ def api_find_similar_results():
             break
     if not result_date:
         for line in lines:
-            if '扫描区间' in line:
-                m = re.search(r'~\s*(\d{8})', line)
+            if '日期区间' in line or '扫描区间' in line:
+                m = re.search(r'(\d{4}-?\d{2}-?\d{2})\s*~\s*(\d{4}-?\d{2}-?\d{2})', line)
                 if m:
-                    result_date = m.group(1)
+                    result_date = m.group(2).replace('-', '')
                 break
 
     # 解析 "🔥 相似度排名" 后的股票列表
