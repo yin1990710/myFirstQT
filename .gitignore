@@ -51,6 +51,7 @@ monitor_stock_data*/
 量价相似*/
 二浪早识别*/
 底部反弹*/
+V形反转*/
 
 # Output files (per-stock charts & dated reports at root)
 *.SH.png
