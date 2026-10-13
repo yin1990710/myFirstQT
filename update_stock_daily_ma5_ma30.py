@@ -19,6 +19,24 @@ def get_latest_trade_date(conn):
     return row['latest_date'] if row else None
 
 
+def get_fetch_start_date(conn, start_date, need_bars=40):
+    """按交易日回看：取 start_date（含）之前最近 need_bars 个交易日中的最早日期。
+
+    严格按数据库中的交易日回看，而不是自然日减固定天数，
+    避免长假（如国庆）导致窗口内交易日不足 30 天、MA30 无法计算。
+    """
+    sql = """
+        SELECT DISTINCT trade_date FROM stock_daily_t
+        WHERE trade_date <= %s
+        ORDER BY trade_date DESC
+        LIMIT %s
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(sql, (start_date, need_bars))
+        dates = [r['trade_date'] for r in cursor.fetchall()]
+    return min(dates) if dates else None
+
+
 def read_stock_data(conn, start_date, end_date, fetch_start_date):
     """读取指定日期范围的股票数据（从fetch_start_date开始，确保有足够数据计算MA30）"""
     query_sql = """
@@ -111,13 +129,15 @@ def main():
             start_date = latest_date
             end_date = latest_date
 
-        # 计算抓取数据的起始日期（start_date - 42天，确保有足够数据计算MA30）
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        fetch_start_dt = start_dt - timedelta(days=42)
-        fetch_start_date = fetch_start_dt.strftime('%Y%m%d')
+        # 计算抓取数据的起始日期：严格按交易日回看 40 个交易日（> MA30 所需 30 天），
+        # 避免国庆等长假导致自然日窗口内交易日不足
+        fetch_start_date = get_fetch_start_date(conn, start_date, need_bars=40)
+        if fetch_start_date is None:
+            print("❌ 数据库中无可用交易日数据")
+            return
 
         print(f"📅 目标日期范围: {start_date} ~ {end_date}")
-        print(f"📅 数据抓取范围: {fetch_start_date} ~ {end_date}")
+        print(f"📅 数据抓取范围: {fetch_start_date} ~ {end_date}（按交易日回看 40 个交易日）")
 
         data = read_stock_data(conn, start_date, end_date, fetch_start_date)
         if data is None or len(data) == 0:
