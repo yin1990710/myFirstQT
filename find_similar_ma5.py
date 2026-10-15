@@ -7,9 +7,11 @@
 计算每只股票与模板股票在选定日期范围内的相似度，按倒序返回前 N 只的
 股票代码、名称和相似度得分。
 
-综合相似度 = 5日均线相似度 × 0.5 + 成交量走势相似度 × 0.5
+综合相似度 = 5日均线相似度 × 0.4 + 30日均线相似度 × 0.2 + 成交量走势相似度 × 0.4
   - 5日均线相似度：来自 module_ma5_similarity_compare.py
       归一化 MA5 曲线相关 / DTW 形状 / MA5 收益率相关 / 斜率拐头 / MA5-MA20 状态
+  - 30日均线相似度：复用同一套均线指标（曲线相关 / DTW 形状 / 收益率相关 /
+      斜率拐头），在 MA30 上计算，刻画中期趋势形态是否同步
   - 成交量节奏相似度：来自 module_volume_rhythm_compare.py
       量能对数Z分 / 量比VR / DTW 形状 / 方向一致率 / 放缩量状态 Kappa
 两个子分均已剔除绝对价位与成交量级差异，且各自在模板打分日历上逐日对齐；
@@ -49,10 +51,12 @@ import module_volume_rhythm_compare as vrm
 
 
 # ---------- 常量 ----------
-WEIGHT_MA5 = 0.5                    # 5日均线相似度权重
-WEIGHT_VOLUME = 0.5                 # 成交量走势相似度权重
+WEIGHT_MA5 = 0.4                    # 5日均线相似度权重
+WEIGHT_MA30 = 0.2                   # 30日均线相似度权重
+WEIGHT_VOLUME = 0.4                 # 成交量走势相似度权重
 MA_FAST = mam.DEFAULT_FAST          # 快线周期 5
 MA_SLOW = mam.DEFAULT_SLOW          # 慢线周期 20（多空状态 / 金叉死叉）
+MA30 = 30                           # 中期均线周期（MA30 相似度）
 VOL_MA = vrm.DEFAULT_MA             # 量比/对数Z分滚动窗口 20
 DEFAULT_TOP_N = 10
 
@@ -66,8 +70,8 @@ def _norm_date(d: str) -> str:
 
 
 def _seed_start(start: str) -> str:
-    """预热自然日：同时满足慢线 MA20 与成交量窗口 MA20 的滚动种子需求。"""
-    seed_days = max(MA_SLOW * 2 + 15, VOL_MA * 2 + 15)
+    """预热自然日：同时满足慢线 MA20、MA30 与成交量窗口 MA20 的滚动种子需求。"""
+    seed_days = max(MA30 * 2 + 15, MA_SLOW * 2 + 15, VOL_MA * 2 + 15)
     return (datetime.strptime(start, "%Y%m%d") - timedelta(days=seed_days)).strftime("%Y%m%d")
 
 
@@ -125,10 +129,15 @@ def load_market_panel(template_code: str, start: str, end: str
 # ---------- 模板特征（两只子模块口径，只构造一次） ----------
 
 def build_template_features(g: pd.DataFrame, dates: List[str]) -> Dict[str, np.ndarray]:
-    """在模板自身交易日上算 MA 与量能节奏（含预热滚动），再按打分日历对齐。"""
+    """在模板自身交易日上算 MA5/MA20/MA30 与量能节奏（含预热滚动），再按打分日历对齐。"""
     ma_df = (mam.compute_mas(g[["trade_date", "close"]], MA_FAST, MA_SLOW)
              .set_index("trade_date").reindex(dates))
+    # MA30（中期均线）额外计算
+    ma30_series = g[["trade_date", "close"]].copy()
+    ma30_series["ma30"] = ma30_series["close"].rolling(MA30, min_periods=MA30).mean()
+    ma30_series = ma30_series.set_index("trade_date").reindex(dates)["ma30"]
     nz = mam.normalize_ma(ma_df[f"ma{MA_FAST}"])
+    nz30 = mam.normalize_ma(ma30_series)
     vol_df = (vrm.build_rhythm(g["vol"], g["trade_date"], VOL_MA)
               .set_index("trade_date").reindex(dates))
     return {
@@ -138,6 +147,10 @@ def build_template_features(g: pd.DataFrame, dates: List[str]) -> Dict[str, np.n
         "ma_z": nz["zscore"].values,
         "ma_ret": nz["return"].values,
         "ma_state": mam.ma_state(ma_df[f"ma{MA_FAST}"], ma_df[f"ma{MA_SLOW}"]),
+        "ma30": ma30_series.values,
+        "ma30_rebase": nz30["rebase"].values,
+        "ma30_z": nz30["zscore"].values,
+        "ma30_ret": nz30["return"].values,
         "vol_z": vol_df["z"].values,
         "vol_vr": vol_df["vr"].values,
         "vol_state": vol_df["state"].values,
@@ -156,20 +169,26 @@ def _slope_agreement(a: np.ndarray, b: np.ndarray) -> float:
 def score_candidate(g: pd.DataFrame,
                     dates: List[str],
                     tpl: Dict[str, np.ndarray]) -> Optional[Dict[str, float]]:
-    """计算单只候选的 MA5 相似度、成交量节奏相似度与综合分；样本不足返回 None。"""
+    """计算单只候选的 MA5/MA30/成交量节奏相似度与综合分；样本不足返回 None。"""
     # —— 均线侧 ——
     ma_df = (mam.compute_mas(g[["trade_date", "close"]], MA_FAST, MA_SLOW)
              .set_index("trade_date").reindex(dates))
+    # —— MA30 ——
+    ma30_series = g[["trade_date", "close"]].copy()
+    ma30_series["ma30"] = ma30_series["close"].rolling(MA30, min_periods=MA30).mean()
+    ma30_series = ma30_series.set_index("trade_date").reindex(dates)["ma30"]
     # —— 量能侧 ——
     vol_df = (vrm.build_rhythm(g["vol"], g["trade_date"], VOL_MA)
               .set_index("trade_date").reindex(dates))
 
     fast_b, slow_b = ma_df[f"ma{MA_FAST}"].values, ma_df[f"ma{MA_SLOW}"].values
+    ma30_b = ma30_series.values
     vz_b, vr_b = vol_df["z"].values, vol_df["vr"].values
 
-    # 共同有效掩码：两侧均线 + 模板/候选量能Z分均可计算
+    # 共同有效掩码：两侧均线(含MA30) + 模板/候选量能Z分均可计算
     mask = (np.isfinite(tpl["ma_fast"]) & np.isfinite(fast_b)
             & np.isfinite(tpl["ma_slow"]) & np.isfinite(slow_b)
+            & np.isfinite(tpl["ma30"]) & np.isfinite(ma30_b)
             & np.isfinite(tpl["vol_z"]) & np.isfinite(vz_b))
     overlap = int(mask.sum())
     n_tpl = len(dates)
@@ -200,6 +219,18 @@ def score_candidate(g: pd.DataFrame,
     ma_metrics["death_jaccard"] = mam.event_jaccard(da, db)
     ma_score = mam.composite_score(ma_metrics)
 
+    # ================= MA30 相似度指标（复用同一套均线口径） =================
+    nz30_b = mam.normalize_ma(ma30_series)
+    reb30_b, z30_b, ret30_b = nz30_b["rebase"].values, nz30_b["zscore"].values, nz30_b["return"].values
+    ma30_metrics: Dict[str, float] = {}
+    ma30_metrics["corr_rebase"] = mam.safe_corr(tpl["ma30_rebase"][mask], reb30_b[mask])
+    ma30_metrics["corr_ma_return"] = mam.safe_corr(tpl["ma30_ret"][mask], ret30_b[mask])
+    ma30_metrics["dtw_similarity"], _ = mam.dtw_similarity(
+        tpl["ma30_z"][mask], z30_b[mask], band)
+    ma30_metrics["slope_agreement"] = _slope_agreement(
+        tpl["ma30"][mask], ma30_b[mask])
+    ma30_score = mam.composite_score(ma30_metrics)
+
     # ================= 成交量节奏相似度指标（module_volume_rhythm_compare 口径） =================
     st_vol_b = vol_df["state"].values
     vol_metrics: Dict[str, float] = {}
@@ -214,13 +245,16 @@ def score_candidate(g: pd.DataFrame,
     vol_metrics["kappa_state"] = vol_kappa
     vol_score = vrm.composite_score(vol_metrics)
 
-    if not (np.isfinite(ma_score) and np.isfinite(vol_score)):
+    if not (np.isfinite(ma_score) and np.isfinite(ma30_score) and np.isfinite(vol_score)):
         return None
 
-    final_score = WEIGHT_MA5 * ma_score + WEIGHT_VOLUME * vol_score
+    final_score = (WEIGHT_MA5 * ma_score
+                   + WEIGHT_MA30 * ma30_score
+                   + WEIGHT_VOLUME * vol_score)
     return {
         "score": float(final_score),
         "ma5_score": float(ma_score),
+        "ma30_score": float(ma30_score),
         "volume_score": float(vol_score),
         "overlap_days": overlap,
         "overlap_ratio": overlap / n_tpl,
@@ -236,10 +270,10 @@ def find_similar_ma5(template_code: str,
                      verbose: bool = True) -> List[Dict[str, object]]:
     """扫描全市场，返回与模板在 [start_date, end_date] 综合相似度最高的前 top_n 只。
 
-    综合相似度 = 5日均线相似度×0.5 + 成交量走势相似度×0.5，按得分降序。
+    综合相似度 = 5日均线相似度×0.4 + 30日均线相似度×0.2 + 成交量走势相似度×0.4，按得分降序。
     返回结果首条固定为模板股票自身（相似度 1.0，不占用 top_n 名额），
     其后为相似度排名前 top_n 的候选股票，共 top_n+1 条。
-    每条：ts_code / stock_name / score / ma5_score / volume_score /
+    每条：ts_code / stock_name / score / ma5_score / ma30_score / volume_score /
           overlap_days / overlap_ratio / is_template
     """
     start, end = _norm_date(start_date), _norm_date(end_date)
@@ -274,6 +308,7 @@ def find_similar_ma5(template_code: str,
             "stock_name": name_map.get(code, ""),
             "score": round(r["score"], 4),
             "ma5_score": round(r["ma5_score"], 4),
+            "ma30_score": round(r["ma30_score"], 4),
             "volume_score": round(r["volume_score"], 4),
             "overlap_days": r["overlap_days"],
             "overlap_ratio": round(r["overlap_ratio"], 3),
@@ -289,6 +324,7 @@ def find_similar_ma5(template_code: str,
         "stock_name": name_map.get(template_code, ""),
         "score": 1.0,
         "ma5_score": 1.0,
+        "ma30_score": 1.0,
         "volume_score": 1.0,
         "overlap_days": len(dates),
         "overlap_ratio": 1.0,
@@ -301,6 +337,7 @@ def find_similar_ma5(template_code: str,
         print(f"模板 {template_code}（{name_map.get(template_code, '')}）"
               f" {dates[0]}~{dates[-1]}，打分日历 {len(dates)} 个交易日")
         print(f"评分公式：综合相似度 = {WEIGHT_MA5}×5日均线相似度 "
+              f"+ {WEIGHT_MA30}×30日均线相似度 "
               f"+ {WEIGHT_VOLUME}×成交量走势相似度")
         print(f"扫描 {total} 只 → 参与排名 {len(results)} 只，"
               f"样本不足/异常跳过 {skipped} 只，返回模板 + Top {top_n} 候选"
@@ -334,10 +371,12 @@ def generate_csv_file(stocks: List[Dict[str, object]], folder_path: str,
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["股票代码", "股票名称", "综合相似度",
-                         "5日均线相似度", "成交量节奏相似度", "共同交易日", "是否模板"])
+                         "5日均线相似度", "30日均线相似度", "成交量节奏相似度",
+                         "共同交易日", "是否模板"])
         for s in stocks:
             writer.writerow([s["ts_code"], s["stock_name"], s["score"],
-                             s["ma5_score"], s["volume_score"], s["overlap_days"],
+                             s["ma5_score"], s["ma30_score"], s["volume_score"],
+                             s["overlap_days"],
                              "是" if s.get("is_template") else ""])
     print(f"✅ CSV文件已生成（{len(stocks)}只，含模板）: {csv_path}")
     return csv_path
@@ -368,6 +407,7 @@ def main() -> None:
     print(f"  模板股票: {args.template}")
     print(f"  日期区间: {args.start} ~ {args.end}")
     print(f"  评分公式: 综合相似度 = {WEIGHT_MA5}×5日均线相似度 "
+          f"+ {WEIGHT_MA30}×30日均线相似度 "
           f"+ {WEIGHT_VOLUME}×成交量走势相似度")
     print(f"  输出: 模板（相似度1.0）置顶 + 相似度倒序排名前 {args.top} 只候选")
     print("=" * 80)
@@ -403,7 +443,8 @@ def main() -> None:
         tag = " [模板]" if s.get("is_template") else ""
         print(f"{i:>2}. {s['ts_code']:<11} {s['stock_name']:<9} "
               f"综合={s['score']:.4f} (MA5={s['ma5_score']:.3f} "
-              f"量能={s['volume_score']:.3f}) 共同={s['overlap_days']}天{tag}")
+              f"MA30={s['ma30_score']:.3f} 量能={s['volume_score']:.3f}) "
+              f"共同={s['overlap_days']}天{tag}")
 
 
 if __name__ == "__main__":
