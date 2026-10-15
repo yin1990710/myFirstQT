@@ -139,6 +139,9 @@
 
   <div id="metricGroups"></div>
 
+  <!-- 4类核心宽基ETF成交额（仅最新JSON提供；历史日快照无该数据则隐藏） -->
+  <div id="etfAmountSection" style="display:none;"></div>
+
   <div class="warn">
     <b>使用说明：</b>四板块市盈率（C1-C4）均取自沪深交易所官网市场总貌官方口径；
     其中科创板平均市盈率包含高 PE 与未盈利企业，与其他板块不可直接横向比较。
@@ -182,6 +185,9 @@ function render(data) {
 
   // 头部核心指数概览（仅最新 JSON 提供；历史日快照无该数据则隐藏）
   renderIndices(data.indices);
+
+  // 4类核心宽基ETF成交额（仅最新 JSON 提供；历史日快照无该数据则隐藏）
+  renderEtfAmounts(data.etf_amounts);
 
   var metrics = data.metrics || [];
   // KPI 卡片
@@ -234,6 +240,7 @@ function clearPanels() {
     document.getElementById('kpi-' + k).textContent = '—';
   });
   document.getElementById('idxKpi').style.display = 'none';
+  document.getElementById('etfAmountSection').style.display = 'none';
   closeIndexChart();
   closeKpiChart();
   disposeAllRowCharts();
@@ -345,6 +352,26 @@ function renderIndices(indices) {
       + (amt ? '<span class="idx-amt">' + amt + '</span>' : '')
       + '</div>';
   }).join('');
+}
+
+// ---- 4类核心宽基ETF成交额：单只成交额≥10亿，按跟踪指数分组加总 ----
+function renderEtfAmounts(etf) {
+  var sec = document.getElementById('etfAmountSection');
+  var items = (etf && etf.items) || [];
+  if (!items.length) { sec.style.display = 'none'; return; }
+  var html = '<h3>核心宽基ETF当日成交额 <span class="cnt">单只成交额≥10亿 · 按跟踪指数分组加总 · 交易日 '
+    + dashDate(etf.trade_date || '') + '</span></h3>';
+  html += '<table><tr><th>ETF类别</th><th>跟踪指数</th><th>入围只数</th><th>合计成交额（亿元）</th></tr>';
+  items.forEach(function(x) {
+    html += '<tr><td>' + x.name + '</td><td class="note">' + x.index_code + '</td>'
+      + '<td style="text-align:right">' + (x.etf_count || 0) + ' 只</td>'
+      + '<td style="text-align:right"><b>'
+      + (x.amount_yi === null || x.amount_yi === undefined ? 'N/A' : x.amount_yi.toFixed(2))
+      + '</b></td></tr>';
+  });
+  html += '</table><div class="note">ETF行情由 update_etf_daily.py 采集；该类别当日无≥10亿成交的ETF时显示 N/A。</div>';
+  sec.innerHTML = html;
+  sec.style.display = '';
 }
 
 function closeIndexChart() {

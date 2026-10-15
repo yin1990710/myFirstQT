@@ -16,6 +16,7 @@
   【B 资金面 】B1 换手率中位数 / B2 成交额÷总市值 / B3 全市场成交额 /
               B4 融资余额 / B5 融资÷流通市值 / B6 融券余额 / B7 融券÷流通市值
   【C 估值  】C1 上证主板PE / C2 深证主板PE(自算) / C3 创业板PE(自算) / C4 科创板PE
+  补充统计：4类核心宽基ETF（上证50/沪深300/中证500/科创50）单只成交额≥10亿按类加总
 
 用法：
   .venv/bin/python report_market_overview_metricx.py
@@ -53,6 +54,15 @@ INDEX_OVERVIEW_CODES = [
     ('399006.SZ', '创业板指'),
     ('000985.CSI', '中证全指'),
 ]
+
+# 4类核心宽基ETF（按 etf_basic_t.index_code 跟踪指数精确匹配，排除策略/增强指数）
+ETF_INDEX_CATEGORIES = [
+    ('000016.SH', '上证50ETF'),
+    ('000300.SH', '沪深300ETF'),
+    ('000905.SH', '中证500ETF'),
+    ('000688.SH', '科创50ETF'),
+]
+ETF_MIN_AMOUNT_YI = 10.0   # 单只ETF当日成交额下限（亿元）
 
 
 def _fmt_date(d):
@@ -266,6 +276,50 @@ def compute_index_overview(rows: list) -> list:
             'amount_yi': round(amount / QIAN, 1) if amount else None,
         }
     return [out[c] for c, _ in INDEX_OVERVIEW_CODES if c in out]
+
+
+def collect_etf_amounts(conn, trade_date: str) -> dict:
+    """采集层：统计4类核心宽基ETF当日成交额（单只≥10亿，按类加总，单位亿元）。
+
+    etf_daily_t.amount 单位千元（QIAN=100000 → 亿元）；
+    分类依据 etf_basic_t.index_code 精确匹配跟踪指数。
+    目标日无 ETF 数据时回退至 etf_daily_t 中 ≤ 目标日的最新交易日（actual_date）。
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT MAX(trade_date) AS d FROM etf_daily_t WHERE trade_date <= %s",
+        (trade_date,))
+    row = cursor.fetchone()
+    actual_date = str(row['d']) if row and row['d'] else None
+    result = {'trade_date': actual_date, 'items': []}
+    if not actual_date:
+        cursor.close()
+        return result
+
+    codes = [c for c, _ in ETF_INDEX_CATEGORIES]
+    placeholders = ','.join(['%s'] * len(codes))
+    cursor.execute(
+        f"""SELECT b.index_code, COUNT(*) AS etf_cnt, SUM(d.amount) AS amount_qian
+            FROM etf_daily_t d
+            JOIN etf_basic_t b
+              ON d.ts_code = b.ts_code COLLATE utf8mb4_unicode_ci
+            WHERE d.trade_date = %s AND b.index_code IN ({placeholders})
+              AND d.amount >= %s
+            GROUP BY b.index_code""",
+        [actual_date, *codes, ETF_MIN_AMOUNT_YI * QIAN])
+    rows = {r['index_code']: r for r in cursor.fetchall()}
+    cursor.close()
+    result['items'] = [
+        {
+            'index_code': code,
+            'name': name,
+            'etf_count': int(rows[code]['etf_cnt']) if code in rows else 0,
+            'amount_yi': (round(float(rows[code]['amount_qian']) / QIAN, 2)
+                          if code in rows and rows[code]['amount_qian'] else None),
+        }
+        for code, name in ETF_INDEX_CATEGORIES
+    ]
+    return result
 
 
 def collect_future_daily(conn, trade_date: str, days: int = 90) -> pd.DataFrame:
@@ -733,6 +787,14 @@ def main():
     idx_overview_rows = collect_index_overview(conn)
     print(f'  → {len(idx_overview_rows)} 个指数快照')
 
+    print('  读取4类核心宽基ETF成交额（etf_daily_t）...')
+    etf_amounts = collect_etf_amounts(conn, trade_date)
+    if etf_amounts['trade_date'] and etf_amounts['trade_date'] != trade_date:
+        print(f'  ⚠️ 目标日无ETF数据，回退至 {etf_amounts["trade_date"]}')
+    print('  → ' + '、'.join(
+        f"{x['name']}{x['amount_yi'] if x['amount_yi'] is not None else 'N/A'}亿({x['etf_count']}只)"
+        for x in etf_amounts['items']))
+
     print('  读取上交所总貌（exchange_market_overview_t）...')
     sse = collect_sse_summary(conn, trade_date)
     if sse.get('sse_date') and sse['sse_date'] != trade_date:
@@ -789,6 +851,7 @@ def main():
         'total_count': len(metrics),
         'metrics': metrics,
         'indices': indices,
+        'etf_amounts': etf_amounts,
         'basis': basis,
         'rzrq': rzrq_series,
     }
