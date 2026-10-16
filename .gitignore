@@ -52,6 +52,8 @@ monitor_stock_data*/
 二浪早识别*/
 底部反弹*/
 V形反转*/
+# 智能分析报告输出（由 /api/stock_analyzer 运行时生成）
+pages/stock_analyzer/
 
 # Output files (per-stock charts & dated reports at root)
 *.SH.png

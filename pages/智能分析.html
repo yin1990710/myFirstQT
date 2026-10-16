@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<title>智能分析 - 力矩量化选股平台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px;
+         background: #f7f8fa; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .navbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+            gap: 16px; padding: 0 20px; height: 56px; margin: -24px -24px 20px; background: #1a73e8;
+            box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+  .navbar .brand { display: flex; align-items: center; gap: 10px; margin-right: 8px; text-decoration: none; }
+  .navbar .brand img { height: 40px; width: auto; border-radius: 7px;
+                       box-shadow: 0 1px 4px rgba(0,0,0,.3); background: #0b2545; }
+  .navbar .brand .brand-text { color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .navbar nav { display: flex; gap: 0; height: 100%; }
+  .navbar nav a { display: flex; align-items: center; padding: 0 12px; height: 100%;
+                  white-space: nowrap; color: rgba(255,255,255,.88); font-size: 14px; text-decoration: none; }
+  .navbar nav a:hover { background: #1558b0; color: #fff; }
+  .navbar nav a.active { background: #1558b0; color: #fff; font-weight: 600; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #fff;
+         padding: 14px 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+         margin-bottom: 12px; font-size: 13px; }
+  .bar label { color: #555; white-space: nowrap; font-weight: 600; }
+  .bar input[type="text"] { width: 220px; padding: 8px 10px; border: 1px solid #ccc;
+                            border-radius: 6px; font-size: 14px; background: #fff; }
+  .bar input[type="text"]:focus { outline: none; border-color: #1a73e8; }
+  .bar select { max-width: 320px; padding: 8px 10px; border: 1px solid #ccc;
+                border-radius: 6px; font-size: 14px; background: #fff; }
+  .bar select:focus { outline: none; border-color: #1a73e8; }
+  .bar button { padding: 8px 18px; border: none; border-radius: 6px; background: #1a73e8;
+                color: #fff; font-size: 14px; cursor: pointer; }
+  .bar button:hover { background: #1558b0; }
+  .bar button:disabled { background: #bbb; cursor: not-allowed; }
+  .bar a.open-link { font-size: 13px; color: #1a73e8; text-decoration: none; display: none; }
+  .bar a.open-link:hover { text-decoration: underline; }
+  #msg { font-size: 13px; color: #d93025; }
+  #msg.ok { color: #0f9d58; }
+  .hint { font-size: 12px; color: #888; }
+
+  .progress { height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden;
+              margin-bottom: 12px; display: none; }
+  .progress.show { display: block; }
+  .progress .pbar { height: 100%; width: 30%; background: linear-gradient(90deg,#1a73e8,#4dabf5);
+                    animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+
+  #reportFrame { width: 100%; height: calc(100vh - 200px); min-height: 500px; border: 1px solid #e3e5e9;
+                 border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+                 display: none; }
+  .placeholder { text-align: center; padding: 80px 0; color: #999; font-size: 15px;
+                 background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+</style>
+</head>
+<body>
+<header class="navbar">
+  <a class="brand" href="/" title="力矩量化选股平台">
+    <img src="/static/logo.png" alt="力矩量化选股平台 logo">
+    <span class="brand-text">力矩量化选股平台</span>
+  </a>
+  <nav>
+    <a href="/#strategies">选股策略</a>
+    <a href="/backtest">策略回测与分析</a>
+    <a href="/market-overview">大盘指标概览</a>
+    <a href="/mri">A股大盘风险指数</a>
+    <a href="/industry-heat">行业热度</a>
+    <a href="/my_stocks">我的股票池</a>
+    <a href="/stock-detail">个股详情</a>
+    <a href="/analyzer" class="active">智能分析</a>
+    <a href="/etf">ETF专区</a>
+    <a href="/cron">任务与数据监控</a>
+    <a href="/about">关于力矩量化</a>
+  </nav>
+</header>
+
+<h1>🤖 个股智能分析</h1>
+
+<div class="bar">
+  <label>股票代码</label>
+  <input type="text" id="code" placeholder="如 300750 / 300750.SZ / sz300750" autocomplete="off">
+  <button id="btnAnalyze">智能分析</button>
+  <span id="msg"></span>
+  <a class="open-link" id="openLink" target="_blank" rel="noopener">↗ 新窗口打开报告</a>
+  <span class="hint">报告基于最新行情与本地日K生成，约需 10~30 秒，请勿重复点击</span>
+</div>
+
+<div class="bar">
+  <label>已保存报告</label>
+  <select id="savedReports">
+    <option value="">加载中…</option>
+  </select>
+  <span class="hint">选择历史分析报告，直接在下方查看</span>
+</div>
+
+<div class="progress" id="progress"><div class="pbar"></div></div>
+
+<div class="placeholder" id="placeholder">输入股票代码后点击「智能分析」，报告将在此处展示</div>
+<iframe id="reportFrame" title="个股智能分析报告"></iframe>
+
+<script>
+(function () {
+  var codeInput = document.getElementById('code');
+  var btn = document.getElementById('btnAnalyze');
+  var msg = document.getElementById('msg');
+  var progress = document.getElementById('progress');
+  var frame = document.getElementById('reportFrame');
+  var placeholder = document.getElementById('placeholder');
+  var openLink = document.getElementById('openLink');
+  var savedSel = document.getElementById('savedReports');
+
+  function setMsg(text, ok) {
+    msg.textContent = text || '';
+    msg.className = ok ? 'ok' : '';
+  }
+  function setLoading(loading) {
+    btn.disabled = loading;
+    btn.textContent = loading ? '正在生成…' : '智能分析';
+    progress.classList.toggle('show', loading);
+  }
+  function showReport(url) {
+    frame.src = url;
+    frame.style.display = 'block';
+    placeholder.style.display = 'none';
+    openLink.href = url;
+    openLink.style.display = 'inline-block';
+  }
+
+  function loadSavedReports(selectFname) {
+    fetch('/api/stock_analyzer/reports').then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { savedSel.innerHTML = '<option value="">加载失败</option>'; return; }
+      var reports = d.reports || [];
+      if (!reports.length) { savedSel.innerHTML = '<option value="">暂无已保存报告</option>'; return; }
+      var html = '<option value="">请选择报告…</option>';
+      reports.forEach(function (r) {
+        var label = r.name + (r.code ? '（' + r.code + '）' : '') + (r.date ? ' - ' + r.date : '');
+        html += '<option value="' + r.fname + '"' +
+                (selectFname === r.fname ? ' selected' : '') + '>' + label + '</option>';
+      });
+      savedSel.innerHTML = html;
+    }).catch(function () {
+      savedSel.innerHTML = '<option value="">加载失败</option>';
+    });
+  }
+
+  savedSel.addEventListener('change', function () {
+    var fname = savedSel.value;
+    if (!fname) return;
+    showReport('/analyzer/report/' + encodeURIComponent(fname));
+  });
+
+  function run() {
+    var code = codeInput.value.trim();
+    if (!code) { setMsg('请输入股票代码'); codeInput.focus(); return; }
+    setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
+    openLink.style.display = 'none';
+
+    fetch('/api/stock_analyzer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { status: r.status, data: d }; });
+    }).then(function (res) {
+      var d = res.data || {};
+      if (res.status === 401 && d.need_login) {
+        window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
+      if (!d.ok) { setMsg(d.error || '生成失败'); return; }
+      var tip = '已生成：' + (d.name || d.code) + '（' + d.code + '）' + (d.date ? ' 数据截至 ' + d.date : '');
+      if (d.errors && d.errors.length) { tip += '；' + d.errors.length + ' 项数据缺口已在报告中标注'; }
+      setMsg(tip, true);
+      showReport(d.url);
+      // 新报告落盘后刷新下拉框并选中本次生成的报告
+      var fname = (d.url || '').split('/').pop();
+      loadSavedReports(fname);
+    }).catch(function (e) {
+      setMsg('请求失败：' + e);
+    }).finally(function () {
+      setLoading(false);
+    });
+  }
+
+  btn.addEventListener('click', run);
+  codeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') run();
+  });
+  loadSavedReports();
+  codeInput.focus();
+})();
+</script>
+</body>
+</html>
