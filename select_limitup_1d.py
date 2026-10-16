@@ -13,13 +13,11 @@
 5. 最近10个交易日中，阳线数 >= 4，且阳线平均成交量大于阴线平均成交量的1.5倍
    （阳线=close>open，阴线=close<open，平盘不计入；无阴线时量比条件自动满足）
 
-输出：CSV「放量大涨回调.csv」（股票代码、股票名称、涨幅，utf-8-sig），
-文件夹「当日涨停+当日日期后缀」（已存在则复用）；无结果不生成文件/文件夹。
+选股结果写入 strategy_selected_stock_daily_t 表（便于回测）。
 """
 
 import os
 import sys
-import csv
 from datetime import datetime, timedelta
 
 import tushare as ts
@@ -65,15 +63,6 @@ def get_last_n_trade_dates(target_date, n):
     if len(opens) > n:
         opens = opens[-n:]
     return opens
-
-
-def get_folder_path():
-    """文件夹「当日涨停+日期后缀」，已存在则复用。"""
-    folder_name = f"当日涨停{get_target_date()}"
-    folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), folder_name)
-    os.makedirs(folder_path, exist_ok=True)
-    print(f"📁 文件夹: {folder_name}")
-    return folder_path
 
 
 # ---------- 灵活过滤条件（STOCK_FILTERS 注册表，参考 find_similar_ma5.py） ----------
@@ -325,20 +314,6 @@ def analyze_stocks(data, target_date):
     return result
 
 
-def generate_csv_file(stocks, folder_path):
-    """CSV「放量大涨回调.csv」：股票代码、股票名称、涨幅（A日），utf-8-sig"""
-    csv_filename = "放量大涨回调.csv"
-    csv_path = os.path.join(folder_path, csv_filename)
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '涨幅'])
-        for stock in stocks:
-            writer.writerow([stock['ts_code'], stock['stock_name'],
-                             f"{stock['pct_chg']:.2f}%"])
-    print(f"✅ CSV文件已生成: {csv_path}")
-    return csv_path
-
-
 # ---------- 主入口 ----------
 
 def main():
@@ -374,18 +349,12 @@ def main():
 
     if not selected_stocks:
         print("\n" + "=" * 80)
-        print("⚠️ 没有满足条件的股票，不生成文件/文件夹")
+        print("⚠️ 没有满足条件的股票")
         print("=" * 80)
         return
 
-    # ---------- 步骤D：有结果才创建文件夹并输出 ----------
-    folder_path = get_folder_path()
-    csv_path = generate_csv_file(selected_stocks, folder_path)
-
     print("\n" + "=" * 80)
     print("🎉 选股完成！")
-    print(f"📁 文件夹路径: {folder_path}")
-    print(f"📄 CSV路径: {csv_path}")
     print("=" * 80)
 
     print("\n🔥 精选股票（按A日涨幅降序，前20只）：")

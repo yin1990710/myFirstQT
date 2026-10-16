@@ -16,14 +16,11 @@
      >800亿       → 换手率 > 6%
    - 最近3个交易日 ma5 > ma30
 4. 全部条件以 STOCK_FILTERS 注册表实现（参考 find_similar_ma5.py）
-5. 将满足条件的股票代码写入 高换手.csv，utf-8-sig 编码
-6. 新建文件夹「高换手+当日日期后缀」（已存在则删除重建）存放CSV
+5. 选股结果写入 strategy_selected_stock_daily_t 表（便于回测）
 """
 
 import os
 import sys
-import csv
-import shutil
 from datetime import datetime, timedelta
 
 import tushare as ts
@@ -57,18 +54,6 @@ def get_last_n_trade_dates(target_date, n):
     if len(opens) > n:
         opens = opens[-n:]
     return opens
-
-
-def create_folder(target_date):
-    """新建（已存在的删除重建）高换手+日期后缀的文件夹"""
-    folder_name = f"高换手{target_date}"
-    folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), folder_name)
-    if os.path.exists(folder_path):
-        shutil.rmtree(folder_path)
-        print(f"🗑️ 已删除旧文件夹: {folder_name}")
-    os.makedirs(folder_path)
-    print(f"📁 创建文件夹: {folder_name}")
-    return folder_path
 
 
 # ---------- 策略参数 ----------
@@ -342,19 +327,6 @@ def analyze_stocks(data):
     return result
 
 
-def generate_csv_file(stocks, folder_path):
-    """CSV 输出对齐 select_2wave_up_v2.py：csv.writer + utf-8-sig + 表头 股票代码"""
-    csv_filename = "高换手.csv"
-    csv_path = os.path.join(folder_path, csv_filename)
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['股票代码'])
-        for stock in stocks:
-            writer.writerow([stock['ts_code']])
-    print(f"✅ CSV文件已生成: {csv_path}")
-    return csv_path
-
-
 # ---------- 主入口 ----------
 
 def main():
@@ -389,12 +361,8 @@ def main():
     print(f"\n✅ 共选出 {len(selected)} 只满足条件的股票")
 
     if selected:
-        folder_path = create_folder(target_date)
-        csv_path = generate_csv_file(selected, folder_path)
         print("\n" + "=" * 80)
         print("🎉 选股完成！")
-        print(f"📁 文件夹路径: {folder_path}")
-        print(f"📄 CSV路径: {csv_path}")
         print("=" * 80)
 
         print("\n🔥 精选股票（按市值降序，前20只）：")

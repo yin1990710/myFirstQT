@@ -19,13 +19,11 @@
 基础门槛：流通市值 circ_mv ≥ 50亿、有效交易日数据 ≥ 45 日。
 过滤条件采用 STOCK_FILTERS 注册表方式，新增条件只需追加一个过滤函数与一行注册。
 
-输出：CSV「二浪日线选股策略.csv」（utf-8-sig），文件夹「二浪日线选股策略+当日日期后缀」（已存在则复用）；
-结果为 0 时不生成文件/文件夹。
+选股结果写入 strategy_selected_stock_daily_t 表（便于回测）。
 """
 
 import os
 import sys
-import csv
 from datetime import datetime, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -41,24 +39,6 @@ def get_target_date():
     else:
         target_date = now.strftime('%Y%m%d')
     return target_date
-
-
-def get_folder_name():
-    target_date = get_target_date()
-    folder_name = f"二浪日线选股策略{target_date}"
-    return folder_name
-
-
-def get_folder_path():
-    folder_name = get_folder_name()
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    folder_path = os.path.join(script_dir, folder_name)
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        print(f"� 创建文件夹: {folder_name}")
-    else:
-        print(f"📁 文件夹已存在: {folder_name}")
-    return folder_path
 
 
 def read_stock_data(days=120):
@@ -371,18 +351,6 @@ def analyze_stocks(data):
     return result
 
 
-def generate_csv_file(stocks, folder_path):
-    csv_filename = "二浪日线选股策略.csv"
-    csv_path = os.path.join(folder_path, csv_filename)
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['股票代码'])
-        for stock in stocks:
-            writer.writerow([stock['ts_code']])
-    print(f"✅ CSV文件已生成: {csv_path}")
-    return csv_path
-
-
 def main():
     print("=" * 80)
     print("🌊 二浪日线选股策略")
@@ -398,8 +366,6 @@ def main():
     print("  7. 强弱门槛：最新交易日短线强弱得分>75分")
     print("=" * 80)
 
-    folder_path = get_folder_path()
-
     data = read_stock_data(days=120)
 
     if not data:
@@ -411,11 +377,8 @@ def main():
     print(f"\n✅ 共选出 {len(selected_stocks)} 只满足条件的股票")
 
     if selected_stocks:
-        csv_path = generate_csv_file(selected_stocks, folder_path)
         print("\n" + "=" * 80)
         print(f"🎉 选股完成！")
-        print(f"📁 文件夹路径: {folder_path}")
-        print(f"📄 CSV路径: {csv_path}")
         print("=" * 80)
 
         print("\n🔥 精选股票：")

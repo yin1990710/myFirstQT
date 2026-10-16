@@ -16,11 +16,9 @@
 过滤条件采用 STOCK_FILTERS 注册表方式（参考 find_similar_ma5.py），
 新增条件只需追加一个 _filter_xxx 函数与一行注册；apply_filters 统一执行并返回未通过原因。
 
-最后，将符合以上条件的股票的ts_code保存在生成一个名称为区间新高加当天日期（如果当前时间在0-15时之间，则取前一天日期）的csv文件，ts_code之间用英文逗号分隔，新建一个名称为区间新高加当天日期（如果当前时间在0-15时之间，则取前一天日期））的文件夹，将csv文件放在该文件夹下，如果文件夹已存在则先删除再新建。
+选股结果写入 strategy_selected_stock_daily_t 表（便于回测）。
 """
 
-import os
-import shutil
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -224,20 +222,6 @@ def analyze_newhigh_stocks(df: pd.DataFrame) -> list:
     return qualified_stocks
 
 
-def save_results_to_csv(results: list, output_dir: str):
-    os.makedirs(output_dir, exist_ok=True)
-
-    csv_path = os.path.join(output_dir, f"120日区间新高{get_trade_date()}.csv")
-    with open(csv_path, 'w') as f:
-        ts_codes = [r['ts_code'] for r in results]
-        f.write(','.join(ts_codes))
-
-    detail_csv_path = os.path.join(output_dir, f"区间新高详情{get_trade_date()}.csv")
-    df = pd.DataFrame(results)
-    if not df.empty:
-        df.to_csv(detail_csv_path, index=False, encoding='utf-8-sig')
-
-
 def main():
     print("=" * 60)
     print("📊 区间新高选股模型")
@@ -282,17 +266,7 @@ def main():
                   f"{r['break_ratio']:>7.2f}%   "
                   f"{r['gain']:>7.2f}%")
 
-    print("\n💾 步骤4: 保存结果到CSV文件...")
-    folder_name = f"120日区间新高{trade_date}"
-    output_dir = os.path.join(os.getcwd(), folder_name)
-
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-
-    save_results_to_csv(results, output_dir)
-    print(f"   ✅ 已保存到: {output_dir}")
-
-    # 步骤5: 选股结果入库（便于回测）
+    # 步骤4: 选股结果入库（便于回测）
     if results:
         record_selected_stocks(
             '120日区间新高选股策略',

@@ -21,15 +21,12 @@ V形反转 / 底部放量突破选股 (select_v_reverse.py)
 基础门槛：沪深A股、最新日总市值 > 100亿、短线强弱得分 > 60、有效交易日 >= 250日。
 全部条件以 STOCK_FILTERS 注册表实现，新增条件只需追加一行注册。
 
-输出：CSV「V形反转.csv」（utf-8-sig，含命中特征与特征得分），
-文件夹「V形反转+当日日期后缀」（已存在则复用）；结果为0不生成文件/文件夹。
+选股结果写入 strategy_selected_stock_daily_t 表（便于回测，取 Top N）。
 """
 
 import os
-import csv
 from datetime import datetime, timedelta
 
-import numpy as np
 import pandas as pd
 import tushare as ts
 
@@ -286,17 +283,6 @@ def get_last_n_trade_dates(target_date, n):
     return opens[-n:] if len(opens) > n else opens
 
 
-def get_folder_path():
-    folder_name = f"V形反转{get_target_date()}"
-    folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), folder_name)
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path)
-        print(f"📁 创建文件夹: {folder_name}")
-    else:
-        print(f"📁 文件夹已存在: {folder_name}")
-    return folder_path
-
-
 # ---------- 数据读取 ----------
 
 def read_stock_data(start_date, end_date):
@@ -437,25 +423,8 @@ def main():
     print("=" * 72)
 
     if not result:
-        print("⚠️ 无符合V形反转/底部放量突破的股票，不生成文件夹/CSV")
+        print("⚠️ 无符合V形反转/底部放量突破的股票")
         return
-
-    folder_path = get_folder_path()
-    csv_path = os.path.join(folder_path, 'V形反转.csv')
-    with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(['股票代码', '股票名称', '最新收盘', '当日涨幅%', 'vol_z60',
-                         '特征得分', '命中特征', '总市值(万)'])
-        for s in result[:TOP_N]:
-            writer.writerow([
-                s['ts_code'], s['stock_name'],
-                f"{s['close']:.2f}" if s['close'] is not None else '',
-                f"{s['pct_chg']:.2f}" if s['pct_chg'] is not None else '',
-                f"{s['vol_z60']:.2f}" if s['vol_z60'] is not None else '',
-                s['feature_score'], s['hit_features'],
-                f"{s['total_mv']:.0f}" if s['total_mv'] is not None else '',
-            ])
-    print(f"✅ CSV已生成（{min(TOP_N, len(result))}只）: {csv_path}")
 
     # 选股结果入库（便于回测，取 Top N）
     record_selected_stocks(
