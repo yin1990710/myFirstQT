@@ -33,6 +33,8 @@
                    cursor: pointer; user-select: none; transition: border-color .15s, box-shadow .15s; position: relative; }
   .kpi .kpi-card:hover { border-color: #1a73e8; box-shadow: 0 2px 8px rgba(26,115,232,.15); }
   .kpi .kpi-card.open { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
+  #etfAmountTable .etf-row:hover { background: #f0f6ff; }
+  #etfAmountTable .etf-row.open { background: #e8f0fe; }
   .kpi .kpi-card .fold { position: absolute; top: 6px; right: 9px; font-size: 11px; color: #9aa4b1; }
   .kpi b { display: block; font-size: 22px; margin: 2px 0; color: #d93025; }
   .kpi span { color: #5a6472; font-size: 12px; }
@@ -142,6 +144,13 @@
 
   <!-- 4类核心宽基ETF成交额（仅最新JSON提供；历史日快照无该数据则隐藏） -->
   <div id="etfAmountSection" style="display:none;"></div>
+  <div class="kpi-chart-wrap" id="etfChartWrap">
+    <div class="kc-head">
+      <span class="kc-title" id="etfChartTitle">ETF类别成交额走势</span>
+      <button class="kc-close" onclick="closeEtfChart()">收起 ✕</button>
+    </div>
+    <div id="etfChart" class="chart-inline"></div>
+  </div>
 
   <div class="warn">
     <b>使用说明：</b>四板块市盈率（C1-C4）均取自沪深交易所官网市场总貌官方口径；
@@ -302,6 +311,7 @@ function toggleKpiChart(key) {
   if (_kpiOpenKey === key) { closeKpiChart(); return; }
   closeKpiChart();
   closeIndexChart();   // 与头部指数K线展开区互斥
+  closeEtfChart();     // 与ETF类别走势图互斥
   _kpiOpenKey = key;
   var card = document.querySelector('.kpi .kpi-card[data-key="' + key + '"]');
   if (card) card.classList.add('open');
@@ -362,17 +372,83 @@ function renderEtfAmounts(etf) {
   if (!items.length) { sec.style.display = 'none'; return; }
   var html = '<h3>核心宽基ETF当日成交额 <span class="cnt">单只成交额≥10亿 · 按跟踪指数分组加总 · 交易日 '
     + dashDate(etf.trade_date || '') + '</span></h3>';
-  html += '<table><tr><th>ETF类别</th><th>跟踪指数</th><th>入围只数</th><th>合计成交额（亿元）</th></tr>';
+  html += '<table id="etfAmountTable"><tr><th>ETF类别</th><th>跟踪指数</th><th>入围只数</th><th>合计成交额（亿元）</th></tr>';
   items.forEach(function(x) {
-    html += '<tr><td>' + x.name + '</td><td class="note">' + x.index_code + '</td>'
+    html += '<tr class="etf-row" style="cursor:pointer" data-index_code="' + x.index_code + '" data-name="' + x.name + '">'
+      + '<td>' + x.name + '</td><td class="note">' + x.index_code + '</td>'
       + '<td style="text-align:right">' + (x.etf_count || 0) + ' 只</td>'
       + '<td style="text-align:right"><b>'
       + (x.amount_yi === null || x.amount_yi === undefined ? 'N/A' : x.amount_yi.toFixed(2))
       + '</b></td></tr>';
   });
-  html += '</table><div class="note">ETF行情由 update_etf_daily.py 采集；该类别当日无≥10亿成交的ETF时显示 N/A。</div>';
+  html += '</table><div class="note">ETF行情由 update_etf_daily.py 采集；该类别当日无≥10亿成交的ETF时显示 N/A。点击行可查看该类别近30个交易日合计成交额走势。</div>';
   sec.innerHTML = html;
   sec.style.display = '';
+  sec.querySelectorAll('.etf-row').forEach(function(tr) {
+    tr.addEventListener('click', function() {
+      toggleEtfChart(tr.getAttribute('data-index_code'), tr.getAttribute('data-name'));
+    });
+  });
+}
+
+// ---- 核心宽基ETF类别近30个交易日合计成交额走势 ----
+var _etfChart = null;       // ETF走势 echarts 实例
+var _etfOpenCode = '';
+
+function closeEtfChart() {
+  if (_etfChart) { _etfChart.dispose(); _etfChart = null; }
+  _etfOpenCode = '';
+  document.getElementById('etfChartWrap').style.display = 'none';
+  var rows = document.querySelectorAll('#etfAmountTable .etf-row');
+  for (var i = 0; i < rows.length; i++) rows[i].classList.remove('open');
+}
+
+function etfLineOption(points, name) {
+  var dates = points.map(function(p) { return shortDate(p.trade_date); });
+  var values = points.map(function(p) { return p.amount_yi; });
+  return {
+    grid: { left: 64, right: 28, top: 34, bottom: 42 },
+    tooltip: { trigger: 'axis',
+      valueFormatter: function(v) { return v === null || v === undefined ? 'N/A' : Number(v).toFixed(2) + ' 亿'; } },
+    xAxis: { type: 'category', data: dates, boundaryGap: false,
+             axisLabel: { fontSize: 10, interval: Math.max(0, Math.floor(dates.length / 8) - 1) } },
+    yAxis: { type: 'value', scale: true, name: '亿元', nameTextStyle: { fontSize: 11 } },
+    series: [{
+      name: name, type: 'line', data: values, showSymbol: false, smooth: true, connectNulls: true,
+      lineStyle: { width: 2, color: '#1a73e8' },
+      itemStyle: { color: '#1a73e8' },
+      areaStyle: { color: 'rgba(26,115,232,.12)' },
+    }],
+  };
+}
+
+function toggleEtfChart(indexCode, name) {
+  if (_etfOpenCode === indexCode) { closeEtfChart(); return; }
+  closeEtfChart();
+  closeKpiChart();     // 与15指标KPI展开区互斥
+  closeIndexChart();   // 与头部指数K线区互斥
+  _etfOpenCode = indexCode;
+  var row = document.querySelector('#etfAmountTable .etf-row[data-index_code="' + indexCode + '"]');
+  if (row) row.classList.add('open');
+  document.getElementById('etfChartWrap').style.display = 'block';
+  document.getElementById('etfChartTitle').textContent = name + '（' + indexCode + '）近30个交易日合计成交额走势 加载中…';
+  if (_etfChart) { _etfChart.dispose(); _etfChart = null; }
+  _etfChart = echarts.init(document.getElementById('etfChart'));
+  _etfChart.showLoading();
+  fetch('/api/market_overview_etf_trend?index_code=' + encodeURIComponent(indexCode) + '&days=30')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      if (_etfOpenCode !== indexCode) return;   // 加载期间已切换
+      _etfChart.hideLoading();
+      document.getElementById('etfChartTitle').textContent =
+        name + '（' + indexCode + '）近' + (d.points || []).length + '个交易日合计成交额走势（亿元）';
+      _etfChart.setOption(etfLineOption(d.points || [], name));
+    })
+    .catch(function(e) {
+      if (_etfChart) _etfChart.hideLoading();
+      document.getElementById('etfChartTitle').textContent = name + ' 走势加载失败：' + e.message;
+    });
 }
 
 function closeIndexChart() {
@@ -387,6 +463,7 @@ function toggleIndexChart(code) {
   if (_idxOpenCode === code) { closeIndexChart(); return; }
   closeIndexChart();
   closeKpiChart();   // 与15指标KPI展开区互斥
+  closeEtfChart();   // 与ETF类别走势图互斥
   _idxOpenCode = code;
   var card = document.querySelector('#idxKpi .kpi-card[data-code="' + code + '"]');
   if (card) card.classList.add('open');
@@ -513,6 +590,7 @@ document.getElementById('metricGroups').addEventListener('click', function(e) {
 window.addEventListener('resize', function() {
   if (_kpiChart) _kpiChart.resize();
   if (_idxChart) _idxChart.resize();
+  if (_etfChart) _etfChart.resize();
   Object.keys(_rowCharts).forEach(function(k) { _rowCharts[k].resize(); });
 });
 

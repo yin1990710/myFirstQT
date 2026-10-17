@@ -873,6 +873,59 @@ def api_market_overview_index_kline():
     return jsonify({'ts_code': code, 'count': len(klines), 'klines': klines})
 
 
+# 核心宽基ETF类别（与 report_market_overview_metricx.ETF_INDEX_CATEGORIES 一致）
+_ETF_TREND_CATEGORIES = {'000016.SH', '000300.SH', '000905.SH', '000688.SH'}
+_ETF_MIN_AMOUNT_QIAN = 10.0 * 100000   # 单只ETF当日成交额下限：10亿元 → 千元
+
+
+@app.route('/api/market_overview_etf_trend')
+def api_market_overview_etf_trend():
+    """返回指定核心宽基ETF类别近 N 个交易日（默认30）的合计成交额走势（亿元，升序）。
+
+    口径与核心宽基ETF当日成交额列表一致：单只ETF成交额≥10亿才计入，按跟踪指数分组加总。
+    index_code 仅限 4 类核心宽基（上证50/沪深300/中证500/科创50）。
+    """
+    index_code = (request.args.get('index_code') or '').strip()
+    days = (request.args.get('days') or '30').strip()
+    if index_code not in _ETF_TREND_CATEGORIES:
+        return jsonify({'error': '不支持的ETF类别'}), 400
+    try:
+        days = max(1, min(int(days), 120))
+    except ValueError:
+        days = 30
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        # 取最近 N 个有 ETF 数据的交易日（升序）
+        cur.execute(
+            "SELECT trade_date FROM (SELECT DISTINCT trade_date FROM etf_daily_t "
+            "ORDER BY trade_date DESC LIMIT %s) t ORDER BY trade_date", (days,))
+        dates = [str(r['trade_date']) for r in cur.fetchall()]
+        if not dates:
+            cur.close()
+            return jsonify({'error': '无ETF日线数据'}), 404
+        placeholders = ','.join(['%s'] * len(dates))
+        cur.execute(
+            f"SELECT d.trade_date, SUM(d.amount) AS amount_qian "
+            f"FROM etf_daily_t d "
+            f"JOIN etf_basic_t b ON d.ts_code = b.ts_code COLLATE utf8mb4_unicode_ci "
+            f"WHERE d.trade_date IN ({placeholders}) AND b.index_code = %s "
+            f"  AND d.amount >= %s "
+            f"GROUP BY d.trade_date ORDER BY d.trade_date",
+            [*dates, index_code, _ETF_MIN_AMOUNT_QIAN])
+        amounts = {str(r['trade_date']): r['amount_qian'] for r in cur.fetchall()}
+        cur.close()
+    finally:
+        close_connection(conn)
+    points = [{
+        'trade_date': d,
+        'amount_yi': round(float(amounts[d]) / 100000, 2) if amounts.get(d) else 0.0,
+    } for d in dates]
+    return jsonify({'ok': True, 'index_code': index_code, 'count': len(points), 'points': points})
+
+
 @app.route('/api/market_overview_metrics_dates')
 def api_market_overview_metrics_dates():
     """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""
