@@ -403,7 +403,7 @@ def stock_detail_page():
     return send_from_directory(PAGE_DIR, '个股数据详情.html')
 
 
-# ---------- 智能分析（stock_analyzer 个股走势分析报告） ----------
+# ---------- 智能分析（stock_analyzer_v2 个股走势分析报告） ----------
 ANALYZER_DIR = os.path.join(PAGE_DIR, 'stock_analyzer')
 
 
@@ -448,51 +448,40 @@ def api_stock_analyzer_reports():
 
 @app.route('/api/stock_analyzer', methods=['POST'])
 def api_stock_analyzer():
-    """调用 stock_analyzer 生成个股走势分析报告，HTML 落盘到 pages/stock_analyzer。"""
+    """调用 stock_analyzer_v2 生成个股走势分析报告，HTML 落盘到 pages/stock_analyzer。"""
     data = request.get_json(silent=True) or {}
     raw = (data.get('code') or '').strip()
     if not raw:
         return jsonify({'ok': False, 'error': '请输入股票代码'}), 400
 
     try:
-        from stock_analyzer import datasource as sa_ds
-        from stock_analyzer import report as sa_rp
-        from stock_analyzer.cli import _out_name
+        from stock_analyzer_v2.analyzer import analyze
+        from stock_analyzer_v2.datasource import DataUnavailable
+        from stock_analyzer_v2.report import render_html
     except ImportError as e:
-        return jsonify({'ok': False, 'error': f'stock_analyzer 模块不可用：{e}'}), 500
+        return jsonify({'ok': False, 'error': f'stock_analyzer_v2 模块不可用：{e}'}), 500
 
     try:
-        code = sa_ds.normalize_code(raw)
-        bundle = sa_ds.load(code, days=30, kline_bars=250)
-    except sa_ds.DataError as e:
+        res = analyze(raw)
+    except DataUnavailable as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': f'分析失败：{e}'}), 500
 
-    # 行情与日K全缺 → 无效标的，不生成空报告
-    if not bundle.quote and not bundle.bars:
-        return jsonify({
-            'ok': False,
-            'error': f'{raw}（{code}）未获取到行情与日K数据，请确认代码是否为有效 A 股代码',
-        }), 400
-
-    name = ((bundle.quote.name if bundle.quote and bundle.quote.name else '')
-            or bundle.profile.get('name', ''))
-    date = bundle.quote.date if bundle.quote and bundle.quote.date else ''
-
+    # 文件名保持 {名称}-{代码}-{日期}.html 规范，与已保存报告下拉框解析一致
+    safe_name = re.sub(r'[\\/:*?"<>|]', '', res.name or res.code)
+    d8 = re.sub(r'\D', '', res.as_of) or 'latest'
+    fname = f"{safe_name}-{res.code}-{d8}.html"
     os.makedirs(ANALYZER_DIR, exist_ok=True)
-    fname = _out_name(code, name, date)
-    out_path = os.path.join(ANALYZER_DIR, fname)
-    with open(out_path, 'w', encoding='utf-8') as f:
-        f.write(sa_rp.render(bundle))
+    with open(os.path.join(ANALYZER_DIR, fname), 'w', encoding='utf-8') as f:
+        f.write(render_html(res))
 
     return jsonify({
         'ok': True,
-        'code': code,
-        'name': name,
-        'date': date,
+        'code': res.code,
+        'name': res.name,
+        'date': res.as_of,
         'url': f'/analyzer/report/{fname}',
-        'errors': bundle.errors,
     })
 
 

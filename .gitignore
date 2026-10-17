@@ -54,6 +54,8 @@ monitor_stock_data*/
 V形反转*/
 # 智能分析报告输出（由 /api/stock_analyzer 运行时生成）
 pages/stock_analyzer/
+# stock_analyzer_v2 命令行（analyze.py）测试报告输出
+stock_analyzer_v2/reports/
 
 # Output files (per-stock charts & dated reports at root)
 *.SH.png
