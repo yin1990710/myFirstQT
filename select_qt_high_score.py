@@ -5,9 +5,9 @@
 选股策略: QT高分选股策略（智能分析评分选股）
 
 扫描 stock_daily_basic_info_t 最新交易日总市值 > 50亿 的全部股票，
-先按 stock_daily_t 最近一个交易日成交额 >= 5亿 前置过滤（减少无效分析），
-再逐只调用 stock_analyzer_v2.analyzer.analyze() 做完整走势分析，
-选出综合评分 verdict.score >= 1（中性偏多/偏强）的股票。
+先按 stock_daily_t 最近一个交易日成交额 >= 5亿、短线强弱得分 >= 60 前置过滤
+（减少无效分析），再逐只调用 stock_analyzer_v2.analyzer.analyze() 做完整
+走势分析，选出综合评分 verdict.score >= 1（中性偏多/偏强）的股票。
 
 选股结果写入 strategy_selected_stock_daily_t 表（便于回测）。
 
@@ -31,6 +31,7 @@ from stock_analyzer_v2.analyzer import analyze
 # ---------- 策略参数 ----------
 MIN_TOTAL_MV_WAN = 500_000   # 最新交易日总市值下限（万元）= 50亿
 MIN_AMOUNT_QIAN = 500_000    # 最新交易日成交额下限（千元）= 5亿（前置过滤）
+MIN_SHORT_STRENGTH = 60.0    # 最新交易日短线强弱得分下限（无得分不通过，前置过滤）
 MIN_SCORE = 1.0              # 智能分析综合评分下限（>=1 为中性偏多/偏强）
 PROGRESS_EVERY = 50          # 每分析多少只打印一次进度
 
@@ -91,14 +92,14 @@ def apply_filters(ctx):
 # ---------- 核心逻辑 ----------
 
 def read_candidates():
-    """读取最新交易日 total_mv > 50亿 且成交额 >= 5亿 的股票清单（前置过滤）。"""
+    """读取最新交易日 total_mv>50亿、成交额>=5亿、短线强弱得分>=60 的股票清单（前置过滤）。"""
     conn = get_mysql_connection()
     if not conn:
         print("❌ 数据库连接失败")
         return None, []
 
     query_sql = """
-        SELECT b.ts_code, b.total_mv, d.amount, i.stock_name
+        SELECT b.ts_code, b.total_mv, d.amount, d.short_strength_score, i.stock_name
         FROM stock_daily_basic_info_t b
         JOIN stock_daily_t d
                ON b.ts_code = d.ts_code AND b.trade_date = d.trade_date
@@ -107,13 +108,14 @@ def read_candidates():
         WHERE b.trade_date = (SELECT MAX(trade_date) FROM stock_daily_basic_info_t)
           AND b.total_mv > %s
           AND d.amount >= %s
+          AND d.short_strength_score >= %s
         ORDER BY b.total_mv DESC
     """
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT MAX(trade_date) AS d FROM stock_daily_basic_info_t")
             target_date = cursor.fetchone()['d']
-            cursor.execute(query_sql, (MIN_TOTAL_MV_WAN, MIN_AMOUNT_QIAN))
+            cursor.execute(query_sql, (MIN_TOTAL_MV_WAN, MIN_AMOUNT_QIAN, MIN_SHORT_STRENGTH))
             rows = cursor.fetchall()
             cursor.execute(
                 "SELECT COUNT(*) AS n FROM stock_daily_basic_info_t "
@@ -121,8 +123,8 @@ def read_candidates():
                 (target_date, MIN_TOTAL_MV_WAN))
             total_all = cursor.fetchone()['n']
         print(f"✅ 最新交易日 {target_date}，总市值>{MIN_TOTAL_MV_WAN/10000:.0f}亿 "
-              f"共 {total_all} 只；前置过滤（成交额>={MIN_AMOUNT_QIAN/100000:.0f}亿）后 "
-              f"候选 {len(rows)} 只")
+              f"共 {total_all} 只；前置过滤（成交额>={MIN_AMOUNT_QIAN/100000:.0f}亿 + "
+              f"短线强弱得分>={MIN_SHORT_STRENGTH:g}）后候选 {len(rows)} 只")
         return target_date, rows
     except Exception as e:
         print(f"❌ 查询候选股票失败: {e}")
@@ -182,7 +184,8 @@ def main():
 
     print("=" * 80)
     print(f"📊 QT高分选股策略（总市值>{MIN_TOTAL_MV_WAN/10000:.0f}亿 + 最新日成交额"
-          f">={MIN_AMOUNT_QIAN/100000:.0f}亿 + stock_analyzer_v2 综合评分>={MIN_SCORE:g}）")
+          f">={MIN_AMOUNT_QIAN/100000:.0f}亿 + 短线强弱得分>={MIN_SHORT_STRENGTH:g}"
+          f" + stock_analyzer_v2 综合评分>={MIN_SCORE:g}）")
     print("=" * 80)
 
     target_date, candidates = read_candidates()
