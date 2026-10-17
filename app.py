@@ -406,6 +406,41 @@ def stock_detail_page():
 # ---------- 智能分析（stock_analyzer_v2 个股走势分析报告） ----------
 ANALYZER_DIR = os.path.join(PAGE_DIR, 'stock_analyzer')
 
+# 智能分析输入：股票代码格式（600577 / sh600577 / 600577.SH，大小写均可）
+_ANALYZER_CODE_RE = re.compile(r'^(sh|sz|bj)?\d{6}(\.(sh|sz|bj))?$', re.I)
+
+
+def _resolve_analyzer_input(raw: str):
+    """智能分析输入解析：股票代码原样返回，股票名称查 stock_info_t 转换为代码。
+
+    返回 (code, candidates)：
+    - code 非 None → 唯一确定，直接使用
+    - candidates 非 None → 名称匹配到多只，code 为 None
+    - 两者均 None → 未匹配到任何股票
+    """
+    s = raw.strip()
+    if _ANALYZER_CODE_RE.match(s):
+        return s, None
+    conn = get_mysql_connection()
+    if not conn:
+        raise RuntimeError('数据库连接失败，无法按名称解析股票代码')
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT ts_code, stock_name FROM stock_info_t WHERE stock_name = %s", (s,))
+        rows = cur.fetchall()
+        if not rows:
+            cur.execute(
+                "SELECT ts_code, stock_name FROM stock_info_t WHERE stock_name LIKE %s "
+                "ORDER BY ts_code LIMIT 20", (f'%{s}%',))
+            rows = cur.fetchall()
+    finally:
+        close_connection(conn)
+    if not rows:
+        return None, None
+    if len(rows) == 1:
+        return rows[0]['ts_code'], None
+    return None, [{'ts_code': r['ts_code'], 'stock_name': r['stock_name']} for r in rows]
+
 
 @app.route('/analyzer')
 def analyzer_page():
@@ -452,7 +487,21 @@ def api_stock_analyzer():
     data = request.get_json(silent=True) or {}
     raw = (data.get('code') or '').strip()
     if not raw:
-        return jsonify({'ok': False, 'error': '请输入股票代码'}), 400
+        return jsonify({'ok': False, 'error': '请输入股票代码或名称'}), 400
+
+    # 输入解析：代码直接使用，名称查库转换；多只匹配时返回候选列表
+    try:
+        code, candidates = _resolve_analyzer_input(raw)
+    except RuntimeError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    if candidates:
+        return jsonify({
+            'ok': False,
+            'error': f'匹配到 {len(candidates)} 只股票，请点击选择：',
+            'candidates': candidates,
+        }), 400
+    if not code:
+        return jsonify({'ok': False, 'error': f'未找到名称包含「{raw}」的股票，请检查输入'}), 400
 
     try:
         from stock_analyzer_v2.analyzer import analyze
@@ -462,7 +511,7 @@ def api_stock_analyzer():
         return jsonify({'ok': False, 'error': f'stock_analyzer_v2 模块不可用：{e}'}), 500
 
     try:
-        res = analyze(raw)
+        res = analyze(code)
     except DataUnavailable as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:

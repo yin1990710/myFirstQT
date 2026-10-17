@@ -43,6 +43,7 @@
   .bar a.open-link:hover { text-decoration: underline; }
   #msg { font-size: 13px; color: #d93025; }
   #msg.ok { color: #0f9d58; }
+  #msg a.cand { color: #1a73e8; cursor: pointer; text-decoration: underline; margin: 0 2px; }
   .hint { font-size: 12px; color: #888; }
 
   .progress { height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden;
@@ -83,8 +84,8 @@
 <h1>🤖 个股智能分析</h1>
 
 <div class="bar">
-  <label>股票代码</label>
-  <input type="text" id="code" placeholder="如 300750 / 300750.SZ / sz300750" autocomplete="off">
+  <label>股票代码 / 名称</label>
+  <input type="text" id="code" placeholder="如 300750 / sz300750 / 宁德时代" autocomplete="off">
   <button id="btnAnalyze">智能分析</button>
   <span id="msg"></span>
   <a class="open-link" id="openLink" target="_blank" rel="noopener">↗ 新窗口打开报告</a>
@@ -101,7 +102,7 @@
 
 <div class="progress" id="progress"><div class="pbar"></div></div>
 
-<div class="placeholder" id="placeholder">输入股票代码后点击「智能分析」，报告将在此处展示</div>
+<div class="placeholder" id="placeholder">输入股票代码或名称后点击「智能分析」，报告将在此处展示</div>
 <iframe id="reportFrame" title="个股智能分析报告"></iframe>
 
 <script>
@@ -158,7 +159,7 @@
 
   function run() {
     var code = codeInput.value.trim();
-    if (!code) { setMsg('请输入股票代码'); codeInput.focus(); return; }
+    if (!code) { setMsg('请输入股票代码或名称'); codeInput.focus(); return; }
     setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
     openLink.style.display = 'none';
 
@@ -174,7 +175,18 @@
         window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
         return;
       }
-      if (!d.ok) { setMsg(d.error || '生成失败'); return; }
+      if (!d.ok) {
+        if (d.candidates && d.candidates.length) {
+          // 名称匹配到多只股票：渲染可点击候选，点击后填入代码并重新分析
+          msg.innerHTML = (d.error || '匹配到多只股票，请点击选择：') + d.candidates.map(function (c) {
+            return '<a class="cand" data-code="' + c.ts_code + '">' +
+                   c.stock_name + '（' + c.ts_code + '）</a>';
+          }).join('');
+          return;
+        }
+        setMsg(d.error || '生成失败');
+        return;
+      }
       var tip = '已生成：' + (d.name || d.code) + '（' + d.code + '）' + (d.date ? ' 数据截至 ' + d.date : '');
       if (d.errors && d.errors.length) { tip += '；' + d.errors.length + ' 项数据缺口已在报告中标注'; }
       setMsg(tip, true);
@@ -188,6 +200,13 @@
       setLoading(false);
     });
   }
+
+  msg.addEventListener('click', function (e) {
+    var a = e.target.closest('a.cand');
+    if (!a) return;
+    codeInput.value = a.getAttribute('data-code');
+    run();
+  });
 
   btn.addEventListener('click', run);
   codeInput.addEventListener('keydown', function (e) {
