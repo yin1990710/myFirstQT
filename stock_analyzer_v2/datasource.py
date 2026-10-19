@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,11 @@ _MEM_CACHE: Dict[str, str] = {}
 
 class DataUnavailable(RuntimeError):
     """数据源不可用或返回为空。"""
+
+
+# CLI 限频/查询失败时输出错误文案而非表格（如"查询行情失败：...msg=服务限频"），
+# 此类输出绝不能写入缓存，否则失败结果会被缓存 ttl 天导致持续失败
+_CLI_FAIL_RE = re.compile(r"查询\S*失败|服务限频")
 
 
 def _cache_path(key: str) -> str:
@@ -72,6 +78,20 @@ def run_cli(args: List[str], ttl_days: int = 0) -> str:
         raise DataUnavailable(f"westock-data 执行失败：{exc}") from exc
 
     out = (proc.stdout or "") + (proc.stderr or "")
+
+    # 限频时等待后自动重试两次，仍失败则抛错且不写缓存
+    for wait in (2, 4):
+        if not _CLI_FAIL_RE.search(out):
+            break
+        time.sleep(wait)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        except Exception as exc:  # noqa: BLE001
+            raise DataUnavailable(f"westock-data 执行失败：{exc}") from exc
+        out = (proc.stdout or "") + (proc.stderr or "")
+    if _CLI_FAIL_RE.search(out):
+        raise DataUnavailable(f"数据源查询失败/限频：{' '.join(args)}")
+
     if not out.strip():
         raise DataUnavailable(f"westock-data 返回空：{' '.join(args)}")
     if "数据为空" in out or "未找到匹配" in out:
