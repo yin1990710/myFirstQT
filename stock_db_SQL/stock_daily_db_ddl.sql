@@ -526,6 +526,30 @@ CREATE TABLE `user_login_t` (
   UNIQUE KEY `uk_account` (`account`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录信息表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `cffex_position_daily_t`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `cffex_position_daily_t` (
+  `trading_day` varchar(8) NOT NULL COMMENT '交易日期YYYYMMDD',
+  `instrument` varchar(16) NOT NULL COMMENT '合约代码，如IF2611',
+  `product` varchar(8) NOT NULL COMMENT '品种代码：IF/IH/IC/IM',
+  `product_cn` varchar(40) DEFAULT NULL COMMENT '品种中文名',
+  `is_main` tinyint NOT NULL DEFAULT '0' COMMENT '是否主力合约（当日成交量合计最大）：1是/0否',
+  `long_total` int DEFAULT NULL COMMENT '前20名会员持买单量（多头）合计（手）',
+  `long_chg` int DEFAULT NULL COMMENT '多头比上交易日增减合计（手，官方口径）',
+  `short_total` int DEFAULT NULL COMMENT '前20名会员持卖单量（空头）合计（手）',
+  `short_chg` int DEFAULT NULL COMMENT '空头比上交易日增减合计（手，官方口径）',
+  `net_position` int DEFAULT NULL COMMENT '净持仓=多头合计-空头合计（手）',
+  `net_chg` int DEFAULT NULL COMMENT '净持仓变化=多头增减-空头增减（手）',
+  `long_ratio` decimal(6,4) DEFAULT NULL COMMENT '多头占比=多头/(多头+空头)',
+  `volume_total` int DEFAULT NULL COMMENT '前20名会员成交量合计（手）',
+  `volume_chg` int DEFAULT NULL COMMENT '成交量比上交易日增减合计（手）',
+  `data_source` varchar(100) DEFAULT NULL COMMENT '数据来源',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`trading_day`,`instrument`),
+  KEY `idx_product_day` (`product`,`trading_day`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='中金所股指期货多空持仓（前20名会员）数据表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 SET @@SESSION.SQL_LOG_BIN = @MYSQLDUMP_TEMP_LOG_BIN;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
