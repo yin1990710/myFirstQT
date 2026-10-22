@@ -43,6 +43,11 @@ SSE_JS = {
     '科创板': 'https://www.sse.com.cn/home/data_2000.js',
 }
 
+# 上交所官网不可达时的兜底数据源（新浪财经行情列表，node=sh_a 含沪市主板+科创板全部A股，
+# 字段：code/trade/mktcap(万元)/nmc(万元)/per(动态市盈率)）
+SINA_NODE_API = ('https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/'
+                 'Market_Center.getHQNodeData?page={page}&num=100&sort=symbol&asc=1&node=sh_a')
+
 HEADERS = {
     'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'),
@@ -145,34 +150,115 @@ def _parse_sse_js(text: str) -> dict:
     return {m.group(1): m.group(2) for m in _JS_VAR_RE.finditer(text)}
 
 
-def fetch_sse() -> list:
-    """采集上交所数据总貌，返回标准化记录列表。"""
+def fetch_sse(trade_date_hint: str = '') -> list:
+    """采集上交所数据总貌：官网静态 JS 优先，官网不可达时自动切换新浪行情聚合兜底。"""
+    try:
+        records = []
+        for board, url in SSE_JS.items():
+            print(f'[上交所] {board} 请求 {url}')
+            text = http_get(url, 'https://www.sse.com.cn/')
+            kv = _parse_sse_js(text)
+            trade_date = _date_compact(kv.get('dataStatisticDate', ''))
+            if not trade_date or 'mkt_value' not in kv:
+                raise RuntimeError(f'上交所 {board} JS 解析失败: {sorted(kv.keys())}')
+            rec = {
+                'exchange': 'SSE',
+                'board_type': board,
+                'trade_date': trade_date,
+                'company_count':     _to_num(kv.get('companyNumber')),
+                'listed_count':      _to_num(kv.get('stockNumber')),
+                'total_mv':          _to_num(kv.get('mkt_value')),
+                'float_mv':          _to_num(kv.get('negotiable_value')),
+                'total_amount':      None,   # 首页总貌不提供成交额
+                'total_volume':      None,
+                'total_shares':      _to_num(kv.get('iss_vol')),
+                'float_shares':      _to_num(kv.get('ngt_vol')),
+                'avg_pe':            _to_num(kv.get('ratioOfPe')),
+                'data_source':       url,
+            }
+            records.append(rec)
+        dates = {r['trade_date'] for r in records}
+        print(f'[上交所] 交易日 {sorted(dates)}，解析 {len(records)} 个板块')
+        return records
+    except Exception as e:  # noqa: BLE001
+        print(f'⚠️ 上交所官网数据源不可达，切换新浪行情聚合兜底: {e}')
+        return _fetch_sse_sina(trade_date_hint)
+
+
+def _fetch_sse_sina(trade_date_hint: str = '') -> list:
+    """新浪行情聚合兜底：拉取沪市全部A股按板块聚合。
+
+    口径说明（与官网总貌存在差异，data_source 已标注）：
+      - 仅统计 A 股（无 B 股公司），company_count/listed_count 为 A 股只数；
+      - avg_pe 为整体法（总市值/动态利润合计，per>0 参与权重），官网为静态口径；
+      - 交易日取深交所同日数据或 stock_daily_t 最新交易日。
+    """
+    rows, page = [], 1
+    while page <= 60:
+        text = http_get(SINA_NODE_API.format(page=page), 'https://finance.sina.com.cn/')
+        chunk = json.loads(text or '[]')
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if len(chunk) < 100:
+            break
+        page += 1
+        time.sleep(0.3)
+    if len(rows) < 500:
+        raise RuntimeError(f'新浪兜底数据异常：仅 {len(rows)} 行')
+
+    boards = {'主板': [], '科创板': []}
+    for r in rows:
+        code = str(r.get('code') or '')
+        boards['科创板' if code.startswith(('688', '689')) else '主板'].append(r)
+
+    if not trade_date_hint:
+        conn = get_mysql_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT MAX(trade_date) AS d FROM stock_daily_t')
+                    row = cur.fetchone()
+                    if row and row.get('d'):
+                        trade_date_hint = str(row['d'])
+            finally:
+                close_connection(conn)
+    if not trade_date_hint:
+        raise RuntimeError('无法确定兜底数据的交易日（深交所与数据库均无日期）')
+
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
     records = []
-    for board, url in SSE_JS.items():
-        print(f'[上交所] {board} 请求 {url}')
-        text = http_get(url, 'https://www.sse.com.cn/')
-        kv = _parse_sse_js(text)
-        trade_date = _date_compact(kv.get('dataStatisticDate', ''))
-        if not trade_date or 'mkt_value' not in kv:
-            raise RuntimeError(f'上交所 {board} JS 解析失败: {sorted(kv.keys())}')
-        rec = {
+    for board in ('主板', '科创板', '全市场'):
+        items = boards[board] if board != '全市场' else boards['主板'] + boards['科创板']
+        pairs = [(_f(i.get('mktcap')), _f(i.get('nmc')), _f(i.get('per')), _f(i.get('trade')))
+                 for i in items]
+        mv_sum = sum(m for m, _, _, _ in pairs if m)                 # 万元
+        fmv_sum = sum(m for _, m, _, _ in pairs if m)                # 万元
+        profit_w = sum(m / pe for m, _, pe, _ in pairs if m and pe and pe > 0)   # 万元(动态利润)
+        shares_yi = sum(m / (px * 1e4) for m, _, _, px in pairs if m and px and px > 0)      # 亿股
+        fshares_yi = sum(m / (px * 1e4) for _, m, _, px in pairs if m and px and px > 0)     # 亿股
+        records.append({
             'exchange': 'SSE',
             'board_type': board,
-            'trade_date': trade_date,
-            'company_count':     _to_num(kv.get('companyNumber')),
-            'listed_count':      _to_num(kv.get('stockNumber')),
-            'total_mv':          _to_num(kv.get('mkt_value')),
-            'float_mv':          _to_num(kv.get('negotiable_value')),
-            'total_amount':      None,   # 首页总貌不提供成交额
-            'total_volume':      None,
-            'total_shares':      _to_num(kv.get('iss_vol')),
-            'float_shares':      _to_num(kv.get('ngt_vol')),
-            'avg_pe':            _to_num(kv.get('ratioOfPe')),
-            'data_source':       url,
-        }
-        records.append(rec)
-    dates = {r['trade_date'] for r in records}
-    print(f'[上交所] 交易日 {sorted(dates)}，解析 {len(records)} 个板块')
+            'trade_date': trade_date_hint,
+            'company_count': len(items),
+            'listed_count': len(items),
+            'total_mv': round(mv_sum / 1e4, 2) if mv_sum else None,
+            'float_mv': round(fmv_sum / 1e4, 2) if fmv_sum else None,
+            'total_amount': None,
+            'total_volume': None,
+            'total_shares': round(shares_yi, 2) if shares_yi else None,
+            'float_shares': round(fshares_yi, 2) if fshares_yi else None,
+            'avg_pe': round(mv_sum / profit_w, 4) if mv_sum and profit_w > 0 else None,
+            'data_source': 'sina Market_Center fallback(整体法PE,仅A股)',
+        })
+    print(f'[上交所·新浪兜底] 交易日 {trade_date_hint}，'
+          f'主板 {len(boards["主板"])} 只 + 科创板 {len(boards["科创板"])} 只')
     return records
 
 
@@ -241,13 +327,16 @@ def main():
     # 采集层
     records = []
     errors = []
+    szse_date = ''
     try:
-        records.extend(fetch_szse())
+        szse_records = fetch_szse()
+        records.extend(szse_records)
+        szse_date = szse_records[0]['trade_date'] if szse_records else ''
     except Exception as e:  # noqa: BLE001
         errors.append(f'深交所: {e}')
         print('❌ 深交所采集失败:', e)
     try:
-        records.extend(fetch_sse())
+        records.extend(fetch_sse(szse_date))
     except Exception as e:  # noqa: BLE001
         errors.append(f'上交所: {e}')
         print('❌ 上交所采集失败:', e)
