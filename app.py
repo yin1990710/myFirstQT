@@ -964,6 +964,94 @@ def api_market_overview_etf_trend():
     return jsonify({'ok': True, 'index_code': index_code, 'count': len(points), 'points': points})
 
 
+# ---------------- 股指期货多空持仓（中金所前20名会员口径，update_cffex_position.py 采集） ----------------
+_CFFEX_PRODUCTS = {'IF', 'IH', 'IC', 'IM'}
+
+
+@app.route('/api/cffex_position_list')
+def api_cffex_position_list():
+    """返回最近一个交易日（或指定日）四大期指主力合约多空持仓列表。"""
+    date = (request.args.get('date') or '').strip()
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        if date:
+            cur.execute(
+                "SELECT trading_day, product, product_cn, instrument, long_total, long_chg, "
+                "       short_total, short_chg, net_position, net_chg, long_ratio, volume_total "
+                "FROM cffex_position_daily_t WHERE trading_day=%s AND is_main=1 "
+                "ORDER BY FIELD(product,'IF','IH','IC','IM')", (date,))
+            rows = cur.fetchall()
+        else:
+            cur.execute(
+                "SELECT trading_day, product, product_cn, instrument, long_total, long_chg, "
+                "       short_total, short_chg, net_position, net_chg, long_ratio, volume_total "
+                "FROM cffex_position_daily_t "
+                "WHERE is_main=1 AND trading_day=(SELECT MAX(trading_day) FROM cffex_position_daily_t) "
+                "ORDER BY FIELD(product,'IF','IH','IC','IM')")
+            rows = cur.fetchall()
+        cur.close()
+    finally:
+        close_connection(conn)
+    items = [{
+        'trading_day': str(r['trading_day']),
+        'product': r['product'],
+        'product_cn': r.get('product_cn') or '',
+        'instrument': r['instrument'],
+        'long_total': r['long_total'],
+        'long_chg': r['long_chg'],
+        'short_total': r['short_total'],
+        'short_chg': r['short_chg'],
+        'net_position': r['net_position'],
+        'net_chg': r['net_chg'],
+        'long_ratio': float(r['long_ratio']) if r.get('long_ratio') is not None else None,
+        'volume_total': r['volume_total'],
+    } for r in rows]
+    return jsonify({'ok': True,
+                    'trading_day': items[0]['trading_day'] if items else '',
+                    'items': items})
+
+
+@app.route('/api/cffex_position_trend')
+def api_cffex_position_trend():
+    """返回指定品种主力合约近 N 个交易日（默认30）的多空持仓走势（升序）。"""
+    product = (request.args.get('product') or '').strip().upper()
+    days = (request.args.get('days') or '30').strip()
+    if product not in _CFFEX_PRODUCTS:
+        return jsonify({'error': '不支持的品种'}), 400
+    try:
+        days = max(1, min(int(days), 120))
+    except ValueError:
+        days = 30
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT trading_day, instrument, long_total, short_total, net_position, "
+            "       long_chg, short_chg "
+            "FROM cffex_position_daily_t WHERE product=%s AND is_main=1 "
+            "ORDER BY trading_day DESC LIMIT %s", (product, days))
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        close_connection(conn)
+    rows = sorted(rows, key=lambda r: str(r['trading_day']))   # 升序
+    points = [{
+        'trade_date': str(r['trading_day']),
+        'instrument': r['instrument'],
+        'long_total': r['long_total'],
+        'short_total': r['short_total'],
+        'net_position': r['net_position'],
+        'long_chg': r['long_chg'],
+        'short_chg': r['short_chg'],
+    } for r in rows]
+    return jsonify({'ok': True, 'product': product, 'count': len(points), 'points': points})
+
+
 @app.route('/api/market_overview_metrics_dates')
 def api_market_overview_metrics_dates():
     """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""
