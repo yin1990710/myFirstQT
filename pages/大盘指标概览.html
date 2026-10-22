@@ -35,6 +35,10 @@
   .kpi .kpi-card.open { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8; }
   #etfAmountTable .etf-row:hover { background: #f0f6ff; }
   #etfAmountTable .etf-row.open { background: #e8f0fe; }
+  #cffexPosTable .cffex-row:hover { background: #f0f6ff; }
+  #cffexPosTable .cffex-row.open { background: #e8f0fe; }
+  .chg-pos { color: #d93025; }
+  .chg-neg { color: #188038; }
   .kpi .kpi-card .fold { position: absolute; top: 6px; right: 9px; font-size: 11px; color: #9aa4b1; }
   .kpi b { display: block; font-size: 22px; margin: 2px 0; color: #d93025; }
   .kpi span { color: #5a6472; font-size: 12px; }
@@ -113,6 +117,7 @@
       <input type="date" id="metricDate" style="padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;cursor:pointer">
     </label>
     <button id="refreshBtn" onclick="doRefresh()">刷新数据</button>
+    <button id="pdfBtn" onclick="exportPdf()">导出 PDF</button>
     <span id="status"></span>
   </div>
 
@@ -150,6 +155,16 @@
       <button class="kc-close" onclick="closeEtfChart()">收起 ✕</button>
     </div>
     <div id="etfChart" class="chart-inline"></div>
+  </div>
+
+  <!-- 股指期货多空持仓（中金所前20名会员，update_cffex_position.py 采集） -->
+  <div id="cffexSection" style="display:none;"></div>
+  <div class="kpi-chart-wrap" id="cffexChartWrap">
+    <div class="kc-head">
+      <span class="kc-title" id="cffexChartTitle">股指期货多空持仓走势</span>
+      <button class="kc-close" onclick="closeCffexChart()">收起 ✕</button>
+    </div>
+    <div id="cffexChart" class="chart-inline"></div>
   </div>
 
   <div class="warn">
@@ -312,6 +327,7 @@ function toggleKpiChart(key) {
   closeKpiChart();
   closeIndexChart();   // 与头部指数K线展开区互斥
   closeEtfChart();     // 与ETF类别走势图互斥
+  closeCffexChart();   // 与股指期货多空走势图互斥
   _kpiOpenKey = key;
   var card = document.querySelector('.kpi .kpi-card[data-key="' + key + '"]');
   if (card) card.classList.add('open');
@@ -427,6 +443,7 @@ function toggleEtfChart(indexCode, name) {
   closeEtfChart();
   closeKpiChart();     // 与15指标KPI展开区互斥
   closeIndexChart();   // 与头部指数K线区互斥
+  closeCffexChart();   // 与股指期货多空走势图互斥
   _etfOpenCode = indexCode;
   var row = document.querySelector('#etfAmountTable .etf-row[data-index_code="' + indexCode + '"]');
   if (row) row.classList.add('open');
@@ -451,6 +468,124 @@ function toggleEtfChart(indexCode, name) {
     });
 }
 
+// ---- 股指期货多空持仓（中金所前20名会员口径，数据盘后发布） ----
+var _cffexChart = null;     // 期货多空走势 echarts 实例
+var _cffexOpenProduct = '';
+var _CFFEX_NAMES = { IF: '沪深300股指期货', IH: '上证50股指期货', IC: '中证500股指期货', IM: '中证1000股指期货' };
+
+function closeCffexChart() {
+  if (_cffexChart) { _cffexChart.dispose(); _cffexChart = null; }
+  _cffexOpenProduct = '';
+  document.getElementById('cffexChartWrap').style.display = 'none';
+  var rows = document.querySelectorAll('#cffexPosTable .cffex-row');
+  for (var i = 0; i < rows.length; i++) rows[i].classList.remove('open');
+}
+
+function loadCffexPosition() {
+  fetch('/api/cffex_position_list').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error || !(d.items || []).length) return;   // 无数据时隐藏区块
+    renderCffexList(d.items, d.trading_day);
+  }).catch(function() { /* 静默失败，不阻塞页面 */ });
+}
+
+function chgCell(v) {
+  if (v === null || v === undefined) return '<span class="note">N/A</span>';
+  var cls = v > 0 ? 'chg-pos' : (v < 0 ? 'chg-neg' : '');
+  return '<span class="' + cls + '">' + (v > 0 ? '+' : '') + Number(v).toLocaleString('en-US') + '</span>';
+}
+
+function renderCffexList(items, tradingDay) {
+  var sec = document.getElementById('cffexSection');
+  var html = '<h3>股指期货多空持仓 <span class="cnt">前20名结算会员 · 官方增减口径 · 交易日 '
+    + dashDate(tradingDay || '') + '</span></h3>';
+  html += '<table id="cffexPosTable"><tr><th>品种</th><th>主力合约</th><th>多头持仓（手）</th><th>多头增减</th>'
+    + '<th>空头持仓（手）</th><th>空头增减</th><th>净持仓（手）</th><th>净变化</th><th>多头占比</th></tr>';
+  items.forEach(function(x) {
+    var pct = (x.long_ratio === null || x.long_ratio === undefined)
+      ? 'N/A' : (x.long_ratio * 100).toFixed(1) + '%';
+    html += '<tr class="cffex-row" style="cursor:pointer" data-product="' + x.product + '">'
+      + '<td><b>' + x.product + '</b> <span class="note">' + (x.product_cn || '') + '</span></td>'
+      + '<td>' + x.instrument + '</td>'
+      + '<td style="text-align:right">' + Number(x.long_total).toLocaleString('en-US') + '</td>'
+      + '<td style="text-align:right">' + chgCell(x.long_chg) + '</td>'
+      + '<td style="text-align:right">' + Number(x.short_total).toLocaleString('en-US') + '</td>'
+      + '<td style="text-align:right">' + chgCell(x.short_chg) + '</td>'
+      + '<td style="text-align:right"><b>' + chgCell(x.net_position) + '</b></td>'
+      + '<td style="text-align:right">' + chgCell(x.net_chg) + '</td>'
+      + '<td style="text-align:right">' + pct + '</td></tr>';
+  });
+  html += '</table><div class="note">数据由 update_cffex_position.py 采集中金所官网（盘后发布，非实时）。'
+    + '净持仓 = 前20名会员多头合计 − 空头合计；净持仓为负不代表看空（空单常用于对冲现货）。'
+    + '点击行可查看该品种主力合约近30个交易日多空持仓走势。</div>';
+  sec.innerHTML = html;
+  sec.style.display = '';
+  sec.querySelectorAll('.cffex-row').forEach(function(tr) {
+    tr.addEventListener('click', function() {
+      toggleCffexChart(tr.getAttribute('data-product'));
+    });
+  });
+}
+
+function cffexOption(points, product) {
+  var dates = points.map(function(p) { return shortDate(p.trade_date); });
+  return {
+    grid: { left: 78, right: 28, top: 40, bottom: 42 },
+    tooltip: { trigger: 'axis',
+      valueFormatter: function(v) { return v === null || v === undefined ? 'N/A' : Number(v).toLocaleString('en-US') + ' 手'; } },
+    legend: { top: 4, textStyle: { fontSize: 11 },
+      data: ['多头持仓', '空头持仓', '净持仓'] },
+    xAxis: { type: 'category', data: dates, boundaryGap: false,
+             axisLabel: { fontSize: 10, interval: Math.max(0, Math.floor(dates.length / 8) - 1) } },
+    yAxis: { type: 'value', scale: true, name: '手', nameTextStyle: { fontSize: 11 },
+             axisLabel: { formatter: function(v) { return v.toLocaleString('en-US'); } } },
+    series: [
+      { name: '多头持仓', type: 'line', data: points.map(function(p) { return p.long_total; }),
+        showSymbol: false, connectNulls: true,
+        lineStyle: { width: 2, color: '#d93025' }, itemStyle: { color: '#d93025' } },
+      { name: '空头持仓', type: 'line', data: points.map(function(p) { return p.short_total; }),
+        showSymbol: false, connectNulls: true,
+        lineStyle: { width: 2, color: '#188038' }, itemStyle: { color: '#188038' } },
+      { name: '净持仓', type: 'line', data: points.map(function(p) { return p.net_position; }),
+        showSymbol: false, connectNulls: true, smooth: true,
+        lineStyle: { width: 2, color: '#1a73e8' }, itemStyle: { color: '#1a73e8' },
+        areaStyle: { color: 'rgba(26,115,232,.10)' } },
+    ],
+  };
+}
+
+function toggleCffexChart(product) {
+  if (_cffexOpenProduct === product) { closeCffexChart(); return; }
+  closeCffexChart();
+  closeKpiChart();     // 与15指标KPI展开区互斥
+  closeIndexChart();   // 与头部指数K线区互斥
+  closeEtfChart();     // 与ETF类别成交额走势图互斥
+  _cffexOpenProduct = product;
+  var row = document.querySelector('#cffexPosTable .cffex-row[data-product="' + product + '"]');
+  if (row) row.classList.add('open');
+  var name = _CFFEX_NAMES[product] || product;
+  document.getElementById('cffexChartWrap').style.display = 'block';
+  document.getElementById('cffexChartTitle').textContent = name + '（' + product + '）走势加载中…';
+  if (_cffexChart) { _cffexChart.dispose(); _cffexChart = null; }
+  _cffexChart = echarts.init(document.getElementById('cffexChart'));
+  _cffexChart.showLoading();
+  fetch('/api/cffex_position_trend?product=' + encodeURIComponent(product) + '&days=30')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      if (_cffexOpenProduct !== product) return;   // 加载期间已切换
+      var pts = d.points || [];
+      _cffexChart.hideLoading();
+      var inst = pts.length ? pts[pts.length - 1].instrument : '';
+      document.getElementById('cffexChartTitle').textContent =
+        name + '（' + product + ' 主力 ' + inst + '）近' + pts.length + '个交易日多空持仓走势（前20名会员，手）';
+      _cffexChart.setOption(cffexOption(pts, product));
+    })
+    .catch(function(e) {
+      if (_cffexChart) _cffexChart.hideLoading();
+      document.getElementById('cffexChartTitle').textContent = product + ' 走势加载失败：' + e.message;
+    });
+}
+
 function closeIndexChart() {
   if (_idxChart) { _idxChart.dispose(); _idxChart = null; }
   _idxOpenCode = '';
@@ -464,6 +599,7 @@ function toggleIndexChart(code) {
   closeIndexChart();
   closeKpiChart();   // 与15指标KPI展开区互斥
   closeEtfChart();   // 与ETF类别走势图互斥
+  closeCffexChart(); // 与股指期货多空走势图互斥
   _idxOpenCode = code;
   var card = document.querySelector('#idxKpi .kpi-card[data-code="' + code + '"]');
   if (card) card.classList.add('open');
@@ -591,6 +727,7 @@ window.addEventListener('resize', function() {
   if (_kpiChart) _kpiChart.resize();
   if (_idxChart) _idxChart.resize();
   if (_etfChart) _etfChart.resize();
+  if (_cffexChart) _cffexChart.resize();
   Object.keys(_rowCharts).forEach(function(k) { _rowCharts[k].resize(); });
 });
 
@@ -685,8 +822,75 @@ function pollStatus() {
   }, 3000);
 }
 
+// ---- 导出 PDF：html2canvas 整页截图 + jsPDF 按 A4 分页切片（库按需懒加载） ----
+var _pdfLibs = {};   // 已加载的导出库缓存
+
+function loadScriptOnce(key, url) {
+  if (_pdfLibs[key]) return _pdfLibs[key];
+  _pdfLibs[key] = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = url;
+    s.onload = resolve;
+    s.onerror = function() { delete _pdfLibs[key]; reject(new Error('脚本加载失败: ' + url)); };
+    document.head.appendChild(s);
+  });
+  return _pdfLibs[key];
+}
+
+function exportPdf() {
+  var btn = document.getElementById('pdfBtn');
+  btn.disabled = true;
+  var oldText = btn.textContent;
+  btn.textContent = 'PDF 生成中…';
+  Promise.all([
+    loadScriptOnce('h2c', 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'),
+    loadScriptOnce('jspdf', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'),
+  ]).then(function() {
+    // 冻结所有 ECharts 实例动画，确保截图帧完整
+    var charts = [_kpiChart, _idxChart, _etfChart, _cffexChart].concat(Object.keys(_rowCharts).map(function(k) { return _rowCharts[k]; }));
+    charts.forEach(function(c) { if (c) c.setOption({ animation: false }); });
+    var pageEl = document.querySelector('.page');
+    return html2canvas(pageEl, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+    });
+  }).then(function(canvas) {
+    var jsPDF = window.jspdf.jsPDF;
+    var pdf = new jsPDF('p', 'mm', 'a4');
+    var pw = 210, ph = 297, margin = 8;
+    var iw = pw - margin * 2;
+    var pxPerMm = canvas.width / iw;
+    var pageHpx = Math.floor((ph - margin * 2) * pxPerMm);
+    var y = 0, page = 0;
+    while (y < canvas.height) {
+      var sliceH = Math.min(pageHpx, canvas.height - y);
+      var c2 = document.createElement('canvas');
+      c2.width = canvas.width;
+      c2.height = sliceH;
+      c2.getContext('2d').drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      if (page > 0) pdf.addPage();
+      pdf.addImage(c2.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, iw, sliceH / pxPerMm);
+      y += sliceH;
+      page++;
+    }
+    var d = document.getElementById('metricDate').value;
+    if (!d) {
+      var t = new Date();
+      d = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+    }
+    pdf.save('大盘指标概览_' + d + '.pdf');
+  }).catch(function(e) {
+    alert('PDF 导出失败：' + e.message);
+  }).finally(function() {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  });
+}
+
 loadDateList();
 loadData();
+loadCffexPosition();
 loadChartData();
 
 // 日期框：选择日期后直接加载该日指标（初始值为最近一个交易日）
