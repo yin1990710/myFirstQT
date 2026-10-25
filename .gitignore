@@ -56,9 +56,9 @@ V形反转*/
 pages/stock_analyzer/
 # stock_analyzer_v2 命令行（analyze.py）测试报告输出
 stock_analyzer_v2/reports/
-# stock_analyzer_v3 测试产物与抓取缓存
-stock_analyzer_v3/output/
-stock_analyzer_v3/.cache/
+# stock_analyzer 测试产物与抓取缓存
+stock_analyzer/output/
+stock_analyzer/.cache/
 
 # Output files (per-stock charts & dated reports at root)
 *.SH.png

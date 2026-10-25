@@ -403,10 +403,10 @@ def stock_detail_page():
     return send_from_directory(PAGE_DIR, '个股数据详情.html')
 
 
-# ---------- 智能分析（stock_analyzer_v3 个股多维度分析报告） ----------
+# ---------- 智能分析（stock_analyzer 个股多维度分析报告） ----------
 ANALYZER_DIR = os.path.join(PAGE_DIR, 'stock_analyzer')
-# stock_analyzer_v3 包目录（analyze.py 为 CLI 入口，需 Python 3.12+ 运行）
-ANALYZER_V3_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stock_analyzer_v3')
+# stock_analyzer 包目录（analyze.py 为 CLI 入口，需 Python 3.12+ 运行）
+ANALYZER_PKG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stock_analyzer')
 
 # 智能分析输入：股票代码格式（600577 / sh600577 / 600577.SH，大小写均可）
 _ANALYZER_CODE_RE = re.compile(r'^(sh|sz|bj)?\d{6}(\.(sh|sz|bj))?$', re.I)
@@ -485,7 +485,7 @@ def api_stock_analyzer_reports():
 
 @app.route('/api/stock_analyzer', methods=['POST'])
 def api_stock_analyzer():
-    """调用 stock_analyzer_v3 生成个股多维度分析报告，HTML 落盘到 pages/stock_analyzer。"""
+    """调用 stock_analyzer 生成个股多维度分析报告，HTML 落盘到 pages/stock_analyzer。"""
     data = request.get_json(silent=True) or {}
     raw = (data.get('code') or '').strip()
     if not raw:
@@ -521,13 +521,13 @@ def api_stock_analyzer():
     # 故以系统 python3 子进程方式调用 CLI 入口，输出直接落盘到 ANALYZER_DIR
     py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
     py3 = py3 or '/usr/local/bin/python3'
-    cmd = [py3, os.path.join(ANALYZER_V3_DIR, 'analyze.py'), code6,
+    cmd = [py3, os.path.join(ANALYZER_PKG_DIR, 'analyze.py'), code6,
            '--out', ANALYZER_DIR, '--no-md', '--quiet']
     env = dict(os.environ)
     env['PATH'] = '/usr/local/bin:/usr/bin:/bin:' + env.get('PATH', '')
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=600, cwd=ANALYZER_V3_DIR, env=env)
+                              timeout=600, cwd=ANALYZER_PKG_DIR, env=env)
     except subprocess.TimeoutExpired:
         return jsonify({'ok': False, 'error': '分析超时（超过10分钟），请稍后重试'}), 500
 
