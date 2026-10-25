@@ -75,7 +75,7 @@
     <a href="/stock-detail">个股详情</a>
     <a href="/analyzer" class="active">智能分析</a>
     <a href="/etf">ETF专区</a>
-    <a href="/cron">任务与数据监控</a>
+    <a href="/cron">数据同步与监控</a>
     <a href="/about">关于力矩量化</a>
   </nav>
 </header>
@@ -86,6 +86,7 @@
   <label>股票代码 / 名称</label>
   <input type="text" id="code" placeholder="如 300750 / sz300750 / 宁德时代" autocomplete="off">
   <button id="btnAnalyze">智能分析</button>
+  <button id="btnPdf" style="display:none">保存为 PDF</button>
   <span id="msg"></span>
   <a class="open-link" id="openLink" target="_blank" rel="noopener">↗ 新窗口打开报告</a>
   <span class="hint">报告基于最新行情与本地日K生成，约需 10~30 秒，请勿重复点击</span>
@@ -113,7 +114,9 @@
   var frame = document.getElementById('reportFrame');
   var placeholder = document.getElementById('placeholder');
   var openLink = document.getElementById('openLink');
+  var btnPdf = document.getElementById('btnPdf');
   var savedSel = document.getElementById('savedReports');
+  var _curReport = null;   // 当前展示报告的 {name, code, date}，用于 PDF 文件名
 
   function setMsg(text, ok) {
     msg.textContent = text || '';
@@ -124,12 +127,24 @@
     btn.textContent = loading ? '正在生成…' : '智能分析';
     progress.classList.toggle('show', loading);
   }
-  function showReport(url) {
+  function showReport(url, meta) {
     frame.src = url;
     frame.style.display = 'block';
     placeholder.style.display = 'none';
     openLink.href = url;
     openLink.style.display = 'inline-block';
+    btnPdf.style.display = 'inline-block';
+    _curReport = meta || null;
+  }
+
+  // 从 {名称}-{代码}-{日期}.html 文件名解析报告元信息
+  function parseFnameMeta(fname) {
+    var stem = (fname || '').replace(/\.html$/i, '');
+    var parts = stem.split('-');
+    if (parts.length >= 3) {
+      return { date: parts.pop(), code: parts.pop(), name: parts.join('-') };
+    }
+    return { name: stem, code: '', date: '' };
   }
 
   function loadSavedReports(selectFname) {
@@ -153,7 +168,7 @@
   savedSel.addEventListener('change', function () {
     var fname = savedSel.value;
     if (!fname) return;
-    showReport('/analyzer/report/' + encodeURIComponent(fname));
+    showReport('/analyzer/report/' + encodeURIComponent(fname), parseFnameMeta(fname));
   });
 
   function run() {
@@ -161,6 +176,8 @@
     if (!code) { setMsg('请输入股票代码或名称'); codeInput.focus(); return; }
     setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
     openLink.style.display = 'none';
+    btnPdf.style.display = 'none';
+    _curReport = null;
 
     fetch('/api/stock_analyzer', {
       method: 'POST',
@@ -189,7 +206,7 @@
       var tip = '已生成：' + (d.name || d.code) + '（' + d.code + '）' + (d.date ? ' 数据截至 ' + d.date : '');
       if (d.errors && d.errors.length) { tip += '；' + d.errors.length + ' 项数据缺口已在报告中标注'; }
       setMsg(tip, true);
-      showReport(d.url);
+      showReport(d.url, { name: d.name || '', code: d.code || '', date: d.date || '' });
       // 新报告落盘后刷新下拉框并选中本次生成的报告
       var fname = (d.url || '').split('/').pop();
       loadSavedReports(fname);
@@ -207,6 +224,79 @@
     run();
   });
 
+  // ---- 保存为 PDF：html2canvas 截取同源 iframe 报告 + jsPDF 按 A4 分页切片（库按需懒加载） ----
+  var _pdfLibs = {};
+  function loadScriptOnce(key, url) {
+    if (_pdfLibs[key]) return _pdfLibs[key];
+    _pdfLibs[key] = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = resolve;
+      s.onerror = function () { delete _pdfLibs[key]; reject(new Error('脚本加载失败: ' + url)); };
+      document.head.appendChild(s);
+    });
+    return _pdfLibs[key];
+  }
+
+  function exportPdf() {
+    if (!frame.src) return;
+    var iwin = frame.contentWindow;
+    var idoc = frame.contentDocument;
+    if (!iwin || !idoc || !idoc.body) { alert('报告尚未加载完成，请稍后再试'); return; }
+    btnPdf.disabled = true;
+    var oldText = btnPdf.textContent;
+    btnPdf.textContent = 'PDF 生成中…';
+    Promise.all([
+      loadScriptOnce('h2c', 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'),
+      loadScriptOnce('jspdf', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'),
+    ]).then(function () {
+      // 冻结报告内所有 ECharts 实例动画，确保截图帧完整
+      if (iwin.echarts) {
+        Array.prototype.forEach.call(idoc.querySelectorAll('div[_echarts_instance_]'), function (el) {
+          var inst = iwin.echarts.getInstanceByDom(el);
+          if (inst) inst.setOption({ animation: false });
+        });
+      }
+      return html2canvas(idoc.body, {
+        window: iwin,
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      });
+    }).then(function (canvas) {
+      var jsPDF = window.jspdf.jsPDF;
+      var pdf = new jsPDF('p', 'mm', 'a4');
+      var pw = 210, ph = 297, margin = 8;
+      var iw = pw - margin * 2;
+      var pxPerMm = canvas.width / iw;
+      var pageHpx = Math.floor((ph - margin * 2) * pxPerMm);
+      var y = 0, page = 0;
+      while (y < canvas.height) {
+        var sliceH = Math.min(pageHpx, canvas.height - y);
+        var c2 = document.createElement('canvas');
+        c2.width = canvas.width;
+        c2.height = sliceH;
+        c2.getContext('2d').drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+        if (page > 0) pdf.addPage();
+        pdf.addImage(c2.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, iw, sliceH / pxPerMm);
+        y += sliceH;
+        page++;
+      }
+      var meta = _curReport || {};
+      var fname = '智能分析报告'
+        + (meta.name ? '_' + meta.name : '')
+        + (meta.code ? '_' + meta.code : '')
+        + (meta.date ? '_' + meta.date : '') + '.pdf';
+      pdf.save(fname);
+    }).catch(function (e) {
+      alert('PDF 导出失败：' + e.message);
+    }).finally(function () {
+      btnPdf.disabled = false;
+      btnPdf.textContent = oldText;
+    });
+  }
+
+  btnPdf.addEventListener('click', exportPdf);
   btn.addEventListener('click', run);
   codeInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') run();
