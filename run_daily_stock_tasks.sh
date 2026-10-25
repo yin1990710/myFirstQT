@@ -245,18 +245,7 @@ else
     exit 1
 fi
 
-# 步骤24：A股大盘风险指数MRI
-log "[步骤24/27] 开始执行 A股大盘风险指数MRI (report_market_risk_index.py)..."
-if ${VENV_PYTHON} report_market_risk_index.py >> "${LOG_DIR}/report_market_risk_index_${DATE}.log" 2>&1; then
-    log "[步骤24/27] ✅ A股大盘风险指数MRI (report_market_risk_index.py) 执行成功"
-else
-    log "[步骤24/27] ❌ A股大盘风险指数MRI (report_market_risk_index.py) 执行失败，停止任务"
-    exit 1
-fi
-
-log "========== 第五批任务：任务与数据监控 =========="
-
-# 步骤25：行业短线热度分析
+# 步骤24：行业短线热度分析
 log "[步骤25/27] 开始执行 行业短线热度分析 (report_industry_heat.py)..."
 if ${VENV_PYTHON} report_industry_heat.py >> "${LOG_DIR}/report_industry_heat_${DATE}.log" 2>&1; then
     log "[步骤25/27] ✅ 行业短线热度分析 (report_industry_heat.py) 执行成功"
@@ -265,7 +254,9 @@ else
     exit 1
 fi
 
-# 步骤26：数据更新监控
+log "========== 第五批任务：任务与数据监控 =========="
+
+# 步骤25：数据更新监控
 log "[步骤26/27] 开始执行 数据更新监控 (monitor_stock_data.py)..."
 if ${VENV_PYTHON} monitor_stock_data.py >> "${LOG_DIR}/monitor_stock_data_${DATE}.log" 2>&1; then
     log "[步骤26/27] ✅ 数据更新监控 (monitor_stock_data.py) 执行成功"
@@ -274,7 +265,7 @@ else
     exit 1
 fi
 
-# 步骤27：任务运行监控
+# 步骤26：任务运行监控
 log "[步骤27/27] 开始执行 任务运行监控 (monitor_run_daily_tasks.py)..."
 if ${VENV_PYTHON} monitor_run_daily_tasks.py >> "${LOG_DIR}/monitor_run_daily_tasks_${DATE}.log" 2>&1; then
     log "[步骤27/27] ✅ 任务运行监控 (monitor_run_daily_tasks.py) 执行成功"

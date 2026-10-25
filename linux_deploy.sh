@@ -44,6 +44,31 @@ echo
 log "==================== 步骤 1/7: 安装系统依赖 ===================="
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
+
+# ---- Python 版本保障：智能分析 analyze.py 使用 Python 3.12+ 语法(f-string 反斜杠) ----
+# 系统 python3 不足 3.12 时，自动通过 deadsnakes PPA 安装 python3.12
+_PY_VER="$("${PYTHON_BIN}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "0.0")"
+log "系统 Python 版本: ${_PY_VER} (需 >= 3.12)"
+if [[ "$(printf '%s\n' "${_PY_VER}" "3.12" | sort -V | tail -1)" != "${_PY_VER}" ]]; then
+    log "当前 Python 版本不足，尝试安装 python3.12 ..."
+    apt-get install -y --no-install-recommends software-properties-common >/dev/null 2>&1 || true
+    if command -v add-apt-repository >/dev/null 2>&1; then
+        add-apt-repository -y ppa:deadsnakes/ppa >/dev/null 2>&1 || true
+        apt-get update -y
+    fi
+    apt-get install -y --no-install-recommends python3.12 python3.12-venv || true
+    if command -v python3.12 >/dev/null 2>&1; then
+        PYTHON_BIN="python3.12"
+        _PY_VER="$("${PYTHON_BIN}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "0.0")"
+        ok "已安装 python3.12: ${_PY_VER}"
+    else
+        err "Python 3.12 安装失败（当前 ${_PY_VER}）"
+        err "请手动安装 Python 3.12 后重试: sudo apt-get install python3.12 python3.12-venv"
+        exit 1
+    fi
+fi
+ok "Python 版本就绪: ${_PY_VER} (${PYTHON_BIN})"
+
 apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip python3-dev \
     build-essential \
@@ -51,8 +76,15 @@ apt-get install -y --no-install-recommends \
     libmysqlclient-dev \
     pkg-config \
     curl ca-certificates \
-    fonts-wqy-zenhei fonts-wqy-microhei
+    fonts-wqy-zenhei fonts-wqy-microhei \
+    libgl1 libglib2.0-0 libgomp1 \
+    tzdata
 ok "系统依赖安装完成"
+
+# ---- 设置时区为 Asia/Shanghai（A股数据脚本依赖本地日期判断交易日） ----
+timedatectl set-timezone Asia/Shanghai 2>/dev/null || \
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ok "时区已设置为 Asia/Shanghai"
 
 # ============================ 2. 创建运行用户与目录 ============================
 echo
@@ -106,7 +138,17 @@ VENV_PIP="${INSTALL_DIR}/.venv/bin/pip"
 log "升级 pip 并安装依赖..."
 sudo -u "${APP_USER}" "${VENV_PY}" -m pip install --upgrade pip --quiet
 sudo -u "${APP_USER}" "${VENV_PIP}" install -r requirements.txt --quiet
-ok "Python 依赖安装完成"
+# OCR 图像识别能力（智能分析页上传截图识别股票，module_stock_graph_orc.py）
+sudo -u "${APP_USER}" "${VENV_PIP}" install rapidocr-onnxruntime --quiet
+ok "Python 依赖安装完成（含 OCR 图像识别能力）"
+
+# 校验关键依赖是否全部可用（任一缺失即中断，避免部署后运行时报错）
+log "校验关键 Python 依赖..."
+if ! sudo -u "${APP_USER}" "${VENV_PY}" -c \
+    "import flask, pymysql, pandas, numpy, requests, tushare, akshare, matplotlib, rapidocr_onnxruntime; print('  ✅ 关键依赖全部可用')"; then
+    err "关键 Python 依赖校验失败，请检查上方 pip 安装日志"
+    exit 1
+fi
 
 # ============================ 4. 配置 MySQL 并启动 ============================
 echo
@@ -172,18 +214,58 @@ log "导入 DDL: ${TMP_DDL} -> ${MYSQL_DB_NAME}"
 mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -f "${MYSQL_DB_NAME}" < "${TMP_DDL}"
 rm -f "${TMP_DDL}"
 
-# 初始化登录用户表(app.py 启动时 controller_auth.init_user_table() 也会自动建表)
-log "初始化登录用户表..."
-mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -f "${MYSQL_DB_NAME}" <<'EOF' || true
-CREATE TABLE IF NOT EXISTS `user_t` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `account` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `password_hash` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `salt` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_account` (`account`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录用户表';
+# 初始化登录用户表 user_login_t（与 controller_auth.py 一致，并创建默认账号 luckboy）
+log "初始化登录用户表 user_login_t（默认账号 luckboy/luckboy123）..."
+DEFAULT_PWD_HASH="$(printf 'luckboy123' | sha256sum | awk '{print $1}')"
+mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -f "${MYSQL_DB_NAME}" <<EOF
+CREATE TABLE IF NOT EXISTS \`user_login_t\` (
+  \`id\` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  \`account\` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '账号',
+  \`password\` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '密码(SHA256)',
+  \`login_status\` tinyint NOT NULL DEFAULT 0 COMMENT '登录状态: 0=离线 1=在线',
+  \`login_time\` datetime DEFAULT NULL COMMENT '最近登录时间',
+  \`logout_time\` datetime DEFAULT NULL COMMENT '最近登出时间',
+  \`valid_from_date\` date DEFAULT NULL COMMENT '账号有效期开始日期',
+  \`create_time\` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  \`update_time\` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  UNIQUE KEY \`uk_account\` (\`account\`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录信息表';
+INSERT IGNORE INTO \`user_login_t\` (\`account\`, \`password\`, \`valid_from_date\`)
+VALUES ('luckboy', '${DEFAULT_PWD_HASH}', CURDATE());
 EOF
+ok "登录用户表初始化完成（默认账号 luckboy/luckboy123）"
+
+# 初始化股票基础数据 stock_info_t（tushare 拉取全市场股票列表，失败仅提示不阻断）
+log "初始化股票基础数据 stock_info_t（tushare stock_basic）..."
+TS_TOKEN="228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3"
+sudo -u "${APP_USER}" "${VENV_PY}" - "${MYSQL_ROOT_PASSWORD}" "${MYSQL_DB_NAME}" "${TS_TOKEN}" <<'PYEOF'
+import sys
+pwd, db, token = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    import pymysql, tushare as ts
+    pro = ts.pro_api(token)
+    df = pro.stock_basic(exchange='', list_status='L',
+                         fields='ts_code,symbol,name,area,industry,market,list_date,exchange')
+    if df is None or df.empty:
+        print("tushare stock_basic 返回为空，跳过初始化"); sys.exit(0)
+    rows = [(r['ts_code'], str(r['name'] or '').strip(), r.get('industry'), r.get('area'),
+             str(r.get('list_date') or ''), r.get('market'), r.get('exchange'))
+            for _, r in df.iterrows() if r.get('ts_code') and str(r.get('ts_code')).isdigit()]
+    conn = pymysql.connect(host='localhost', port=3306, user='root', password=pwd,
+                           database=db, charset='utf8mb4')
+    try:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "REPLACE INTO stock_info_t (ts_code, stock_name, industry, area, list_date, market, exchange) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)", rows)
+        conn.commit()
+        print(f"股票基础数据初始化完成: {len(rows)} 条")
+    finally:
+        conn.close()
+except Exception as e:
+    print(f"股票基础数据初始化跳过（可后续手动执行 update_stock_info_daily.py）: {e}")
+    sys.exit(0)
+PYEOF
 ok "数据表导入完成"
 
 # ============================ 6. 修改定时脚本路径并创建 cron 任务 ============================
@@ -287,7 +369,11 @@ echo "  手动运行例行任务: sudo -u ${APP_USER} ${CRON_SH}"
 echo "  进入项目目录:    cd ${INSTALL_DIR} && source .venv/bin/activate"
 echo
 echo -e "${C_YELLOW}注意事项:${C_NC}"
-echo "  1. tushare token 已硬编码在各 update_*.py / select_*.py 脚本中, 无需单独配置"
-echo "  2. 若需外部网络访问, 请修改 ${INSTALL_DIR}/app.py 末尾的 app.run(host=...) 或配置反向代理"
-echo "  3. 定时任务首次执行需联网拉取 tushare/akshare 数据, 建议在交易日 17:00 后观察 cron_logs 目录"
-echo "  4. 首次登录平台账号请查看 controller_auth.py 中的 init_user_table() 默认账号密码"
+echo "  1. 登录账号:  luckboy / luckboy123（部署脚本已初始化 user_login_t）"
+echo "  2. tushare token 已硬编码在各 update_*.py / select_*.py 脚本中, 无需单独配置"
+echo "  3. MySQL 连接: root/${MYSQL_ROOT_PASSWORD} @ ${MYSQL_DB_NAME}（module_mysql_connection.py 默认参数，如需修改请保持两边一致）"
+echo "  4. 时区: Asia/Shanghai（A股数据任务按交易日运行）"
+echo "  5. 智能分析图片识别: 页面支持上传截图识别股票并批量生成报告（rapidocr 已安装）"
+echo "  6. 若需外部网络访问, 请修改 ${INSTALL_DIR}/app.py 末尾的 app.run(host=...) 或配置反向代理"
+echo "  7. 定时任务首次执行需联网拉取 tushare/akshare 数据, 建议在交易日 17:00 后观察 cron_logs 目录"
+echo "  8. 首次登录后可到「数据同步与监控」页手动触发数据任务补齐历史数据"

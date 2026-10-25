@@ -17,7 +17,7 @@ from module_mysql_connection import get_mysql_connection, close_connection
 
 pro = ts.pro_api('228556619d635e28811329f4ecf6c70ae9ab57cc7a4e4d9b3b540ff3')
 
-CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "同花顺行业概念板块", "板块名称及代码.csv")
+CSV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "同花顺行业板块", "板块名称及代码.csv")
 
 def read_industry_codes():
     """
