@@ -1052,6 +1052,102 @@ def api_cffex_position_trend():
     return jsonify({'ok': True, 'product': product, 'count': len(points), 'points': points})
 
 
+# 近一年涨跌幅分布：内存缓存（按 latest_date 命中，避免每次页面加载重算 ~1.3s）
+_RET_DIST_CACHE = {'date': None, 'data': None}
+
+@app.route('/api/market_overview_ashare_return_dist')
+def api_market_overview_ashare_return_dist():
+    """A股近一年（250个交易日）前复权涨跌幅分布。
+
+    口径：涨跌幅 = 最新前复权收盘价 / 250个交易日前前复权收盘价 - 1
+         前复权价 = 不复权close × 当日qfq_adj_factor / 最新日qfq_adj_factor
+    分箱：从 -80% 起、步长 20%，末档 [100%, +∞)。
+    自动剔除上市不足250个交易日、停牌或复权因子缺失的股票。
+    """
+    conn = get_mysql_connection()
+    if not conn:
+        return jsonify({'error': '数据库连接失败'}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(trade_date) AS d FROM stock_daily_t")
+        latest_date = str(cur.fetchone()['d'])
+
+        # 缓存命中
+        if _RET_DIST_CACHE['date'] == latest_date and _RET_DIST_CACHE['data'] is not None:
+            return jsonify(_RET_DIST_CACHE['data'])
+
+        # 取第 250 个最近交易日作为基准日
+        cur.execute(
+            "SELECT trade_date FROM ("
+            "  SELECT DISTINCT trade_date FROM stock_daily_t ORDER BY trade_date DESC LIMIT 250"
+            ") x ORDER BY trade_date ASC LIMIT 1")
+        base_date = str(cur.fetchone()['trade_date'])
+
+        cur.execute(
+            "SELECT l.ts_code AS code, "
+            "       (l.close * l.qfq_adj_factor) / (b.close * b.qfq_adj_factor) - 1 AS ret "
+            "FROM stock_daily_t l "
+            "JOIN stock_daily_t b ON l.ts_code = b.ts_code "
+            "WHERE l.trade_date = %s AND b.trade_date = %s "
+            "  AND l.qfq_adj_factor IS NOT NULL AND b.qfq_adj_factor IS NOT NULL "
+            "  AND b.close > 0 AND l.close > 0",
+            (latest_date, base_date))
+        rows = cur.fetchall()
+    finally:
+        close_connection(conn)
+
+    rets = [float(r['ret']) * 100 for r in rows]
+    total = len(rets)
+    if total == 0:
+        return jsonify({'error': '无可用数据', 'latest_date': latest_date}), 404
+
+    # 分箱：-80% 起、步长 20%，末档 [100%, +∞)
+    start, step = -80.0, 20.0
+    edges = [start + i * step for i in range(int((100 - start) // step) + 1)]  # -80..100
+    labels = [f'[{edges[i]:+.0f}%, {edges[i+1]:+.0f}%)' for i in range(len(edges) - 1)]
+    labels.append(f'[{edges[-1]:+.0f}%, +∞)')
+    counts = [0] * len(labels)
+    n_bins = len(labels)
+    for v in rets:
+        idx = 0
+        for i in range(len(edges) - 1):
+            if v < edges[i + 1]:
+                idx = i
+                break
+        else:
+            idx = n_bins - 1
+        counts[idx] += 1
+
+    bins = []
+    for i, lab in enumerate(labels):
+        bins.append({
+            'range': lab,
+            'count': counts[i],
+            'pct': round(counts[i] / total * 100, 2),
+        })
+
+    import statistics
+    median = round(statistics.median(rets), 2)
+    positive_pct = round(sum(1 for v in rets if v > 0) / total * 100, 2)
+    up20_pct = round(sum(1 for v in rets if v > 20) / total * 100, 2)
+    down20_pct = round(sum(1 for v in rets if v < -20) / total * 100, 2)
+
+    data = {
+        'ok': True,
+        'latest_date': latest_date,
+        'base_date': base_date,
+        'total': total,
+        'median': median,
+        'positive_pct': positive_pct,
+        'up20_pct': up20_pct,
+        'down20_pct': down20_pct,
+        'bins': bins,
+    }
+    _RET_DIST_CACHE['date'] = latest_date
+    _RET_DIST_CACHE['data'] = data
+    return jsonify(data)
+
+
 @app.route('/api/market_overview_metrics_dates')
 def api_market_overview_metrics_dates():
     """返回指标快照表中已有数据的交易日列表（降序，最多120个），供日期选择框限定范围。"""

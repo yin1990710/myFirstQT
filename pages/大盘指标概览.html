@@ -167,6 +167,12 @@
     <div id="cffexChart" class="chart-inline"></div>
   </div>
 
+  <!-- A股近一年涨跌幅分布 -->
+  <section class="card" id="retDistSection" style="display:none;">
+    <h3>近一年股票涨跌幅分布 <span class="cnt" id="retDistMeta"></span></h3>
+    <div id="retDistChart" class="chart-inline" style="height:460px;"></div>
+  </section>
+
   <div class="warn">
     <b>使用说明：</b>四板块市盈率（C1-C4）均取自沪深交易所官网市场总貌官方口径；
     其中科创板平均市盈率包含高 PE 与未盈利企业，与其他板块不可直接横向比较。
@@ -486,6 +492,59 @@ function loadCffexPosition() {
     if (d.error || !(d.items || []).length) return;   // 无数据时隐藏区块
     renderCffexList(d.items, d.trading_day);
   }).catch(function() { /* 静默失败，不阻塞页面 */ });
+}
+
+// ---- A股近一年涨跌幅分布 ----
+var _retDistChart = null;
+function loadAshareReturnDist() {
+  fetch('/api/market_overview_ashare_return_dist').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error || !(d.bins || []).length) return;
+    renderAshareReturnDist(d);
+  }).catch(function() {});
+}
+
+function renderAshareReturnDist(d) {
+  var sec = document.getElementById('retDistSection');
+  sec.style.display = '';
+  document.getElementById('retDistMeta').textContent =
+    '样本 ' + d.total + ' 只 · 中位数 ' + (d.median > 0 ? '+' : '') + d.median.toFixed(1) + '%'
+    + ' · 上涨占比 ' + d.positive_pct.toFixed(1) + '%'
+    + ' · 区间 ' + dashDate(d.base_date) + ' → ' + dashDate(d.latest_date) + '（前复权，250个交易日）';
+
+  if (typeof echarts === 'undefined') return;
+  if (_retDistChart) { _retDistChart.dispose(); _retDistChart = null; }
+  _retDistChart = echarts.init(document.getElementById('retDistChart'));
+
+  var bins = d.bins;
+  var yData = bins.map(function(b) { return b.range; });   // 自上而下：低涨幅到高涨幅
+  var counts = bins.map(function(b) { return b.count; });
+  var colors = bins.map(function(b) {
+    // 区间下沿解析：[+X%, ...) 或 [-X%, ...)
+    var lo = parseFloat(b.range.split(',')[0].replace('[', '').replace('%', ''));
+    return lo >= 0 ? '#d93025' : '#188038';
+  });
+
+  _retDistChart.setOption({
+    title: { text: '近一年股票最大涨跌幅分布', left: 'center', top: 4, textStyle: { fontSize: 15, fontWeight: 'bold' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: function(p) {
+        var b = bins[p[0].dataIndex];
+        return p[0].name + '<br/>股票数量：' + b.count + ' 只<br/>占比：' + b.pct + '%';
+      } },
+    grid: { left: 110, right: 60, top: 46, bottom: 36 },
+    xAxis: { type: 'value', name: '股票数量（只）', nameTextStyle: { fontSize: 11 },
+             axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'category', data: yData, name: '涨跌幅（%）', nameTextStyle: { fontSize: 11 },
+             axisLabel: { fontSize: 10 } },
+    series: [{
+      type: 'bar', data: counts.map(function(c, i) {
+        return { value: c, itemStyle: { color: colors[i] } };
+      }),
+      label: { show: true, position: 'right', fontSize: 10, color: '#333',
+        formatter: function(p) { return p.value + '  (' + bins[p.dataIndex].pct + '%)'; } },
+      barWidth: '60%',
+    }],
+  });
 }
 
 function chgCell(v) {
@@ -891,6 +950,7 @@ function exportPdf() {
 loadDateList();
 loadData();
 loadCffexPosition();
+loadAshareReturnDist();
 loadChartData();
 
 // 日期框：选择日期后直接加载该日指标（初始值为最近一个交易日）
