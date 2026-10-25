@@ -43,6 +43,7 @@ import sys
 import threading
 import fcntl
 import tempfile
+import time
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -517,10 +518,23 @@ def api_stock_analyzer():
     else:
         display_code = 'sz' + code6
 
-    # v3 含 Python 3.12+ 语法（f-string 反斜杠等），.venv 为 3.9 无法直接 import，
-    # 故以系统 python3 子进程方式调用 CLI 入口，输出直接落盘到 ANALYZER_DIR
-    py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
-    py3 = py3 or '/usr/local/bin/python3'
+    # v3 含 Python 3.12+ 语法（f-string 反斜杠等）。运行 analyze.py 的 Python 选择：
+    # 1) 优先项目 .venv（Linux 部署时 venv 由部署脚本用 Python>=3.12 创建、依赖齐全）；
+    # 2) .venv 版本不足 3.12 时回落系统 python3（本机 .venv 为 3.9 的场景）。
+    venv_py = os.path.join(BASE_DIR, '.venv', 'bin', 'python3')
+    py3 = None
+    if os.path.exists(venv_py):
+        try:
+            ver = subprocess.run(
+                [venv_py, '-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
+                capture_output=True, text=True, timeout=15).stdout.strip()
+            if ver and tuple(int(x) for x in ver.split('.')) >= (3, 12):
+                py3 = venv_py
+        except Exception:
+            pass
+    if not py3:
+        py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
+        py3 = py3 or '/usr/local/bin/python3'
     cmd = [py3, os.path.join(ANALYZER_PKG_DIR, 'analyze.py'), code6,
            '--out', ANALYZER_DIR, '--no-md', '--quiet']
     env = dict(os.environ)
@@ -559,6 +573,57 @@ def api_stock_analyzer():
         'date': d8,
         'url': f'/analyzer/report/{fname}',
     })
+
+
+@app.route('/api/stock_analyzer/image_ocr', methods=['POST'])
+def api_stock_analyzer_image_ocr():
+    """上传股票截图，调用 module_stock_graph_orc.py 识别图中股票名称/代码。
+
+    返回 {ok, stocks:[{ts_code, stock_name, raw, source, score}], codes:[...]}
+    """
+    f = request.files.get('image')
+    if not f or not f.filename:
+        return jsonify({'ok': False, 'error': '请选择要识别的股票图片'}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}:
+        ext = '.png'
+    tmp = os.path.join(tempfile.gettempdir(),
+                       f'analyzer_ocr_{os.getpid()}_{int(time.time() * 1000)}{ext}')
+    f.save(tmp)
+    proc = None
+    try:
+        # rapidocr 安装在项目 .venv（Python 3.9），与 analyze.py 一样以子进程方式调用
+        py = os.path.join(BASE_DIR, '.venv', 'bin', 'python3')
+        if not os.path.exists(py):
+            py = sys.executable
+        cmd = [py, os.path.join(BASE_DIR, 'module_stock_graph_orc.py'),
+               tmp, '--json', '--top', '20']
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=120, cwd=BASE_DIR)
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': '图片识别超时，请检查图片内容'}), 500
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    if proc.returncode != 0:
+        err_lines = [ln for ln in (proc.stderr or '').splitlines() if ln.strip()]
+        msg = (err_lines[-1].strip() if err_lines else '') or '图片识别失败'
+        return jsonify({'ok': False, 'error': msg}), 500
+    try:
+        data = json.loads(proc.stdout or '[]')
+    except json.JSONDecodeError:
+        return jsonify({'ok': False, 'error': '图片识别失败，无法解析识别结果'}), 500
+    if not data:
+        return jsonify({'ok': False, 'error': '图片识别失败，请检查图片内容'}), 500
+    r = data[0]
+    stocks = r.get('stocks') or []
+    codes = r.get('codes') or []
+    if not stocks and not codes:
+        return jsonify({'ok': False, 'error': '图片中未识别到股票名称或代码'}), 400
+    return jsonify({'ok': True, 'stocks': stocks, 'codes': codes})
 
 
 @app.route('/api/stock_detail')

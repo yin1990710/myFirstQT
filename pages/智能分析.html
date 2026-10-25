@@ -45,6 +45,10 @@
   #msg.ok { color: #0f9d58; }
   #msg a.cand { color: #1a73e8; cursor: pointer; text-decoration: underline; margin: 0 2px; }
   .hint { font-size: 12px; color: #888; }
+  .bar input[type="file"] { max-width: 260px; padding: 5px 8px; border: 1px solid #ccc;
+                            border-radius: 6px; font-size: 13px; background: #fff; }
+  .img-item { display: inline-block; margin: 2px 12px 2px 0; cursor: pointer; white-space: nowrap; }
+  .img-item input { margin-right: 4px; vertical-align: -1px; }
 
   .progress { height: 6px; background: #e8eaed; border-radius: 3px; overflow: hidden;
               margin-bottom: 12px; display: none; }
@@ -99,6 +103,16 @@
   </select>
   <span class="hint">选择历史分析报告，直接在下方查看</span>
 </div>
+
+<div class="bar">
+  <label>上传股票截图</label>
+  <input type="file" id="imgFile" accept="image/*,.png,.jpg,.jpeg,.webp,.bmp">
+  <button id="btnOcr">识别图片中的股票</button>
+  <button id="btnBatch" style="display:none">批量生成报告</button>
+  <span class="hint">支持 K 线 / 分时 / 列表截图（含股票名称或代码），识别后可勾选批量生成分析报告</span>
+</div>
+
+<div class="bar" id="imgList" style="display:none"></div>
 
 <div class="progress" id="progress"><div class="pbar"></div></div>
 
@@ -171,15 +185,9 @@
     showReport('/analyzer/report/' + encodeURIComponent(fname), parseFnameMeta(fname));
   });
 
-  function run() {
-    var code = codeInput.value.trim();
-    if (!code) { setMsg('请输入股票代码或名称'); codeInput.focus(); return; }
-    setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
-    openLink.style.display = 'none';
-    btnPdf.style.display = 'none';
-    _curReport = null;
-
-    fetch('/api/stock_analyzer', {
+  // 提交单个分析请求：成功 resolve {candidates:bool, d}；失败 reject Error
+  function submitAnalyze(code) {
+    return fetch('/api/stock_analyzer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: code })
@@ -189,29 +197,46 @@
       var d = res.data || {};
       if (res.status === 401 && d.need_login) {
         window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
-        return;
+        throw new Error('NEED_LOGIN');
       }
       if (!d.ok) {
-        if (d.candidates && d.candidates.length) {
-          // 名称匹配到多只股票：渲染可点击候选，点击后填入代码并重新分析
-          msg.innerHTML = (d.error || '匹配到多只股票，请点击选择：') + d.candidates.map(function (c) {
-            return '<a class="cand" data-code="' + c.ts_code + '">' +
-                   c.stock_name + '（' + c.ts_code + '）</a>';
-          }).join('');
-          return;
-        }
-        setMsg(d.error || '生成失败');
-        return;
+        if (d.candidates && d.candidates.length) return { candidates: true, d: d };
+        throw new Error(d.error || '生成失败');
       }
-      var tip = '已生成：' + (d.name || d.code) + '（' + d.code + '）' + (d.date ? ' 数据截至 ' + d.date : '');
-      if (d.errors && d.errors.length) { tip += '；' + d.errors.length + ' 项数据缺口已在报告中标注'; }
-      setMsg(tip, true);
-      showReport(d.url, { name: d.name || '', code: d.code || '', date: d.date || '' });
-      // 新报告落盘后刷新下拉框并选中本次生成的报告
-      var fname = (d.url || '').split('/').pop();
-      loadSavedReports(fname);
+      return { candidates: false, d: d };
+    });
+  }
+
+  // 展示成功结果（报告 iframe + 刷新下拉框并选中本次报告）
+  function applyResult(d) {
+    var tip = '已生成：' + (d.name || d.code) + '（' + d.code + '）' + (d.date ? ' 数据截至 ' + d.date : '');
+    if (d.errors && d.errors.length) { tip += '；' + d.errors.length + ' 项数据缺口已在报告中标注'; }
+    setMsg(tip, true);
+    showReport(d.url, { name: d.name || '', code: d.code || '', date: d.date || '' });
+    var fname = (d.url || '').split('/').pop();
+    loadSavedReports(fname);
+  }
+
+  function renderCandidates(d) {
+    msg.innerHTML = (d.error || '匹配到多只股票，请点击选择：') + d.candidates.map(function (c) {
+      return '<a class="cand" data-code="' + c.ts_code + '">' +
+             c.stock_name + '（' + c.ts_code + '）</a>';
+    }).join('');
+  }
+
+  function run() {
+    var code = codeInput.value.trim();
+    if (!code) { setMsg('请输入股票代码或名称'); codeInput.focus(); return; }
+    setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
+    openLink.style.display = 'none';
+    btnPdf.style.display = 'none';
+    _curReport = null;
+
+    submitAnalyze(code).then(function (r) {
+      if (r.candidates) { renderCandidates(r.d); return; }
+      applyResult(r.d);
     }).catch(function (e) {
-      setMsg('请求失败：' + e);
+      if (!e || e.message !== 'NEED_LOGIN') setMsg((e && e.message) || '生成失败');
     }).finally(function () {
       setLoading(false);
     });
@@ -297,6 +322,100 @@
   }
 
   btnPdf.addEventListener('click', exportPdf);
+
+  // ---- 上传截图识别股票（复用 module_stock_graph_orc.py），勾选后批量生成报告 ----
+  var imgFile = document.getElementById('imgFile');
+  var btnOcr = document.getElementById('btnOcr');
+  var btnBatch = document.getElementById('btnBatch');
+  var imgList = document.getElementById('imgList');
+  var _ocrStocks = [];
+
+  function renderOcrList(stocks) {
+    _ocrStocks = stocks;
+    if (!stocks.length) {
+      imgList.style.display = 'none';
+      imgList.innerHTML = '';
+      btnBatch.style.display = 'none';
+      return;
+    }
+    imgList.style.display = 'flex';
+    imgList.innerHTML = '<span style="color:#555;font-weight:600;margin-right:8px">识别结果：</span>' +
+      stocks.map(function (s, i) {
+        return '<label class="img-item"><input type="checkbox" data-idx="' + i + '" checked> ' +
+               s.stock_name + '（' + s.ts_code + '）</label>';
+      }).join('');
+    btnBatch.style.display = 'inline-block';
+    btnBatch.disabled = false;
+  }
+
+  btnOcr.addEventListener('click', function () {
+    var f = imgFile.files && imgFile.files[0];
+    if (!f) { setMsg('请先选择一张股票截图'); return; }
+    btnOcr.disabled = true;
+    setMsg('正在识别图片中的股票名称/代码…');
+    var fd = new FormData();
+    fd.append('image', f);
+    fetch('/api/stock_analyzer/image_ocr', { method: 'POST', body: fd })
+    .then(function (r) {
+      return r.json().then(function (d) { return { status: r.status, data: d }; });
+    })
+    .then(function (res) {
+      var d = res.data || {};
+      if (res.status === 401 && d.need_login) {
+        window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+        return;
+      }
+      if (!d.ok) { setMsg(d.error || '识别失败'); renderOcrList([]); return; }
+      setMsg('识别到 ' + d.stocks.length + ' 只股票，勾选后点击「批量生成报告」', true);
+      renderOcrList(d.stocks);
+    })
+    .catch(function (e) {
+      setMsg('识别请求失败：' + e);
+      renderOcrList([]);
+    })
+    .finally(function () { btnOcr.disabled = false; });
+  });
+
+  btnBatch.addEventListener('click', function () {
+    var idxs = [];
+    Array.prototype.forEach.call(imgList.querySelectorAll('input[type=checkbox]:checked'), function (cb) {
+      idxs.push(parseInt(cb.getAttribute('data-idx'), 10));
+    });
+    var stocks = idxs.map(function (i) { return _ocrStocks[i]; });
+    if (!stocks.length) { setMsg('请先勾选要生成报告的股票'); return; }
+    btnBatch.disabled = true;
+    btnOcr.disabled = true;
+    imgFile.disabled = true;
+    setLoading(true);
+    var done = 0, failed = 0;
+    function next(i) {
+      if (i >= stocks.length) {
+        setMsg('批量完成：成功 ' + done + ' 只' + (failed ? '，失败 ' + failed + ' 只' : ''), !failed);
+        btnBatch.disabled = false;
+        btnOcr.disabled = false;
+        imgFile.disabled = false;
+        setLoading(false);
+        return;
+      }
+      var s = stocks[i];
+      setMsg('正在批量生成（' + (i + 1) + '/' + stocks.length + '）：' +
+             s.stock_name + '（' + s.ts_code + '），约需 10~30 秒…');
+      submitAnalyze(s.ts_code).then(function (r) {
+        if (r.candidates) { renderCandidates(r.d); failed++; }
+        else { applyResult(r.d); done++; }
+        next(i + 1);
+      }).catch(function (e) {
+        if (!e || e.message !== 'NEED_LOGIN') {
+          setMsg('（' + (i + 1) + '/' + stocks.length + '）' + s.stock_name +
+                 ' 生成失败：' + ((e && e.message) || '未知错误'));
+        }
+        failed++;
+        next(i + 1);
+      });
+    }
+    next(0);
+  });
+
   btn.addEventListener('click', run);
   codeInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') run();
