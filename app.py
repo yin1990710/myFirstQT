@@ -403,8 +403,10 @@ def stock_detail_page():
     return send_from_directory(PAGE_DIR, '个股数据详情.html')
 
 
-# ---------- 智能分析（stock_analyzer_v2 个股走势分析报告） ----------
+# ---------- 智能分析（stock_analyzer_v3 个股多维度分析报告） ----------
 ANALYZER_DIR = os.path.join(PAGE_DIR, 'stock_analyzer')
+# stock_analyzer_v3 包目录（analyze.py 为 CLI 入口，需 Python 3.12+ 运行）
+ANALYZER_V3_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stock_analyzer_v3')
 
 # 智能分析输入：股票代码格式（600577 / sh600577 / 600577.SH，大小写均可）
 _ANALYZER_CODE_RE = re.compile(r'^(sh|sz|bj)?\d{6}(\.(sh|sz|bj))?$', re.I)
@@ -483,7 +485,7 @@ def api_stock_analyzer_reports():
 
 @app.route('/api/stock_analyzer', methods=['POST'])
 def api_stock_analyzer():
-    """调用 stock_analyzer_v2 生成个股走势分析报告，HTML 落盘到 pages/stock_analyzer。"""
+    """调用 stock_analyzer_v3 生成个股多维度分析报告，HTML 落盘到 pages/stock_analyzer。"""
     data = request.get_json(silent=True) or {}
     raw = (data.get('code') or '').strip()
     if not raw:
@@ -503,33 +505,58 @@ def api_stock_analyzer():
     if not code:
         return jsonify({'ok': False, 'error': f'未找到名称包含「{raw}」的股票，请检查输入'}), 400
 
-    try:
-        from stock_analyzer_v2.analyzer import analyze
-        from stock_analyzer_v2.datasource import DataUnavailable
-        from stock_analyzer_v2.report import render_html
-    except ImportError as e:
-        return jsonify({'ok': False, 'error': f'stock_analyzer_v2 模块不可用：{e}'}), 500
+    # 归一化为 6 位代码（剥离 sh/sz/bj 前缀或 .SH/.SZ/.BJ 后缀），并推导展示用带前缀代码
+    code6 = re.sub(r'^(sh|sz|bj)', '', code.lower())
+    code6 = re.sub(r'\.(sh|sz|bj)$', '', code6)
+    if not re.fullmatch(r'\d{6}', code6):
+        return jsonify({'ok': False, 'error': f'无法识别的股票代码：{raw}'}), 400
+    if code6[0] == '6':
+        display_code = 'sh' + code6
+    elif code6[0] in '43' or code6[:2] in ('83', '87', '92', '88'):
+        display_code = ('sz' if code6[0] == '3' else 'bj') + code6
+    else:
+        display_code = 'sz' + code6
 
+    # v3 含 Python 3.12+ 语法（f-string 反斜杠等），.venv 为 3.9 无法直接 import，
+    # 故以系统 python3 子进程方式调用 CLI 入口，输出直接落盘到 ANALYZER_DIR
+    py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
+    py3 = py3 or '/usr/local/bin/python3'
+    cmd = [py3, os.path.join(ANALYZER_V3_DIR, 'analyze.py'), code6,
+           '--out', ANALYZER_DIR, '--no-md', '--quiet']
+    env = dict(os.environ)
+    env['PATH'] = '/usr/local/bin:/usr/bin:/bin:' + env.get('PATH', '')
     try:
-        res = analyze(code)
-    except DataUnavailable as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
-    except Exception as e:
-        return jsonify({'ok': False, 'error': f'分析失败：{e}'}), 500
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=600, cwd=ANALYZER_V3_DIR, env=env)
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': '分析超时（超过10分钟），请稍后重试'}), 500
 
-    # 文件名保持 {名称}-{代码}-{日期}.html 规范，与已保存报告下拉框解析一致
-    safe_name = re.sub(r'[\\/:*?"<>|]', '', res.name or res.code)
-    d8 = re.sub(r'\D', '', res.as_of) or 'latest'
-    fname = f"{safe_name}-{res.code}-{d8}.html"
-    os.makedirs(ANALYZER_DIR, exist_ok=True)
-    with open(os.path.join(ANALYZER_DIR, fname), 'w', encoding='utf-8') as f:
-        f.write(render_html(res))
+    if proc.returncode != 0:
+        # stderr 中 [*] 为进度日志，真正的错误信息取其最后一行非进度输出
+        err_lines = [ln for ln in (proc.stderr or '').splitlines()
+                     if ln.strip() and not ln.lstrip().startswith('[*]')]
+        msg = (err_lines[-1].strip() if err_lines else '') or f'分析失败（退出码 {proc.returncode}）'
+        status = 400 if ('未能获取' in msg or '行情数据' in msg) else 500
+        return jsonify({'ok': False, 'error': msg}), status
+
+    # v3 输出文件名为 {code}_{name}_{YYYYMMDD}_{HHMM}.html，重命名为既有约定
+    # {名称}-{代码}-{日期}.html，与已保存报告下拉框解析保持一致
+    candidates_html = glob.glob(os.path.join(ANALYZER_DIR, f'{code6}_*.html'))
+    if not candidates_html:
+        return jsonify({'ok': False, 'error': '分析完成但未找到生成的报告文件'}), 500
+    src = max(candidates_html, key=os.path.getmtime)
+    parts = os.path.basename(src)[:-5].split('_')  # code, name, yyyymmdd, hhmm
+    name = parts[1] if len(parts) >= 4 else code6
+    d8 = parts[2] if len(parts) >= 4 else datetime.now().strftime('%Y%m%d')
+    safe_name = re.sub(r'[\\/:*?"<>|]', '', name)
+    fname = f'{safe_name}-{display_code}-{d8}.html'
+    os.replace(src, os.path.join(ANALYZER_DIR, fname))
 
     return jsonify({
         'ok': True,
-        'code': res.code,
-        'name': res.name,
-        'date': res.as_of,
+        'code': display_code,
+        'name': safe_name,
+        'date': d8,
         'url': f'/analyzer/report/{fname}',
     })
 
