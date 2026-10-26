@@ -227,19 +227,102 @@
   function run() {
     var code = codeInput.value.trim();
     if (!code) { setMsg('请输入股票代码或名称'); codeInput.focus(); return; }
-    setLoading(true); setMsg('正在拉取行情/资金/日K数据并生成报告，请稍候…');
+    setLoading(true); setMsg('正在提交分析任务…');
     openLink.style.display = 'none';
     btnPdf.style.display = 'none';
     _curReport = null;
 
     submitAnalyze(code).then(function (r) {
       if (r.candidates) { renderCandidates(r.d); return; }
-      applyResult(r.d);
+      var d = r.d;
+      setMsg((d.name || code) + ' 分析任务已提交，后台执行中（可切换页面，完成后自动展示）', true);
+      pollTask({ task_id: d.task_id, label: d.name || code });
     }).catch(function (e) {
-      if (!e || e.message !== 'NEED_LOGIN') setMsg((e && e.message) || '生成失败');
+      if (!e || e.message !== 'NEED_LOGIN') setMsg((e && e.message) || '提交失败');
     }).finally(function () {
-      setLoading(false);
+      setLoading(false);   // 提交完成即解除加载态，分析在后台线程执行
     });
+  }
+
+  // ---- 后台任务轮询（切换页面不中断：task_id 存 localStorage，回来自动恢复）----
+  var _pollTimers = {};
+  var _batch = null;   // {total, done, failed, pending:Set}
+  var _PEND_KEY = 'analyzer_pending_tasks';
+
+  function savePendingTask(tid) {
+    var arr = JSON.parse(localStorage.getItem(_PEND_KEY) || '[]');
+    if (arr.indexOf(tid) < 0) arr.push(tid);
+    localStorage.setItem(_PEND_KEY, JSON.stringify(arr));
+  }
+  function removePendingTask(tid) {
+    var arr = JSON.parse(localStorage.getItem(_PEND_KEY) || '[]');
+    arr = arr.filter(function (x) { return x !== tid; });
+    localStorage.setItem(_PEND_KEY, JSON.stringify(arr));
+  }
+
+  function stopPoll(tid) {
+    clearInterval(_pollTimers[tid]);
+    delete _pollTimers[tid];
+    removePendingTask(tid);
+  }
+
+  function pollTask(task) {
+    stopPoll(task.task_id);   // 幂等重启
+    savePendingTask(task.task_id);
+    setMsg(task.label + ' 分析任务已提交，后台执行中（可切换页面）', true);
+    _pollTimers[task.task_id] = setInterval(function () {
+      fetch('/api/stock_analyzer/status?task_id=' + encodeURIComponent(task.task_id))
+      .then(function (r) {
+        return r.json().then(function (d) { return { status: r.status, data: d }; });
+      })
+      .then(function (res) {
+        var d = res.data || {};
+        if (res.status === 401 && d.need_login) {
+          window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        if (!d.ok) { stopPoll(task.task_id); return; }   // 任务已过期
+        if (d.status === 'done') {
+          stopPoll(task.task_id);
+          applyResult({ code: d.code, name: d.name, url: d.url });
+          markBatchDone(task.task_id, true);
+        } else if (d.status === 'error') {
+          stopPoll(task.task_id);
+          setMsg(task.label + ' 分析失败：' + (d.error || '未知错误'));
+          markBatchDone(task.task_id, false);
+        } else {
+          setMsg(task.label + ' 正在后台分析…（切换页面不中断）');
+        }
+      })
+      .catch(function () { /* 网络瞬断，下轮重试 */ });
+    }, 3000);
+  }
+
+  function markBatchDone(tid, ok) {
+    if (!_batch) return;
+    if (tid && _batch.pending.has(tid)) {
+      _batch.pending.delete(tid);
+      ok ? _batch.done++ : _batch.failed++;
+    } else if (!tid) {
+      ok ? _batch.done++ : _batch.failed++;
+    }
+    setMsg('批量分析：' + (_batch.done + _batch.failed) + '/' + _batch.total +
+           '（成功 ' + _batch.done + '，失败 ' + _batch.failed + '）', _batch.failed === 0);
+    if (_batch.pending.size === 0) {
+      btnBatch.disabled = false;
+      btnOcr.disabled = false;
+      imgFile.disabled = false;
+      setLoading(false);
+      _batch = null;
+    }
+  }
+
+  function restorePending() {
+    var arr = JSON.parse(localStorage.getItem(_PEND_KEY) || '[]');
+    if (arr.length) {
+      setMsg('检测到 ' + arr.length + ' 个进行中的分析任务，正在后台继续执行…', true);
+      arr.forEach(function (tid) { pollTask({ task_id: tid, label: '后台分析任务' }); });
+    }
   }
 
   msg.addEventListener('click', function (e) {
@@ -387,33 +470,20 @@
     btnOcr.disabled = true;
     imgFile.disabled = true;
     setLoading(true);
-    var done = 0, failed = 0;
-    function next(i) {
-      if (i >= stocks.length) {
-        setMsg('批量完成：成功 ' + done + ' 只' + (failed ? '，失败 ' + failed + ' 只' : ''), !failed);
-        btnBatch.disabled = false;
-        btnOcr.disabled = false;
-        imgFile.disabled = false;
-        setLoading(false);
-        return;
-      }
-      var s = stocks[i];
-      setMsg('正在批量生成（' + (i + 1) + '/' + stocks.length + '）：' +
-             s.stock_name + '（' + s.ts_code + '），约需 10~30 秒…');
+    _batch = { total: stocks.length, done: 0, failed: 0, pending: new Set() };
+    setMsg('正在批量提交 ' + stocks.length + ' 个分析任务，后台依次执行…');
+    stocks.forEach(function (s) {
+      var label = s.stock_name + '（' + s.ts_code + '）';
       submitAnalyze(s.ts_code).then(function (r) {
-        if (r.candidates) { renderCandidates(r.d); failed++; }
-        else { applyResult(r.d); done++; }
-        next(i + 1);
+        if (r.candidates) { renderCandidates(r.d); markBatchDone(null, false); return; }
+        var tid = r.d.task_id;
+        _batch.pending.add(tid);
+        pollTask({ task_id: tid, label: label });
       }).catch(function (e) {
-        if (!e || e.message !== 'NEED_LOGIN') {
-          setMsg('（' + (i + 1) + '/' + stocks.length + '）' + s.stock_name +
-                 ' 生成失败：' + ((e && e.message) || '未知错误'));
-        }
-        failed++;
-        next(i + 1);
+        if (!e || e.message !== 'NEED_LOGIN') setMsg(label + ' 提交失败：' + ((e && e.message) || '未知错误'));
+        markBatchDone(null, false);
       });
-    }
-    next(0);
+    });
   });
 
   btn.addEventListener('click', run);
@@ -421,6 +491,7 @@
     if (e.key === 'Enter') run();
   });
   loadSavedReports();
+  restorePending();   // 恢复上次切页前未完成的后台分析任务
   codeInput.focus();
 })();
 </script>

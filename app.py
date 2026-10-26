@@ -42,6 +42,8 @@ import subprocess
 import sys
 import threading
 import fcntl
+import queue
+import random
 import tempfile
 import time
 from datetime import datetime, timedelta
@@ -484,6 +486,125 @@ def api_stock_analyzer_reports():
     return jsonify({'ok': True, 'reports': items})
 
 
+# ---------------- 智能分析异步任务管理 ----------------
+# 报告生成耗时较长（最长约 10 分钟），放入后台线程队列执行，
+# 接口立即返回 task_id，前端轮询状态；用户切换页面不会中断分析。
+class AnalyzerTask:
+    __slots__ = ('tid', 'code6', 'display_code', 'name', 'status',
+                 'url', 'error', 'created', 'finished')
+
+    def __init__(self, tid: str, code6: str, display_code: str, name: str):
+        self.tid = tid
+        self.code6 = code6
+        self.display_code = display_code
+        self.name = name
+        self.status = 'pending'       # pending / running / done / error
+        self.url = None
+        self.error = None
+        self.created = time.time()
+        self.finished = None
+
+
+def _analyzer_python() -> str:
+    """v3 含 Python 3.12+ 语法（f-string 反斜杠）。运行 analyze.py 的 Python 选择：
+    1) 优先项目 .venv（Linux 部署时 venv 为 >=3.12、依赖齐全）；
+    2) 否则回落系统 python3（本机 .venv 为 3.9 的场景）。"""
+    venv_py = os.path.join(BASE_DIR, '.venv', 'bin', 'python3')
+    if os.path.exists(venv_py):
+        try:
+            ver = subprocess.run(
+                [venv_py, '-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
+                capture_output=True, text=True, timeout=15).stdout.strip()
+            if ver and tuple(int(x) for x in ver.split('.')) >= (3, 12):
+                return venv_py
+        except Exception:
+            pass
+    py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
+    return py3 or '/usr/local/bin/python3'
+
+
+class AnalyzerTaskManager:
+    """后台线程队列执行分析任务，状态存进程内供前端轮询。"""
+
+    def __init__(self, workers: int = 2):
+        self._lock = threading.Lock()
+        self._tasks: dict[str, AnalyzerTask] = {}
+        self._q: queue.Queue[str] = queue.Queue()
+        for _ in range(workers):
+            threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            tid = self._q.get()
+            task = self.get(tid)
+            if not task:
+                continue
+            task.status = 'running'
+            try:
+                self._exec(task)
+            except Exception as e:      # noqa: BLE001 后台任务兜底
+                task.status = 'error'
+                task.error = str(e)[:200]
+            finally:
+                task.finished = time.time()
+                if task.status == 'running':
+                    task.status = 'error'
+                    task.error = task.error or '未知错误'
+
+    def _exec(self, task: AnalyzerTask):
+        """调用 analyze.py 生成报告并重命名落盘（与原同步接口逻辑一致）。"""
+        cmd = [_analyzer_python(), os.path.join(ANALYZER_PKG_DIR, 'analyze.py'),
+               task.code6, '--out', ANALYZER_DIR, '--no-md', '--quiet']
+        env = dict(os.environ)
+        env['PATH'] = '/usr/local/bin:/usr/bin:/bin:' + env.get('PATH', '')
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=600, cwd=ANALYZER_PKG_DIR, env=env)
+        except subprocess.TimeoutExpired:
+            task.status = 'error'
+            task.error = '分析超时（超过10分钟），请稍后重试'
+            return
+        if proc.returncode != 0:
+            err_lines = [ln for ln in (proc.stderr or '').splitlines()
+                         if ln.strip() and not ln.lstrip().startswith('[*]')]
+            task.status = 'error'
+            task.error = (err_lines[-1].strip() if err_lines else '') or \
+                f'分析失败（退出码 {proc.returncode}）'
+            return
+        # v3 输出文件名为 {code}_{name}_{YYYYMMDD}_{HHMM}.html，重命名为
+        # {名称}-{代码}-{日期}.html，与已保存报告下拉框解析保持一致
+        candidates_html = glob.glob(os.path.join(ANALYZER_DIR, f'{task.code6}_*.html'))
+        if not candidates_html:
+            task.status = 'error'
+            task.error = '分析完成但未找到生成的报告文件'
+            return
+        src = max(candidates_html, key=os.path.getmtime)
+        parts = os.path.basename(src)[:-5].split('_')  # code, name, yyyymmdd, hhmm
+        name = parts[1] if len(parts) >= 4 else task.code6
+        d8 = parts[2] if len(parts) >= 4 else datetime.now().strftime('%Y%m%d')
+        safe_name = re.sub(r'[\\/:*?"<>|]', '', name)
+        fname = f'{safe_name}-{task.display_code}-{d8}.html'
+        os.replace(src, os.path.join(ANALYZER_DIR, fname))
+        task.status = 'done'
+        task.name = safe_name
+        task.url = f'/analyzer/report/{fname}'
+
+    def submit(self, code6: str, display_code: str, name: str) -> str:
+        tid = f'a{int(time.time() * 1000)}{random.randrange(1000)}'
+        task = AnalyzerTask(tid, code6, display_code, name)
+        with self._lock:
+            self._tasks[tid] = task
+        self._q.put(tid)
+        return tid
+
+    def get(self, tid: str):   # 返回 AnalyzerTask（.venv 为 Python 3.9，避免 PEP604 注解）
+        with self._lock:
+            return self._tasks.get(tid)
+
+
+_TASKS = AnalyzerTaskManager(workers=2)
+
+
 @app.route('/api/stock_analyzer', methods=['POST'])
 def api_stock_analyzer():
     """调用 stock_analyzer 生成个股多维度分析报告，HTML 落盘到 pages/stock_analyzer。"""
@@ -518,60 +639,29 @@ def api_stock_analyzer():
     else:
         display_code = 'sz' + code6
 
-    # v3 含 Python 3.12+ 语法（f-string 反斜杠等）。运行 analyze.py 的 Python 选择：
-    # 1) 优先项目 .venv（Linux 部署时 venv 由部署脚本用 Python>=3.12 创建、依赖齐全）；
-    # 2) .venv 版本不足 3.12 时回落系统 python3（本机 .venv 为 3.9 的场景）。
-    venv_py = os.path.join(BASE_DIR, '.venv', 'bin', 'python3')
-    py3 = None
-    if os.path.exists(venv_py):
-        try:
-            ver = subprocess.run(
-                [venv_py, '-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
-                capture_output=True, text=True, timeout=15).stdout.strip()
-            if ver and tuple(int(x) for x in ver.split('.')) >= (3, 12):
-                py3 = venv_py
-        except Exception:
-            pass
-    if not py3:
-        py3 = subprocess.run(['which', 'python3'], capture_output=True, text=True).stdout.strip()
-        py3 = py3 or '/usr/local/bin/python3'
-    cmd = [py3, os.path.join(ANALYZER_PKG_DIR, 'analyze.py'), code6,
-           '--out', ANALYZER_DIR, '--no-md', '--quiet']
-    env = dict(os.environ)
-    env['PATH'] = '/usr/local/bin:/usr/bin:/bin:' + env.get('PATH', '')
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=600, cwd=ANALYZER_PKG_DIR, env=env)
-    except subprocess.TimeoutExpired:
-        return jsonify({'ok': False, 'error': '分析超时（超过10分钟），请稍后重试'}), 500
+    # 提交后台任务立即返回 task_id，前端轮询 /api/stock_analyzer/status
+    # 获取结果；任务在后台线程队列执行，切换页面不会中断分析。
+    tid = _TASKS.submit(code6, display_code, raw)
+    return jsonify({'ok': True, 'task_id': tid, 'code': display_code, 'name': raw})
 
-    if proc.returncode != 0:
-        # stderr 中 [*] 为进度日志，真正的错误信息取其最后一行非进度输出
-        err_lines = [ln for ln in (proc.stderr or '').splitlines()
-                     if ln.strip() and not ln.lstrip().startswith('[*]')]
-        msg = (err_lines[-1].strip() if err_lines else '') or f'分析失败（退出码 {proc.returncode}）'
-        status = 400 if ('未能获取' in msg or '行情数据' in msg) else 500
-        return jsonify({'ok': False, 'error': msg}), status
 
-    # v3 输出文件名为 {code}_{name}_{YYYYMMDD}_{HHMM}.html，重命名为既有约定
-    # {名称}-{代码}-{日期}.html，与已保存报告下拉框解析保持一致
-    candidates_html = glob.glob(os.path.join(ANALYZER_DIR, f'{code6}_*.html'))
-    if not candidates_html:
-        return jsonify({'ok': False, 'error': '分析完成但未找到生成的报告文件'}), 500
-    src = max(candidates_html, key=os.path.getmtime)
-    parts = os.path.basename(src)[:-5].split('_')  # code, name, yyyymmdd, hhmm
-    name = parts[1] if len(parts) >= 4 else code6
-    d8 = parts[2] if len(parts) >= 4 else datetime.now().strftime('%Y%m%d')
-    safe_name = re.sub(r'[\\/:*?"<>|]', '', name)
-    fname = f'{safe_name}-{display_code}-{d8}.html'
-    os.replace(src, os.path.join(ANALYZER_DIR, fname))
-
+@app.route('/api/stock_analyzer/status', methods=['GET'])
+def api_stock_analyzer_status():
+    """查询智能分析后台任务状态：pending / running / done / error。"""
+    tid = (request.args.get('task_id') or '').strip()
+    if not tid:
+        return jsonify({'ok': False, 'error': '缺少 task_id'}), 400
+    t = _TASKS.get(tid)
+    if not t:
+        return jsonify({'ok': False, 'error': '任务不存在或已过期'}), 404
     return jsonify({
         'ok': True,
-        'code': display_code,
-        'name': safe_name,
-        'date': d8,
-        'url': f'/analyzer/report/{fname}',
+        'task_id': t.tid,
+        'status': t.status,
+        'code': t.display_code,
+        'name': t.name,
+        'url': t.url,
+        'error': t.error,
     })
 
 
